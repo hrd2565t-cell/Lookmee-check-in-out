@@ -1,0 +1,1091 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ระบบเช็คชื่อนักเรียน QR Code</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Prompt:wght@300;400;500;600;700&display=swap');
+        body { font-family: 'Prompt', sans-serif; background-color: #f3f4f6; }
+        .tab-content { display: none; }
+        .tab-content.active { display: block; }
+        .room-item.active { background-color: #eff6ff; border-left: 4px solid #3b82f6; }
+        
+        .pin-box {
+            width: 3rem; height: 3.5rem; text-align: center; font-size: 1.5rem;
+            font-weight: 600; border: 2px solid #d1d5db; border-radius: 0.5rem;
+            outline: none; transition: all 0.2s;
+        }
+        .pin-box:focus { border-color: #3b82f6; box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.3); }
+        .pin-box.error { border-color: #ef4444; background-color: #fef2f2; }
+    </style>
+</head>
+<body class="text-gray-800">
+
+    <nav class="bg-blue-600 text-white shadow-md relative z-10">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div class="flex flex-col md:flex-row justify-between h-auto md:h-16 py-2 md:py-0">
+                <div class="flex items-center justify-center mb-2 md:mb-0">
+                    <span class="font-bold text-xl">QR Check-In System</span>
+                </div>
+                
+                <div class="flex flex-wrap justify-center space-x-1 sm:space-x-4 items-center">
+                    <button onclick="requestSwitchTab('scan')" class="hover:bg-blue-700 px-3 py-2 rounded-md font-medium text-sm sm:text-base bg-blue-700">สแกน QR</button>
+                    
+                    <div id="admin-menus" class="hidden flex flex-wrap justify-center space-x-1 sm:space-x-4 items-center">
+                        <button onclick="executeSwitchTab('dashboard')" class="hover:bg-blue-700 px-3 py-2 rounded-md font-medium text-sm sm:text-base">แดชบอร์ด</button>
+                        <button onclick="executeSwitchTab('students')" class="hover:bg-blue-700 px-3 py-2 rounded-md font-medium text-sm sm:text-base">รายชื่อนักเรียน</button>
+                        <button onclick="executeSwitchTab('history')" class="hover:bg-blue-700 px-3 py-2 rounded-md font-medium text-sm sm:text-base bg-blue-800 bg-opacity-30 border border-blue-400">ประวัติ</button>
+                        <button onclick="executeSwitchTab('settings')" class="hover:bg-blue-700 px-3 py-2 rounded-md font-medium text-sm sm:text-base bg-yellow-500 bg-opacity-90 text-gray-900 border border-yellow-400 shadow-sm">⚙️ ตั้งค่า</button>
+                    </div>
+
+                    <button id="btn-login" onclick="openPinModal()" class="hover:bg-blue-800 px-3 py-2 rounded-md font-medium text-sm sm:text-base border border-blue-400 bg-blue-800 bg-opacity-50">🔒 สำหรับครู</button>
+                    <button id="btn-logout" onclick="logoutAdmin()" class="hidden hover:bg-red-600 px-3 py-2 rounded-md font-medium text-sm sm:text-base border border-red-400 bg-red-500">ออกจากระบบ</button>
+                </div>
+            </div>
+        </div>
+    </nav>
+
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+
+        <!-- TAB: สแกน QR -->
+        <div id="scan-tab" class="tab-content active">
+            <div class="bg-white rounded-lg shadow-lg p-6 max-w-xl mx-auto text-center">
+                <h2 class="text-2xl font-bold mb-2">จุดสแกนเช็คชื่อ</h2>
+                <div class="mb-4 bg-green-50 text-green-700 px-4 py-2 rounded-md text-sm font-medium border border-green-200">
+                    ✨ โหมดสแกนอัตโนมัติ: ระบบจะเทียบเวลาปัจจุบันกับตารางของแต่ละห้องให้อัตโนมัติ
+                </div>
+
+                <div class="bg-gray-200 w-full h-48 rounded-lg flex flex-col items-center justify-center mb-4 border-4 border-dashed border-gray-400">
+                    <span class="text-gray-500 mb-2">[พื้นที่เตรียมเชื่อมต่อกล้องจริง]</span>
+                </div>
+
+                <div class="mb-4">
+                    <label class="block text-sm font-medium text-gray-700 text-left mb-1">ทดสอบกรอกเลขประจำตัว</label>
+                    <div class="flex">
+                        <input type="text" id="manual-student-id" class="flex-1 border border-gray-300 rounded-l-md px-4 py-3 focus:outline-none focus:ring-2 focus:ring-blue-500 text-lg" placeholder="ระบุเลขประจำตัว" onkeypress="handleEnter(event)">
+                        <button onclick="processManualScan()" class="bg-blue-600 text-white px-6 py-3 rounded-r-md hover:bg-blue-700 font-bold text-lg">สแกน</button>
+                    </div>
+                </div>
+
+                <div id="scan-result" class="hidden rounded-lg p-4 mt-4 shadow-md border-2">
+                    <div class="flex flex-col sm:flex-row items-center sm:items-start space-y-4 sm:space-y-0 sm:space-x-6">
+                        <div class="w-32 h-32 flex-shrink-0 bg-white rounded-lg border-2 border-gray-300 overflow-hidden shadow-sm flex items-center justify-center relative">
+                            <img id="scan-photo" src="" alt="รูปนักเรียน" class="w-full h-full object-cover hidden">
+                            <div id="scan-icon" class="text-5xl">✅</div>
+                        </div>
+                        <div class="flex-1 text-center sm:text-left w-full">
+                            <h3 id="scan-name" class="text-2xl font-bold text-gray-900 mb-1">ชื่อ-สกุล</h3>
+                            <p id="scan-id" class="text-lg text-gray-600 mb-2 font-medium">รหัส: -</p>
+                            <div class="bg-white bg-opacity-80 rounded p-2 inline-block w-full sm:w-auto shadow-sm">
+                                <p id="scan-period" class="text-md font-bold text-blue-700 mb-1">คาบเรียน: -</p>
+                                <p id="scan-status" class="text-lg font-bold mb-1">สถานะ: -</p>
+                                <p id="scan-time" class="text-sm text-gray-700 font-medium">เวลา: 00:00</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- TAB: แดชบอร์ด -->
+        <div id="dashboard-tab" class="tab-content">
+            <div class="flex flex-col md:flex-row justify-between items-center mb-6">
+                <h2 class="text-2xl font-bold mb-4 md:mb-0">สรุปผลการเช็คชื่อรายวัน</h2>
+                <div class="flex items-center bg-white px-4 py-2 rounded-lg shadow">
+                    <label class="mr-2 text-sm font-medium text-gray-700">กรองตามห้อง:</label>
+                    <select id="dashboard-room-filter" onchange="updateDashboard()" class="border border-gray-300 rounded-md px-3 py-1 focus:outline-none focus:ring-2 focus:ring-blue-500">
+                        <!-- สร้างโดย JS -->
+                    </select>
+                </div>
+            </div>
+            
+            <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8">
+                <div class="bg-white rounded-lg shadow p-4 border-l-4 border-blue-500">
+                    <p class="text-gray-500 text-sm">เป้าหมาย</p>
+                    <p id="stat-total" class="text-3xl font-bold">0</p>
+                </div>
+                <div class="bg-white rounded-lg shadow p-4 border-l-4 border-green-500">
+                    <p class="text-gray-500 text-sm">เข้าเรียน</p>
+                    <p id="stat-present" class="text-3xl font-bold text-green-600">0</p>
+                </div>
+                <div class="bg-white rounded-lg shadow p-4 border-l-4 border-red-500">
+                    <p class="text-gray-500 text-sm">ขาดเรียน</p>
+                    <p id="stat-absent" class="text-3xl font-bold text-red-600">0</p>
+                </div>
+                <div class="bg-white rounded-lg shadow p-4 border-l-4 border-yellow-500">
+                    <p class="text-gray-500 text-sm">สแกนผิดปกติ (สาย/หนี)</p>
+                    <p id="stat-late" class="text-3xl font-bold text-yellow-600">0</p>
+                </div>
+            </div>
+
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-8">
+                <div class="bg-white rounded-lg shadow p-6 col-span-1">
+                    <h3 class="text-lg font-bold mb-4">สัดส่วนการเข้าเรียน</h3>
+                    <div class="relative h-64 w-full">
+                        <canvas id="attendanceChart"></canvas>
+                    </div>
+                </div>
+
+                <div class="bg-white rounded-lg shadow p-6 col-span-2 overflow-x-auto">
+                    <h3 class="text-lg font-bold mb-4">รายการสแกนล่าสุด</h3>
+                    <table class="min-w-full divide-y divide-gray-200">
+                        <thead class="bg-gray-50">
+                            <tr>
+                                <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">เลขประจำตัว</th>
+                                <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">ชื่อ-สกุล</th>
+                                <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">คาบเรียน</th>
+                                <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">เวลาเข้า</th>
+                                <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">เวลาออก</th>
+                                <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">สถานะ</th>
+                            </tr>
+                        </thead>
+                        <tbody id="recent-scans-table" class="bg-white divide-y divide-gray-200">
+                            <tr><td colspan="6" class="px-4 py-4 text-center text-gray-500">ยังไม่มีข้อมูล</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <!-- TAB: รายชื่อนักเรียน -->
+        <div id="students-tab" class="tab-content">
+            <div class="flex flex-col md:flex-row justify-between items-center mb-6">
+                <h2 class="text-2xl font-bold mb-4 md:mb-0">จัดการนักเรียน</h2>
+                <div>
+                    <select id="room-filter" onchange="renderStudentTable()" class="border border-gray-300 rounded px-2 py-1">
+                        <!-- สร้างโดย JS -->
+                    </select>
+                </div>
+            </div>
+            
+            <div class="bg-white rounded-lg shadow overflow-x-auto h-[600px] overflow-y-auto border border-gray-200">
+                <table class="min-w-full divide-y divide-gray-200">
+                    <thead class="bg-gray-50 sticky top-0 shadow-sm z-10">
+                        <tr>
+                            <th class="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase">จัดการรูปถ่าย</th>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">เลขประจำตัว</th>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">เลขที่</th>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">ชื่อ-สกุล</th>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">ระดับชั้น/ห้อง</th>
+                        </tr>
+                    </thead>
+                    <tbody id="student-list-table" class="bg-white divide-y divide-gray-200">
+                        <!-- Rendered by JS -->
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- TAB: ประวัติรายบุคคล -->
+        <div id="history-tab" class="tab-content">
+            <h2 class="text-2xl font-bold mb-6">ค้นหาประวัติการเข้าเรียนรายบุคคล</h2>
+            
+            <div class="bg-white rounded-lg shadow p-6 mb-8 flex flex-col md:flex-row items-center space-y-4 md:space-y-0 md:space-x-4">
+                <div class="flex-1 w-full relative">
+                    <label class="block text-sm font-medium text-gray-700 mb-1">ค้นหาจากเลขประจำตัว หรือ ชื่อ-สกุล</label>
+                    <input type="text" id="search-history-id" class="w-full border border-gray-300 rounded-md px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500" placeholder="พิมพ์เลขประจำตัว หรือ ชื่อนักเรียน (เช่น 10001)..." oninput="handleSearchInput()" onfocus="handleSearchInput()">
+                    
+                    <ul id="search-autocomplete-list" class="absolute z-20 w-full bg-white border border-gray-200 rounded-md shadow-lg max-h-60 overflow-y-auto hidden mt-1">
+                        <!-- สร้างโดย JS -->
+                    </ul>
+                </div>
+                <button onclick="searchHistory()" class="w-full md:w-auto bg-blue-600 text-white px-6 py-2 rounded-md hover:bg-blue-700 font-medium mt-auto">ค้นหาประวัติ</button>
+            </div>
+
+            <div id="history-content" class="hidden">
+                <div class="bg-white rounded-lg shadow p-6 mb-6 flex items-center space-x-6 border-t-4 border-blue-500">
+                    <img id="history-photo" src="" alt="รูปนักเรียน" class="w-24 h-24 rounded-lg border-2 border-gray-200 object-cover shadow-sm">
+                    <div>
+                        <h3 id="history-name" class="text-2xl font-bold text-gray-900">ชื่อ-สกุล</h3>
+                        <p id="history-info" class="text-gray-600 text-lg">เลขประจำตัว: - | เลขที่: - | ห้อง: -</p>
+                    </div>
+                </div>
+                <div class="bg-white rounded-lg shadow overflow-hidden border border-gray-200">
+                    <div class="px-6 py-4 bg-gray-50 border-b border-gray-200">
+                        <h3 class="text-lg font-bold text-gray-800">รายละเอียดการเข้าออก</h3>
+                    </div>
+                    <div class="overflow-x-auto max-h-96 overflow-y-auto">
+                        <table class="min-w-full divide-y divide-gray-200">
+                            <thead class="bg-white sticky top-0 shadow-sm z-10">
+                                <tr>
+                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">วันที่</th>
+                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">คาบเรียน</th>
+                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">เข้า</th>
+                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">ออก</th>
+                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">สถานะ</th>
+                                </tr>
+                            </thead>
+                            <tbody id="history-table-body" class="bg-white divide-y divide-gray-200">
+                                <!-- Rendered by JS -->
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+            
+            <div id="history-not-found" class="hidden bg-red-50 text-red-700 p-4 rounded-lg border border-red-200 mt-4 text-center font-medium">
+                ไม่พบข้อมูลนักเรียนเลขประจำตัวนี้ กรุณาตรวจสอบอีกครั้ง
+            </div>
+        </div>
+
+        <!-- TAB: ตั้งค่า -->
+        <div id="settings-tab" class="tab-content">
+            <h2 class="text-2xl font-bold mb-6 flex items-center text-gray-800">
+                <span class="text-gray-400 mr-2">⚙️</span> ตั้งค่าระบบตารางเรียนรายห้อง
+            </h2>
+            
+            <div class="flex flex-col md:flex-row gap-6">
+                <!-- คอลัมน์ซ้าย: รายชื่อห้องเรียน -->
+                <div class="w-full md:w-1/3 bg-white rounded-xl shadow-sm border border-blue-100 flex flex-col h-[500px]">
+                    <div class="bg-blue-50 border-b border-blue-100 px-4 py-3">
+                        <h3 class="font-bold text-blue-900">📚 รายชื่อห้องเรียน</h3>
+                    </div>
+                    <div class="p-4 border-b border-gray-100 flex space-x-2">
+                        <input type="text" id="new-room-input" class="flex-1 border border-gray-300 rounded px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" placeholder="เพิ่มห้อง (เช่น ม.2/1)">
+                        <button onclick="addRoom()" class="bg-blue-600 text-white px-3 py-1 rounded text-sm font-bold hover:bg-blue-700">+</button>
+                    </div>
+                    <div class="flex-1 overflow-y-auto">
+                        <ul id="settings-room-list" class="divide-y divide-gray-100 cursor-pointer">
+                            <!-- สร้างโดย JS -->
+                        </ul>
+                    </div>
+                </div>
+
+                <!-- คอลัมน์ขวา: ตารางเวลาของห้องที่เลือก -->
+                <div class="w-full md:w-2/3 bg-white rounded-xl shadow-sm border border-green-100 flex flex-col h-[500px]">
+                    <div class="bg-green-50 border-b border-green-100 px-6 py-4 flex justify-between items-center">
+                        <h3 class="text-lg font-bold text-green-900" id="schedule-title">⏰ ตารางเวลาของห้อง: -</h3>
+                        
+                        <div class="flex items-center space-x-2 text-sm">
+                            <span class="text-gray-600">คัดลอกคาบจาก:</span>
+                            <select id="copy-schedule-select" class="border border-gray-300 rounded px-2 py-1 focus:outline-none">
+                                <!-- สร้างโดย JS -->
+                            </select>
+                            <button onclick="copySchedule()" class="bg-gray-200 hover:bg-gray-300 text-gray-800 px-3 py-1 rounded font-bold transition-colors">คัดลอก</button>
+                        </div>
+                    </div>
+                    
+                    <div class="p-6 bg-gray-50 border-b border-gray-200">
+                        <div class="grid grid-cols-4 gap-2 mb-2 items-end">
+                            <div class="col-span-2">
+                                <label class="block text-xs font-bold text-gray-600 mb-1">เลือกคาบเรียน</label>
+                                <select id="new-time-name" class="w-full border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500">
+                                    <option value="เข้าแถวหน้าเสาธง">เข้าแถวหน้าเสาธง</option>
+                                    <option value="คาบ 1" selected>คาบ 1</option>
+                                    <option value="คาบ 2">คาบ 2</option>
+                                    <option value="คาบ 3">คาบ 3</option>
+                                    <option value="คาบ 4">คาบ 4</option>
+                                    <option value="พักกลางวัน">พักกลางวัน</option>
+                                    <option value="คาบ 5">คาบ 5</option>
+                                    <option value="คาบ 6">คาบ 6</option>
+                                    <option value="คาบ 7">คาบ 7</option>
+                                    <option value="คาบ 8">คาบ 8</option>
+                                    <option value="คาบ 9">คาบ 9</option>
+                                    <option value="กิจกรรมพิเศษ">กิจกรรมพิเศษ</option>
+                                    <option value="ไม่ระบุ">ไม่ระบุ</option>
+                                </select>
+                            </div>
+                            <div class="col-span-1">
+                                <label class="block text-xs font-bold text-gray-600 mb-1">เวลาเข้า</label>
+                                <input type="time" id="new-time-in" class="w-full border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500">
+                            </div>
+                            <div class="col-span-1">
+                                <label class="block text-xs font-bold text-gray-600 mb-1">เวลาออก</label>
+                                <div class="flex space-x-2">
+                                    <input type="time" id="new-time-out" class="w-full border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500">
+                                </div>
+                            </div>
+                        </div>
+                        <button onclick="addTimeSlot()" class="w-full bg-green-600 text-white px-4 py-2 rounded shadow-sm hover:bg-green-700 font-bold text-sm mt-2 transition-colors">เพิ่มคาบเรียนลงตารางนี้</button>
+                    </div>
+
+                    <div class="flex-1 overflow-y-auto p-4">
+                        <ul id="settings-time-list" class="space-y-2">
+                            <!-- สร้างโดย JS -->
+                        </ul>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="mt-8 text-center bg-gray-50 p-6 rounded-xl border border-gray-200">
+                 <button onclick="location.reload()" class="bg-gray-800 text-white px-10 py-3 rounded-lg hover:bg-gray-900 font-bold shadow-md transition-transform transform hover:scale-105">💾 บันทึกและรีเฟรชระบบ</button>
+            </div>
+        </div>
+
+    </div>
+
+    <!-- Modal สำหรับกรอก PIN -->
+    <div id="pin-modal" class="fixed inset-0 bg-black bg-opacity-60 z-50 hidden flex flex-col items-center justify-center backdrop-blur-sm transition-opacity">
+        <div class="bg-white p-8 rounded-2xl shadow-2xl max-w-sm w-full text-center relative border border-gray-100">
+            <div class="w-16 h-16 bg-blue-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                <span class="text-3xl">🔒</span>
+            </div>
+            <h3 class="text-xl font-bold mb-2 text-gray-800">เข้าสู่ระบบสำหรับครู</h3>
+            <p class="text-sm text-gray-500 mb-6">กรุณากรอกรหัส PIN 6 หลักเพื่อเข้าสู่ระบบหลังบ้าน</p>
+            
+            <div id="pin-container" class="flex justify-center space-x-2 mb-6" dir="ltr">
+                <input type="text" maxlength="1" class="pin-box" autocomplete="off" pattern="[0-9]*" inputmode="numeric">
+                <input type="text" maxlength="1" class="pin-box" autocomplete="off" pattern="[0-9]*" inputmode="numeric">
+                <input type="text" maxlength="1" class="pin-box" autocomplete="off" pattern="[0-9]*" inputmode="numeric">
+                <input type="text" maxlength="1" class="pin-box" autocomplete="off" pattern="[0-9]*" inputmode="numeric">
+                <input type="text" maxlength="1" class="pin-box" autocomplete="off" pattern="[0-9]*" inputmode="numeric">
+                <input type="text" maxlength="1" class="pin-box" autocomplete="off" pattern="[0-9]*" inputmode="numeric">
+            </div>
+            
+            <p id="pin-error" class="text-red-500 text-sm font-medium mb-4 h-5"></p>
+            
+            <button onclick="closePinModal()" class="w-full bg-gray-100 text-gray-600 font-bold py-3 rounded-lg hover:bg-gray-200 transition-colors">ยกเลิก</button>
+        </div>
+    </div>
+
+    <script>
+        // ==========================================
+        // 1. การตั้งค่า API (Google Apps Script)
+        // ==========================================
+        // นำ URL ของ Web App ที่ได้จาก Google Apps Script มาอัปเดตตรงนี้ครับ
+        const API_URL = 'https://script.google.com/macros/s/AKfycbzHKYfG0Z_Fg-J_QHrg36jJt2rbOA3J0bnbYrDLy9vRUIWycfovHOvUnLRSzvEDdY7-/exec'; 
+        
+        let isAdminLoggedIn = false;
+        let appStudents = []; 
+
+        let appSchedules = JSON.parse(localStorage.getItem('appSchedulesV2'));
+        if (!appSchedules || Object.keys(appSchedules).length === 0) {
+            appSchedules = {
+                'ม.1/1': [
+                    { name: 'คาบ 1', checkIn: '08:30', checkOut: '09:30' },
+                    { name: 'คาบ 2', checkIn: '09:30', checkOut: '10:30' }
+                ]
+            };
+            localStorage.setItem('appSchedulesV2', JSON.stringify(appSchedules));
+        }
+
+        let selectedRoomSetting = Object.keys(appSchedules)[0] || '';
+        const mockHistoryDb = {}; 
+        const currentSessionLogs = {}; 
+
+        // ==========================================
+        // 2. ฟังก์ชันโหลดข้อมูลนักเรียน
+        // ==========================================
+        async function fetchStudentsData() {
+            if (API_URL) {
+                try {
+                    const response = await fetch(API_URL);
+                    const result = await response.json();
+                    if(result.status === 'success') {
+                        appStudents = result.data;
+                        initAppData();
+                    } else {
+                        alert('เกิดข้อผิดพลาดในการโหลดข้อมูล: ' + result.message);
+                    }
+                } catch (error) {
+                    console.error('Fetch error:', error);
+                    alert('ไม่สามารถเชื่อมต่อฐานข้อมูลได้ ระบบจะใช้ข้อมูลจำลองแทน');
+                    generateMockData();
+                }
+            } else {
+                generateMockData();
+            }
+        }
+
+        function generateMockData() {
+            appStudents = [];
+            let idCounter = 10001;
+            const bgColors = ['0ea5e9', '10b981', 'f59e0b', '8b5cf6', 'ef4444', 'ec4899']; 
+            
+            Object.keys(appSchedules).forEach(roomName => {
+                const parts = roomName.split('/');
+                const level = parts[0] || 'ม.1';
+                const rNum = parts[1] || '1';
+
+                for (let num = 1; num <= 5; num++) { 
+                    const prefix = Math.random() > 0.5 ? 'ด.ช.' : 'ด.ญ.';
+                    const randomColor = bgColors[Math.floor(Math.random() * bgColors.length)];
+                    appStudents.push({
+                        photoUrl: `https://ui-avatars.com/api/?name=${idCounter}&background=${randomColor}&color=fff&size=150`,
+                        level: level,
+                        roomNum: rNum,
+                        id: idCounter.toString(),    
+                        rollNo: num.toString(),      
+                        prefix: prefix,
+                        firstName: `สมมติที่${idCounter}`,
+                        lastName: `นามสกุลทดสอบ`,
+                        name: `${prefix}สมมติที่${idCounter} นามสกุลทดสอบ`,
+                        room: roomName
+                    });
+                    idCounter++;
+                }
+            });
+            initAppData();
+        }
+
+        function initAppData() {
+            appStudents.forEach(student => {
+                mockHistoryDb[student.id] = [];
+                const sched = appSchedules[student.room] || [];
+                if(sched.length > 0) {
+                    const dateStr = new Date().toLocaleDateString('th-TH');
+                    mockHistoryDb[student.id].push({ 
+                        date: dateStr, periodName: sched[0].name, checkIn: sched[0].checkIn, checkOut: sched[0].checkOut, status: 'ทันเวลา', isLate: false, isEarly: false 
+                    });
+                }
+            });
+            
+            renderSettingsUI();
+            renderStudentTable();
+            updateDashboard();
+        }
+
+        // ==========================================
+        // อัปโหลดรูปภาพผ่าน API
+        // ==========================================
+        async function handlePhotoUpload(event, studentId) {
+            const file = event.target.files[0];
+            if (!file) return;
+
+            if (!file.type.startsWith('image/')) {
+                alert('กรุณาเลือกไฟล์รูปภาพเท่านั้นครับ');
+                return;
+            }
+
+            const studentIndex = appStudents.findIndex(s => s.id === studentId);
+            if(studentIndex === -1) return;
+            const studentRoom = appStudents[studentIndex].room;
+
+            const reader = new FileReader();
+            reader.onload = async function(e) {
+                const imageUrl = e.target.result;
+                
+                const imgElement = document.getElementById(`img-student-${studentId}`);
+                if (imgElement) {
+                    imgElement.src = imageUrl;
+                    imgElement.style.opacity = '0.5'; 
+                }
+                appStudents[studentIndex].photoUrl = imageUrl;
+
+                if (!API_URL) {
+                    console.log('ทำงานโหมดจำลอง (Mock): รูปภาพถูกอัปเดตบนหน้าจอแล้ว แต่ยังไม่ถูกส่งไป Google Drive เนื่องจากยังไม่ได้ใส่ API_URL');
+                    if (imgElement) imgElement.style.opacity = '1';
+                    return;
+                }
+
+                try {
+                    const response = await fetch(API_URL, {
+                        method: 'POST',
+                        body: JSON.stringify({ 
+                            action: 'uploadPhoto', 
+                            id: studentId, 
+                            room: studentRoom,
+                            imageBase64: imageUrl 
+                        })
+                    });
+                    const result = await response.json();
+                    
+                    if(result.status === 'success') {
+                        appStudents[studentIndex].photoUrl = result.url;
+                        if (imgElement) {
+                            imgElement.src = result.url;
+                            imgElement.style.opacity = '1';
+                        }
+                    } else {
+                        alert('เกิดข้อผิดพลาดในการอัปโหลด: ' + result.message);
+                        if (imgElement) imgElement.style.opacity = '1';
+                    }
+                } catch (err) {
+                    console.error(err);
+                    alert('ระบบเครือข่ายมีปัญหา ไม่สามารถบันทึกลงฐานข้อมูลได้');
+                    if (imgElement) imgElement.style.opacity = '1';
+                }
+            };
+            reader.readAsDataURL(file);
+        }
+
+        // ==========================================
+        // 3. UI และ Logic หน้าตั้งค่า
+        // ==========================================
+        function renderSettingsUI() {
+            const roomList = document.getElementById('settings-room-list');
+            roomList.innerHTML = '';
+            
+            Object.keys(appSchedules).forEach((room) => {
+                const isActive = room === selectedRoomSetting ? 'active' : '';
+                roomList.innerHTML += `
+                    <li onclick="selectSettingRoom('${room}')" class="room-item ${isActive} px-4 py-3 flex justify-between items-center hover:bg-blue-50 transition-colors border-b border-gray-100 last:border-0">
+                        <span class="font-medium text-gray-700">${room}</span>
+                        <button onclick="deleteRoom('${room}', event)" class="text-red-400 hover:text-red-600 text-xs font-bold transition-colors">ลบ</button>
+                    </li>
+                `;
+            });
+
+            const dashboardFilter = document.getElementById('dashboard-room-filter');
+            const studentFilter = document.getElementById('room-filter');
+            const copySelect = document.getElementById('copy-schedule-select');
+            
+            let htmlOptions = '<option value="ไม่ระบุ">ไม่ระบุ (แสดงทั้งหมด)</option>';
+            let copyOptions = '';
+            
+            Object.keys(appSchedules).forEach(room => {
+                htmlOptions += `<option value="${room}">${room}</option>`;
+                if(room !== selectedRoomSetting) {
+                    copyOptions += `<option value="${room}">${room}</option>`;
+                }
+            });
+            
+            dashboardFilter.innerHTML = htmlOptions;
+            studentFilter.innerHTML = htmlOptions;
+            copySelect.innerHTML = copyOptions || '<option value="">ไม่มีห้องอื่น</option>';
+
+            renderScheduleForSelectedRoom();
+        }
+
+        function selectSettingRoom(room) {
+            selectedRoomSetting = room;
+            renderSettingsUI();
+        }
+
+        function addRoom() {
+            const input = document.getElementById('new-room-input');
+            const val = input.value.trim();
+            if (val && !appSchedules[val]) {
+                appSchedules[val] = []; 
+                localStorage.setItem('appSchedulesV2', JSON.stringify(appSchedules));
+                input.value = '';
+                selectedRoomSetting = val;
+                renderSettingsUI();
+            }
+        }
+
+        function deleteRoom(room, event) {
+            event.stopPropagation();
+            if(confirm(`ต้องการลบห้อง ${room} และตารางเวลาทั้งหมดใช่หรือไม่?`)) {
+                delete appSchedules[room];
+                localStorage.setItem('appSchedulesV2', JSON.stringify(appSchedules));
+                selectedRoomSetting = Object.keys(appSchedules)[0] || '';
+                renderSettingsUI();
+            }
+        }
+
+        function renderScheduleForSelectedRoom() {
+            document.getElementById('schedule-title').innerText = `⏰ ตารางเวลาของห้อง: ${selectedRoomSetting || '-'}`;
+            const list = document.getElementById('settings-time-list');
+            list.innerHTML = '';
+            
+            if(!selectedRoomSetting || !appSchedules[selectedRoomSetting]) return;
+
+            const schedule = appSchedules[selectedRoomSetting];
+            if(schedule.length === 0) {
+                list.innerHTML = '<div class="text-center text-gray-400 py-4 text-sm">ยังไม่มีตารางเรียน เลือกคาบด้านบนได้เลยครับ</div>';
+                return;
+            }
+
+            schedule.sort((a, b) => a.checkIn.localeCompare(b.checkIn)).forEach((slot, index) => {
+                list.innerHTML += `
+                    <li class="bg-white border border-gray-200 rounded-lg p-3 flex justify-between items-center shadow-sm">
+                        <div>
+                            <span class="font-bold text-green-700 block">${slot.name}</span>
+                            <span class="text-xs text-gray-500">เข้า: ${slot.checkIn} น. | ออก: ${slot.checkOut} น.</span>
+                        </div>
+                        <button onclick="deleteTimeSlot(${index})" class="text-red-400 hover:text-red-600 text-sm font-bold bg-red-50 px-2 py-1 rounded transition-colors">ลบ</button>
+                    </li>
+                `;
+            });
+        }
+
+        function addTimeSlot() {
+            if(!selectedRoomSetting) return alert('กรุณาเลือกหรือเพิ่มห้องเรียนก่อนครับ');
+            
+            const nameSelect = document.getElementById('new-time-name');
+            const inInput = document.getElementById('new-time-in');
+            const outInput = document.getElementById('new-time-out');
+            
+            const nameVal = nameSelect.value;
+            const inVal = inInput.value;
+            const outVal = outInput.value;
+
+            if (nameVal && inVal && outVal) {
+                appSchedules[selectedRoomSetting].push({ 
+                    name: nameVal, 
+                    checkIn: inVal,
+                    checkOut: outVal
+                });
+                localStorage.setItem('appSchedulesV2', JSON.stringify(appSchedules));
+                
+                const nextIndex = nameSelect.selectedIndex + 1;
+                if (nextIndex < nameSelect.options.length) {
+                    nameSelect.selectedIndex = nextIndex;
+                }
+                
+                inInput.value = outVal; 
+                outInput.value = '';
+                renderSettingsUI();
+            } else {
+                alert('กรุณากรอกข้อมูลให้ครบทั้ง ชื่อคาบ เวลาเข้า และเวลาออกครับ');
+            }
+        }
+
+        function deleteTimeSlot(index) {
+            appSchedules[selectedRoomSetting].splice(index, 1);
+            localStorage.setItem('appSchedulesV2', JSON.stringify(appSchedules));
+            renderSettingsUI();
+        }
+
+        function copySchedule() {
+            const copyFrom = document.getElementById('copy-schedule-select').value;
+            if(!copyFrom || !selectedRoomSetting) return;
+            
+            if(confirm(`คัดลอกตารางจาก ${copyFrom} มาทับที่ ${selectedRoomSetting} ใช่หรือไม่?`)) {
+                appSchedules[selectedRoomSetting] = JSON.parse(JSON.stringify(appSchedules[copyFrom]));
+                localStorage.setItem('appSchedulesV2', JSON.stringify(appSchedules));
+                renderSettingsUI();
+            }
+        }
+
+        // ==========================================
+        // 4. ระบบ OTP Modal และ Role Management
+        // ==========================================
+        const CORRECT_PIN = '336699';
+        let targetTabAfterPin = null;
+
+        function requestSwitchTab(tabId) {
+            if (!isAdminLoggedIn && tabId !== 'scan') return;
+            executeSwitchTab(tabId);
+        }
+
+        function executeSwitchTab(tabId) {
+            document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
+            document.getElementById(tabId + '-tab').classList.add('active');
+            if(tabId === 'students') renderStudentTable();
+            if(tabId === 'dashboard') updateDashboard();
+        }
+
+        function openPinModal() {
+            document.getElementById('pin-modal').classList.remove('hidden');
+            document.getElementById('pin-error').innerText = '';
+            clearPinBoxes();
+            setTimeout(() => document.querySelectorAll('.pin-box')[0].focus(), 100);
+        }
+
+        function closePinModal() {
+            document.getElementById('pin-modal').classList.add('hidden');
+            clearPinBoxes();
+        }
+
+        function logoutAdmin() {
+            isAdminLoggedIn = false;
+            document.getElementById('admin-menus').classList.add('hidden');
+            document.getElementById('btn-login').classList.remove('hidden');
+            document.getElementById('btn-logout').classList.add('hidden');
+            executeSwitchTab('scan');
+        }
+
+        function clearPinBoxes() {
+            document.querySelectorAll('.pin-box').forEach(inp => {
+                inp.value = '';
+                inp.classList.remove('error');
+            });
+        }
+
+        const pinInputs = document.querySelectorAll('.pin-box');
+        pinInputs.forEach((input, index) => {
+            input.addEventListener('input', (e) => {
+                e.target.value = e.target.value.replace(/[^0-9]/g, '');
+                input.classList.remove('error');
+                document.getElementById('pin-error').innerText = '';
+
+                if (e.target.value !== '') {
+                    if (index < pinInputs.length - 1) {
+                        pinInputs[index + 1].focus();
+                    } else {
+                        checkPinCompletion(); 
+                    }
+                }
+            });
+
+            input.addEventListener('keydown', (e) => {
+                if (e.key === 'Backspace' && e.target.value === '') {
+                    if (index > 0) pinInputs[index - 1].focus(); 
+                }
+            });
+
+            input.addEventListener('paste', (e) => {
+                e.preventDefault();
+                const text = (e.clipboardData || window.clipboardData).getData('text').replace(/[^0-9]/g, '').substring(0, 6);
+                for(let i = 0; i < text.length; i++) {
+                    pinInputs[i].value = text[i];
+                }
+                if(text.length > 0) {
+                    if(text.length < 6) pinInputs[text.length].focus();
+                    else checkPinCompletion();
+                }
+            });
+        });
+
+        function checkPinCompletion() {
+            let pin = '';
+            pinInputs.forEach(inp => pin += inp.value);
+            
+            if (pin.length === 6) {
+                if (pin === CORRECT_PIN) {
+                    isAdminLoggedIn = true;
+                    closePinModal();
+                    
+                    document.getElementById('admin-menus').classList.remove('hidden');
+                    document.getElementById('btn-login').classList.add('hidden');
+                    document.getElementById('btn-logout').classList.remove('hidden');
+                    
+                    executeSwitchTab('dashboard');
+                } else {
+                    document.getElementById('pin-error').innerText = 'รหัส PIN ไม่ถูกต้อง กรุณาลองใหม่';
+                    pinInputs.forEach(inp => inp.classList.add('error'));
+                    setTimeout(() => {
+                        clearPinBoxes();
+                        pinInputs[0].focus();
+                    }, 800);
+                }
+            }
+        }
+
+        // ==========================================
+        // 5. ลอจิกการสแกนอัตโนมัติ (Auto-Detect Period)
+        // ==========================================
+        const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        function playBeep(type) {
+            if(audioCtx.state === 'suspended') audioCtx.resume();
+            const osc = audioCtx.createOscillator();
+            const gain = audioCtx.createGain();
+            osc.connect(gain); gain.connect(audioCtx.destination);
+            
+            if (type === 'success') {
+                osc.type = 'sine'; osc.frequency.setValueAtTime(800, audioCtx.currentTime);
+                gain.gain.setValueAtTime(0.1, audioCtx.currentTime);
+                osc.start(); osc.stop(audioCtx.currentTime + 0.15);
+            } else {
+                osc.type = 'square'; osc.frequency.setValueAtTime(300, audioCtx.currentTime);
+                gain.gain.setValueAtTime(0.1, audioCtx.currentTime);
+                osc.start(); osc.stop(audioCtx.currentTime + 0.3);
+            }
+        }
+
+        function getCurrentTimeStr() {
+            const now = new Date();
+            return `${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}`;
+        }
+
+        function handleEnter(e) { if(e.key === 'Enter') processManualScan(); }
+
+        function processManualScan() {
+            const inputEl = document.getElementById('manual-student-id');
+            const inputId = inputEl.value.trim();
+            if (!inputId) return;
+
+            const student = appStudents.find(s => s.id === inputId);
+            
+            const resultDiv = document.getElementById('scan-result');
+            const photoEl = document.getElementById('scan-photo');
+            const iconEl = document.getElementById('scan-icon');
+            const nameEl = document.getElementById('scan-name');
+            const idEl = document.getElementById('scan-id');
+            const periodEl = document.getElementById('scan-period');
+            const statusEl = document.getElementById('scan-status');
+            const timeEl = document.getElementById('scan-time');
+
+            if (!student) {
+                playBeep('error');
+                resultDiv.className = "bg-red-50 p-4 mt-4 text-left border-2 border-red-400 block rounded-lg shadow-md";
+                photoEl.classList.add('hidden'); iconEl.classList.remove('hidden'); iconEl.innerText = "❌";
+                nameEl.innerText = "ไม่พบข้อมูลนักเรียน"; nameEl.className = "text-2xl font-bold text-red-700 mb-1";
+                idEl.innerText = `เลขประจำตัวที่สแกน: ${inputId}`; periodEl.innerText = "";
+                statusEl.innerText = "ตรวจสอบรหัสอีกครั้ง หรือยังไม่ได้ดึงข้อมูลจากระบบ"; statusEl.className = "text-md font-bold mb-1 text-red-600";
+                timeEl.innerText = ""; inputEl.value = ''; inputEl.focus();
+                return;
+            }
+
+            const schedule = appSchedules[student.room] || [];
+            if(schedule.length === 0) {
+                alert(`ห้อง ${student.room} ยังไม่มีการตั้งตารางเวลา กรุณาให้ครูตั้งค่าก่อนสแกน`);
+                inputEl.value = ''; return;
+            }
+
+            const currentTime = getCurrentTimeStr();
+            let activePeriod = schedule.sort((a, b) => a.checkIn.localeCompare(b.checkIn))[0]; 
+            for(let p of schedule) {
+                if (currentTime <= p.checkOut) {
+                    activePeriod = p;
+                    break;
+                }
+            }
+
+            if(!currentSessionLogs[inputId]) currentSessionLogs[inputId] = {};
+            let log = currentSessionLogs[inputId][activePeriod.name];
+            
+            let actionType = '';
+            let statusText = '';
+            let isLate = false;
+            let isEarly = false;
+            let uiStyleClass = '';
+
+            photoEl.src = student.photoUrl;
+            photoEl.classList.remove('hidden'); iconEl.classList.add('hidden');
+            nameEl.className = "text-2xl font-bold text-gray-900 mb-1";
+
+            if (!log) {
+                isLate = currentTime > activePeriod.checkIn;
+                currentSessionLogs[inputId][activePeriod.name] = { 
+                    checkIn: currentTime, checkOut: null, isLate: isLate, isEarly: false 
+                };
+                actionType = 'Check-In';
+                statusText = isLate ? 'สาย' : 'ทันเวลา';
+                uiStyleClass = isLate ? "bg-yellow-50 border-yellow-400" : "bg-green-50 border-green-400";
+                statusEl.className = isLate ? "text-lg font-bold mb-1 text-yellow-700" : "text-lg font-bold mb-1 text-green-700";
+                playBeep('success');
+            } else if (log && !log.checkOut) {
+                isEarly = currentTime < activePeriod.checkOut; 
+                log.checkOut = currentTime;
+                log.isEarly = isEarly;
+                
+                actionType = 'Check-Out';
+                statusText = isEarly ? 'ออกก่อนกำหนด (หนีเรียน)' : 'บันทึกเวลากลับ';
+                uiStyleClass = isEarly ? "bg-red-50 border-red-400" : "bg-blue-50 border-blue-400";
+                statusEl.className = isEarly ? "text-lg font-bold mb-1 text-red-700" : "text-lg font-bold mb-1 text-blue-700";
+                playBeep(isEarly ? 'warn' : 'success');
+            } else {
+                playBeep('warn');
+                resultDiv.className = "bg-gray-100 border-gray-400 p-4 mt-4 text-left border-2 block rounded-lg shadow-md";
+                statusEl.className = "text-lg font-bold mb-1 text-gray-700";
+                nameEl.innerText = student.name;
+                idEl.innerText = `เลขประจำตัว: ${student.id} | เลขที่: ${student.rollNo}`;
+                periodEl.innerText = `คาบเรียน: ${activePeriod.name}`;
+                statusEl.innerText = "นักเรียนสแกนออกคาบนี้เรียบร้อยแล้ว";
+                timeEl.innerText = `เข้า: ${log.checkIn} | ออก: ${log.checkOut}`;
+                inputEl.value = ''; inputEl.focus(); return;
+            }
+
+            resultDiv.className = `${uiStyleClass} p-4 mt-4 text-left border-2 block rounded-lg shadow-md`;
+            nameEl.innerText = student.name;
+            idEl.innerText = `เลขประจำตัว: ${student.id} | เลขที่: ${student.rollNo} | ห้อง: ${student.room}`;
+            periodEl.innerText = `คาบเรียน: ${activePeriod.name} (${activePeriod.checkIn} - ${activePeriod.checkOut})`;
+            statusEl.innerText = `สถานะ: ${actionType} (${statusText})`;
+            timeEl.innerText = `เวลาสแกน: ${currentTime}`;
+            
+            inputEl.value = ''; inputEl.focus();
+        }
+
+        // ==========================================
+        // 6. Dashboard, History และระบบ Live Search
+        // ==========================================
+        function updateDashboard() {
+            const filterRoom = document.getElementById('dashboard-room-filter').value;
+            let targetStudents = filterRoom !== 'ไม่ระบุ' ? appStudents.filter(s => s.room === filterRoom) : appStudents;
+            const total = targetStudents.length;
+
+            let presentCount = 0; 
+            let abnormalCount = 0; 
+            let displayLogs = [];
+
+            targetStudents.forEach(student => {
+                const sLogs = currentSessionLogs[student.id];
+                if(sLogs && Object.keys(sLogs).length > 0) {
+                    presentCount++;
+                    let isAbnormal = false;
+                    Object.keys(sLogs).forEach(periodName => {
+                        const l = sLogs[periodName];
+                        if (l.isLate || l.isEarly) isAbnormal = true;
+                        
+                        displayLogs.push({
+                            student: student,
+                            period: periodName,
+                            checkIn: l.checkIn,
+                            checkOut: l.checkOut,
+                            isLate: l.isLate,
+                            isEarly: l.isEarly
+                        });
+                    });
+                    if (isAbnormal) abnormalCount++;
+                }
+            });
+
+            const absentCount = total - presentCount;
+
+            document.getElementById('stat-total').innerText = total;
+            document.getElementById('stat-present').innerText = presentCount;
+            document.getElementById('stat-absent').innerText = absentCount;
+            document.getElementById('stat-late').innerText = abnormalCount;
+
+            const tableBody = document.getElementById('recent-scans-table');
+            tableBody.innerHTML = '';
+            
+            if (displayLogs.length === 0) {
+                tableBody.innerHTML = `<tr><td colspan="6" class="px-4 py-4 text-center text-gray-500">ไม่มีข้อมูลการสแกน</td></tr>`;
+            } else {
+                [...displayLogs].reverse().forEach(log => {
+                    let statusHtml = log.isLate ? `<span class="px-2 text-xs font-semibold rounded-full bg-yellow-100 text-yellow-800">สาย</span>` : `<span class="px-2 text-xs font-semibold rounded-full bg-green-100 text-green-800">ทันเวลา</span>`;
+                    if(log.checkOut) {
+                        statusHtml += log.isEarly 
+                            ? ` <span class="px-2 text-xs font-semibold rounded-full bg-red-100 text-red-800 ml-1">ออกก่อนกำหนด</span>`
+                            : ` <span class="px-2 text-xs font-semibold rounded-full bg-blue-100 text-blue-800 ml-1">กลับ</span>`;
+                    }
+                    
+                    tableBody.innerHTML += `
+                        <tr>
+                            <td class="px-4 py-3 whitespace-nowrap text-sm text-gray-500">${log.student.id}</td>
+                            <td class="px-4 py-3 whitespace-nowrap text-sm font-medium text-gray-900">${log.student.name}</td>
+                            <td class="px-4 py-3 whitespace-nowrap text-sm text-gray-500">${log.period}</td>
+                            <td class="px-4 py-3 whitespace-nowrap text-sm text-gray-500">${log.checkIn}</td>
+                            <td class="px-4 py-3 whitespace-nowrap text-sm text-gray-500">${log.checkOut || '-'}</td>
+                            <td class="px-4 py-3 whitespace-nowrap">${statusHtml}</td>
+                        </tr>
+                    `;
+                });
+            }
+
+            let attendanceChartInstance = Chart.getChart("attendanceChart");
+            if (attendanceChartInstance) attendanceChartInstance.destroy();
+            const ctx = document.getElementById('attendanceChart').getContext('2d');
+            
+            if (presentCount === 0 && absentCount === 0) {
+                 new Chart(ctx, { type: 'doughnut', data: { labels: ['ไม่มีข้อมูล'], datasets: [{ data: [1], backgroundColor: ['#E5E7EB'] }] }, options: { responsive: true, maintainAspectRatio: false, plugins: { tooltip: { enabled: false } } } });
+            } else {
+                 new Chart(ctx, { type: 'doughnut', data: { labels: ['เข้าเรียน (ปกติ)', 'ผิดปกติ (สาย/หนี)', 'ขาดเรียน'], datasets: [{ data: [presentCount - abnormalCount, abnormalCount, absentCount], backgroundColor: ['#10B981', '#F59E0B', '#EF4444'], borderWidth: 1 }] }, options: { responsive: true, maintainAspectRatio: false } });
+            }
+        }
+
+        function handleSearchInput() {
+            const inputVal = document.getElementById('search-history-id').value.trim().toLowerCase();
+            const listEl = document.getElementById('search-autocomplete-list');
+
+            if (!inputVal) {
+                listEl.classList.add('hidden');
+                return;
+            }
+
+            const filtered = appStudents.filter(s =>
+                s.id.includes(inputVal) || s.name.toLowerCase().includes(inputVal)
+            ).slice(0, 10); 
+
+            if (filtered.length === 0) {
+                listEl.innerHTML = '<li class="px-4 py-3 text-gray-500 text-sm">ไม่พบข้อมูลนักเรียน</li>';
+                listEl.classList.remove('hidden');
+                return;
+            }
+
+            listEl.innerHTML = filtered.map(s => `
+                <li onclick="selectSearchItem('${s.id}')" class="px-4 py-3 hover:bg-blue-50 cursor-pointer border-b border-gray-100 last:border-0 flex items-center space-x-3 transition-colors">
+                    <img src="${s.photoUrl}" class="w-10 h-10 rounded-full shadow-sm">
+                    <div>
+                        <div class="font-bold text-sm text-blue-700">${s.id}</div>
+                        <div class="text-xs text-gray-600">${s.name} (ห้อง ${s.room} | เลขที่ ${s.rollNo})</div>
+                    </div>
+                </li>
+            `).join('');
+
+            listEl.classList.remove('hidden');
+        }
+
+        function selectSearchItem(id) {
+            document.getElementById('search-history-id').value = id;
+            document.getElementById('search-autocomplete-list').classList.add('hidden');
+            searchHistory(); 
+        }
+
+        document.addEventListener('click', function(e) {
+            const searchInput = document.getElementById('search-history-id');
+            const autocompleteList = document.getElementById('search-autocomplete-list');
+            if (e.target !== searchInput && !autocompleteList.contains(e.target)) {
+                autocompleteList.classList.add('hidden');
+            }
+        });
+
+        function searchHistory() {
+            const inputId = document.getElementById('search-history-id').value.trim();
+            const contentDiv = document.getElementById('history-content');
+            const notFoundDiv = document.getElementById('history-not-found');
+            
+            if (!inputId) return;
+            const student = appStudents.find(s => s.id === inputId);
+            
+            if (!student) {
+                contentDiv.classList.add('hidden'); notFoundDiv.classList.remove('hidden'); return;
+            }
+
+            notFoundDiv.classList.add('hidden'); contentDiv.classList.remove('hidden');
+            document.getElementById('history-photo').src = student.photoUrl;
+            document.getElementById('history-name').innerText = student.name;
+            document.getElementById('history-info').innerText = `เลขประจำตัว: ${student.id} | เลขที่: ${student.rollNo} | ห้อง: ${student.room}`;
+
+            let allRecordsForDisplay = [...(mockHistoryDb[inputId] || [])];
+            
+            if (currentSessionLogs[inputId]) {
+                const todayStr = new Date().toLocaleDateString('th-TH');
+                Object.keys(currentSessionLogs[inputId]).forEach(pName => {
+                    const l = currentSessionLogs[inputId][pName];
+                    let statusText = l.isLate ? 'สาย' : 'ทันเวลา';
+                    if(l.checkOut && l.isEarly) statusText = 'ออกก่อนกำหนด';
+
+                    allRecordsForDisplay.push({
+                        date: todayStr + ' (วันนี้)', periodName: pName, checkIn: l.checkIn, checkOut: l.checkOut || '-', status: statusText, isLate: l.isLate, isEarly: l.isEarly
+                    });
+                });
+            }
+
+            const tbody = document.getElementById('history-table-body');
+            tbody.innerHTML = '';
+            
+            if(allRecordsForDisplay.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="5" class="px-6 py-4 text-center text-gray-500">ไม่มีประวัติการเข้าเรียน</td></tr>';
+            } else {
+                [...allRecordsForDisplay].reverse().forEach(rec => {
+                    let statusClass = 'bg-green-100 text-green-800';
+                    if (rec.isLate) statusClass = 'bg-yellow-100 text-yellow-800';
+                    if (rec.isEarly) statusClass = 'bg-red-100 text-red-800';
+
+                    tbody.innerHTML += `
+                        <tr class="hover:bg-gray-50">
+                            <td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">${rec.date}</td>
+                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-600">${rec.periodName}</td>
+                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-600">${rec.checkIn}</td>
+                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-600">${rec.checkOut}</td>
+                            <td class="px-6 py-4 whitespace-nowrap text-sm">
+                                <span class="px-3 py-1 inline-flex text-xs leading-5 font-semibold rounded-full ${statusClass}">${rec.status}</span>
+                            </td>
+                        </tr>
+                    `;
+                });
+            }
+        }
+
+        // ==========================================
+        // 7. เรนเดอร์ตารางรายชื่อและปุ่มถ่ายรูป
+        // ==========================================
+        function renderStudentTable() {
+            const tbody = document.getElementById('student-list-table');
+            const filterRoom = document.getElementById('room-filter').value;
+            tbody.innerHTML = '';
+            let filteredStudents = filterRoom !== 'ไม่ระบุ' ? appStudents.filter(s => s.room === filterRoom) : appStudents;
+
+            filteredStudents.forEach((student) => {
+                tbody.innerHTML += `
+                    <tr class="hover:bg-gray-50">
+                        <td class="px-6 py-4 whitespace-nowrap flex flex-col items-center justify-center space-y-2">
+                            <img src="${student.photoUrl}" id="img-student-${student.id}" class="w-12 h-12 rounded-full border border-gray-300 object-cover shadow-sm transition-opacity duration-300">
+                            <label class="cursor-pointer bg-blue-50 text-blue-600 hover:bg-blue-100 text-xs font-bold py-1 px-2 rounded border border-blue-200 transition-colors w-24 text-center">
+                                📷 เปลี่ยนรูป
+                                <input type="file" class="hidden" accept="image/*" capture="environment" onchange="handlePhotoUpload(event, '${student.id}')">
+                            </label>
+                        </td>
+                        <td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-blue-600 align-middle">${student.id}</td>
+                        <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-600 align-middle">${student.rollNo}</td>
+                        <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900 align-middle">${student.name}</td>
+                        <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500 align-middle">${student.room}</td>
+                    </tr>
+                `;
+            });
+        }
+
+        window.onload = () => {
+            fetchStudentsData();
+        };
+    </script>
+</body>
+</html>
