@@ -345,7 +345,6 @@
         // ==========================================
         // 1. การตั้งค่า API (Google Apps Script)
         // ==========================================
-        // นำ URL ของ Web App ที่ได้จาก Google Apps Script มาอัปเดตตรงนี้ครับ
         const API_URL = 'https://script.google.com/macros/s/AKfycbzHKYfG0Z_Fg-J_QHrg36jJt2rbOA3J0bnbYrDLy9vRUIWycfovHOvUnLRSzvEDdY7-/exec'; 
         
         let isAdminLoggedIn = false;
@@ -392,7 +391,7 @@
 
         function generateMockData() {
             appStudents = [];
-            let idCounter = 10001;
+            let idCounter = 47591; // ตั้งค่าเริ่มต้นให้ตรงกับข้อมูลชีท A-H เล็กน้อย
             const bgColors = ['0ea5e9', '10b981', 'f59e0b', '8b5cf6', 'ef4444', 'ec4899']; 
             
             Object.keys(appSchedules).forEach(roomName => {
@@ -401,7 +400,7 @@
                 const rNum = parts[1] || '1';
 
                 for (let num = 1; num <= 5; num++) { 
-                    const prefix = Math.random() > 0.5 ? 'ด.ช.' : 'ด.ญ.';
+                    const prefix = Math.random() > 0.5 ? 'เด็กชาย' : 'เด็กหญิง';
                     const randomColor = bgColors[Math.floor(Math.random() * bgColors.length)];
                     appStudents.push({
                         photoUrl: `https://ui-avatars.com/api/?name=${idCounter}&background=${randomColor}&color=fff&size=150`,
@@ -412,7 +411,7 @@
                         prefix: prefix,
                         firstName: `สมมติที่${idCounter}`,
                         lastName: `นามสกุลทดสอบ`,
-                        name: `${prefix}สมมติที่${idCounter} นามสกุลทดสอบ`,
+                        name: `${prefix}${idCounter} นามสกุลทดสอบ`,
                         room: roomName
                     });
                     idCounter++;
@@ -1010,7 +1009,7 @@
             }
 
             notFoundDiv.classList.add('hidden'); contentDiv.classList.remove('hidden');
-            document.getElementById('history-photo').src = student.photoUrl;
+            document.getElementById('history-photo').src = student.photoUrl || '';
             document.getElementById('history-name').innerText = student.name;
             document.getElementById('history-info').innerText = `เลขประจำตัว: ${student.id} | เลขที่: ${student.rollNo} | ห้อง: ${student.room}`;
 
@@ -1065,10 +1064,15 @@
             let filteredStudents = filterRoom !== 'ไม่ระบุ' ? appStudents.filter(s => s.room === filterRoom) : appStudents;
 
             filteredStudents.forEach((student) => {
+                // แก้ไขการดึงข้อมูลรูปภาพเพื่อให้แสดงผลได้ถูกต้อง
+                const photoHtml = student.photoUrl 
+                    ? `<img src="${student.photoUrl}" id="img-student-${student.id}" class="w-12 h-12 rounded-full border border-gray-300 object-cover shadow-sm transition-opacity duration-300">`
+                    : `<div id="img-student-${student.id}" class="w-12 h-12 rounded-full border border-gray-300 bg-gray-200 flex items-center justify-center text-gray-400 text-xs shadow-sm transition-opacity duration-300">ไม่มีรูป</div>`;
+
                 tbody.innerHTML += `
                     <tr class="hover:bg-gray-50">
                         <td class="px-6 py-4 whitespace-nowrap flex flex-col items-center justify-center space-y-2">
-                            <img src="${student.photoUrl}" id="img-student-${student.id}" class="w-12 h-12 rounded-full border border-gray-300 object-cover shadow-sm transition-opacity duration-300">
+                            ${photoHtml}
                             <label class="cursor-pointer bg-blue-50 text-blue-600 hover:bg-blue-100 text-xs font-bold py-1 px-2 rounded border border-blue-200 transition-colors w-24 text-center">
                                 📷 เปลี่ยนรูป
                                 <input type="file" class="hidden" accept="image/*" capture="environment" onchange="handlePhotoUpload(event, '${student.id}')">
