@@ -3,11 +3,14 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>ระบบเช็คชื่อนักเรียน QR Code</title>
+    <title>ระบบเช็คชื่อนักเรียน อัจฉริยะ</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
     <script src="https://unpkg.com/html5-qrcode" type="text/javascript"></script>
+    <!-- เพิ่มไลบรารี Face-api.js สำหรับประมวลผลใบหน้า -->
+    <script defer src="https://cdn.jsdelivr.net/npm/@vladmandic/face-api@1.7.12/dist/face-api.min.js"></script>
+    
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Prompt:wght@300;400;500;600;700&display=swap');
         body { font-family: 'Prompt', sans-serif; background-color: #f3f4f6; }
@@ -30,11 +33,11 @@
         <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
             <div class="flex flex-col md:flex-row justify-between h-auto md:h-16 py-2 md:py-0">
                 <div class="flex items-center justify-center mb-2 md:mb-0">
-                    <span class="font-bold text-xl">QR Check-In System</span>
+                    <span class="font-bold text-xl">Smart Check-In</span>
                 </div>
                 
                 <div class="flex flex-wrap justify-center space-x-1 sm:space-x-4 items-center">
-                    <button onclick="requestSwitchTab('scan')" class="hover:bg-blue-700 px-3 py-2 rounded-md font-medium text-sm sm:text-base bg-blue-700">สแกน QR</button>
+                    <button onclick="requestSwitchTab('scan')" class="hover:bg-blue-700 px-3 py-2 rounded-md font-medium text-sm sm:text-base bg-blue-700">จุดสแกนเข้าเรียน</button>
                     
                     <div id="admin-menus" class="hidden flex flex-wrap justify-center space-x-1 sm:space-x-4 items-center">
                         <button onclick="executeSwitchTab('dashboard')" class="hover:bg-blue-700 px-3 py-2 rounded-md font-medium text-sm sm:text-base">แดชบอร์ด</button>
@@ -52,16 +55,35 @@
 
     <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
 
-        <!-- TAB: สแกน QR -->
+        <!-- TAB: สแกน -->
         <div id="scan-tab" class="tab-content active">
             <div class="bg-white rounded-lg shadow-lg p-6 max-w-xl mx-auto text-center">
-                <h2 class="text-2xl font-bold mb-2">จุดสแกนเช็คชื่อ</h2>
+                
+                <!-- สวิตช์สลับโหมดการสแกน -->
+                <div class="flex justify-center mb-6 bg-gray-100 p-1 rounded-lg">
+                    <button id="btn-mode-qr" onclick="setScannerMode('qr')" class="flex-1 py-2 px-4 rounded-md font-bold text-sm bg-white shadow-sm text-blue-600 transition-all">📱 สแกน QR Code</button>
+                    <button id="btn-mode-face" onclick="setScannerMode('face')" class="flex-1 py-2 px-4 rounded-md font-bold text-sm text-gray-500 hover:text-gray-700 transition-all">🤖 สแกนใบหน้า (AI)</button>
+                </div>
+
                 <div class="mb-4 bg-green-50 text-green-700 px-4 py-2 rounded-md text-sm font-medium border border-green-200">
                     ✨ โหมดสแกนอัตโนมัติ: ระบบจะเทียบเวลาปัจจุบันกับตารางของแต่ละห้องให้อัตโนมัติ
                 </div>
 
-                <div class="mb-4 bg-black rounded-lg overflow-hidden relative shadow-inner">
+                <!-- คอนเทนเนอร์กล้อง QR Code -->
+                <div id="qr-container" class="mb-4 bg-black rounded-lg overflow-hidden relative shadow-inner block">
                     <div id="reader" style="width: 100%;"></div>
+                </div>
+
+                <!-- คอนเทนเนอร์กล้อง Face Scan -->
+                <div id="face-container" class="mb-4 bg-black rounded-lg overflow-hidden relative shadow-inner hidden">
+                    <video id="face-video" autoplay muted playsinline class="w-full h-auto max-h-[400px] object-cover"></video>
+                    <!-- แคนวาสสำหรับวาดกรอบใบหน้าทับวิดีโอ -->
+                    <canvas id="face-canvas" class="absolute top-0 left-0 w-full h-full"></canvas>
+                    
+                    <div id="face-loading-overlay" class="absolute inset-0 bg-black bg-opacity-70 flex flex-col items-center justify-center text-white z-10">
+                        <svg class="animate-spin h-10 w-10 mb-2 text-blue-500" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
+                        <p class="font-medium">กำลังโหลดโมเดล AI กรุณารอสักครู่...</p>
+                    </div>
                 </div>
 
                 <div class="mb-4">
@@ -100,10 +122,8 @@
                     <div class="flex items-center bg-white px-4 py-2 rounded-lg shadow">
                         <label class="mr-2 text-sm font-medium text-gray-700">กรองตามห้อง:</label>
                         <select id="dashboard-room-filter" onchange="updateDashboard()" class="border border-gray-300 rounded-md px-3 py-1 focus:outline-none focus:ring-2 focus:ring-blue-500">
-                            <!-- สร้างโดย JS -->
                         </select>
                     </div>
-                    <!-- ปุ่มล้างประวัติการสแกนในกรณีผิดพลาด -->
                     <button onclick="clearTodayLogs()" class="bg-red-100 text-red-700 hover:bg-red-200 px-3 py-2 rounded-lg text-sm font-bold border border-red-300 transition-colors">🗑️ รีเซ็ตสแกนวันนี้</button>
                 </div>
             </div>
@@ -165,7 +185,6 @@
                 </h2>
                 <div>
                     <select id="room-filter" onchange="renderStudentTable()" class="border border-gray-300 rounded px-2 py-1">
-                        <!-- สร้างโดย JS -->
                     </select>
                 </div>
             </div>
@@ -183,7 +202,6 @@
                         </tr>
                     </thead>
                     <tbody id="student-list-table" class="bg-white divide-y divide-gray-200">
-                        <!-- Rendered by JS -->
                     </tbody>
                 </table>
             </div>
@@ -199,7 +217,6 @@
                     <input type="text" id="search-history-id" class="w-full border border-gray-300 rounded-md px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500" placeholder="พิมพ์เลขประจำตัว หรือ ชื่อนักเรียน (เช่น 47591)..." oninput="handleSearchInput()" onfocus="handleSearchInput()">
                     
                     <ul id="search-autocomplete-list" class="absolute z-20 w-full bg-white border border-gray-200 rounded-md shadow-lg max-h-60 overflow-y-auto hidden mt-1">
-                        <!-- สร้างโดย JS -->
                     </ul>
                 </div>
                 <button onclick="searchHistory()" class="w-full md:w-auto bg-blue-600 text-white px-6 py-2 rounded-md hover:bg-blue-700 font-medium mt-auto">ค้นหาประวัติ</button>
@@ -229,7 +246,6 @@
                                 </tr>
                             </thead>
                             <tbody id="history-table-body" class="bg-white divide-y divide-gray-200">
-                                <!-- Rendered by JS -->
                             </tbody>
                         </table>
                     </div>
@@ -258,7 +274,6 @@
                     </div>
                     <div class="flex-1 overflow-y-auto">
                         <ul id="settings-room-list" class="divide-y divide-gray-100 cursor-pointer">
-                            <!-- สร้างโดย JS -->
                         </ul>
                     </div>
                 </div>
@@ -270,7 +285,6 @@
                         <div class="flex items-center space-x-2 text-sm">
                             <span class="text-gray-600">คัดลอกคาบจาก:</span>
                             <select id="copy-schedule-select" class="border border-gray-300 rounded px-2 py-1 focus:outline-none">
-                                <!-- สร้างโดย JS -->
                             </select>
                             <button onclick="copySchedule()" class="bg-gray-200 hover:bg-gray-300 text-gray-800 px-3 py-1 rounded font-bold transition-colors">คัดลอก</button>
                         </div>
@@ -312,7 +326,6 @@
 
                     <div class="flex-1 overflow-y-auto p-4">
                         <ul id="settings-time-list" class="space-y-2">
-                            <!-- สร้างโดย JS -->
                         </ul>
                     </div>
                 </div>
@@ -367,7 +380,11 @@
         
         let isAdminLoggedIn = false;
         let appStudents = []; 
-        let html5QrCode = null;
+        let currentScannerMode = 'qr'; // โหมดเริ่มต้น
+
+        let html5QrCode = null; // ตัวแปรสำหรับ QR Scanner
+        let faceVideo = null;   // ตัวแปรสำหรับ Face Scanner
+        let faceDetectionInterval = null;
 
         let appSchedules = JSON.parse(localStorage.getItem('appSchedulesV2')) || {};
         let selectedRoomSetting = '';
@@ -465,9 +482,47 @@
             renderSettingsUI();
             renderStudentTable();
             updateDashboard();
-            initCameraScanner();
+            initCameraScanner(); // เริ่มโหมด QR เป็นค่าเริ่มต้น
         }
 
+        // ==========================================
+        // ระบบสลับโหมดสแกนเนอร์ (QR / Face API)
+        // ==========================================
+        function setScannerMode(mode) {
+            currentScannerMode = mode;
+            const btnQr = document.getElementById('btn-mode-qr');
+            const btnFace = document.getElementById('btn-mode-face');
+            const qrContainer = document.getElementById('qr-container');
+            const faceContainer = document.getElementById('face-container');
+
+            if(mode === 'qr') {
+                // UI Toggle
+                btnQr.className = "flex-1 py-2 px-4 rounded-md font-bold text-sm bg-white shadow-sm text-blue-600 transition-all";
+                btnFace.className = "flex-1 py-2 px-4 rounded-md font-bold text-sm text-gray-500 hover:text-gray-700 transition-all";
+                qrContainer.classList.remove('hidden');
+                qrContainer.classList.add('block');
+                faceContainer.classList.remove('block');
+                faceContainer.classList.add('hidden');
+                
+                stopFaceScanner();
+                initCameraScanner();
+            } else {
+                // UI Toggle
+                btnFace.className = "flex-1 py-2 px-4 rounded-md font-bold text-sm bg-white shadow-sm text-blue-600 transition-all";
+                btnQr.className = "flex-1 py-2 px-4 rounded-md font-bold text-sm text-gray-500 hover:text-gray-700 transition-all";
+                faceContainer.classList.remove('hidden');
+                faceContainer.classList.add('block');
+                qrContainer.classList.remove('block');
+                qrContainer.classList.add('hidden');
+                
+                if (html5QrCode) {
+                    html5QrCode.stop().then(() => { html5QrCode.clear(); html5QrCode = null; }).catch(err => console.log(err));
+                }
+                initFaceScanner();
+            }
+        }
+
+        // --- ระบบสแกน QR Code ---
         function initCameraScanner() {
             if (html5QrCode) return;
             html5QrCode = new Html5Qrcode("reader");
@@ -482,10 +537,90 @@
                 },
                 (errorMessage) => {}
             ).catch(err => {
-                console.warn("ไม่สามารถเปิดกล้องได้โดยตรง:", err);
+                console.warn("ไม่สามารถเปิดกล้องได้:", err);
             });
         }
 
+        // --- ระบบสแกนใบหน้า Prototype (Face-api.js) ---
+        let faceModelsLoaded = false;
+        async function initFaceScanner() {
+            faceVideo = document.getElementById('face-video');
+            const loadingOverlay = document.getElementById('face-loading-overlay');
+            
+            // โหลดโมเดลผ่าน CDN สำหรับ Prototype
+            if(!faceModelsLoaded) {
+                loadingOverlay.classList.remove('hidden');
+                const MODEL_URL = 'https://cdn.jsdelivr.net/npm/@vladmandic/face-api/model/';
+                await Promise.all([
+                    faceapi.nets.tinyFaceDetector.loadFromUri(MODEL_URL),
+                    faceapi.nets.faceLandmark68Net.loadFromUri(MODEL_URL),
+                    faceapi.nets.faceRecognitionNet.loadFromUri(MODEL_URL)
+                ]);
+                faceModelsLoaded = true;
+                loadingOverlay.classList.add('hidden');
+            }
+
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } });
+                faceVideo.srcObject = stream;
+            } catch (err) {
+                console.error("เข้าถึงกล้องสำหรับสแกนใบหน้าไม่ได้:", err);
+                alert("ไม่สามารถเปิดกล้องสแกนใบหน้าได้ กรุณาอนุญาตให้บราว์เซอร์เข้าถึงกล้อง");
+            }
+        }
+
+        document.getElementById('face-video').addEventListener('play', () => {
+            const canvas = document.getElementById('face-canvas');
+            const displaySize = { width: faceVideo.videoWidth, height: faceVideo.videoHeight };
+            faceapi.matchDimensions(canvas, displaySize);
+            
+            faceDetectionInterval = setInterval(async () => {
+                if(currentScannerMode !== 'face') return;
+                
+                // ตรวจจับใบหน้า
+                const detections = await faceapi.detectAllFaces(faceVideo, new faceapi.TinyFaceDetectorOptions()).withFaceLandmarks().withFaceDescriptors();
+                const resizedDetections = faceapi.resizeResults(detections, displaySize);
+                
+                // วาดกรอบสี่เหลี่ยมบนแคนวาส
+                const ctx = canvas.getContext('2d');
+                ctx.clearRect(0, 0, canvas.width, canvas.height);
+                faceapi.draw.drawDetections(canvas, resizedDetections);
+
+                // ระบบจำลอง (Prototype) การสแกนเข้าอัตโนมัติเมื่อเจอใบหน้า (สุ่มนักเรียนมาเช็คชื่อให้ดู Flow)
+                // *ในระบบจริง AI จะนำ Descriptor ไปเทียบกับฐานข้อมูลเพื่อหารหัสนักเรียน*
+                if(detections.length > 0) {
+                    if (!window.simulatedFaceScanCooldown) {
+                        window.simulatedFaceScanCooldown = true;
+                        
+                        ctx.fillStyle = "rgba(0, 255, 0, 0.5)";
+                        ctx.fillRect(resizedDetections[0].detection.box.x, resizedDetections[0].detection.box.y, resizedDetections[0].detection.box.width, resizedDetections[0].detection.box.height);
+                        
+                        // สุ่มนักเรียน 1 คนมาจำลองว่า AI จับได้คนนี้
+                        if(appStudents.length > 0) {
+                            const randomStudent = appStudents[Math.floor(Math.random() * appStudents.length)];
+                            playBeep('success');
+                            processScannedId(randomStudent.id);
+                        }
+                        
+                        // หน่วงเวลาไม่ให้สแกนรัวๆ
+                        setTimeout(() => { window.simulatedFaceScanCooldown = false; }, 3000);
+                    }
+                }
+            }, 150);
+        });
+
+        function stopFaceScanner() {
+            if(faceDetectionInterval) clearInterval(faceDetectionInterval);
+            if(faceVideo && faceVideo.srcObject) {
+                faceVideo.srcObject.getTracks().forEach(track => track.stop());
+            }
+            const canvas = document.getElementById('face-canvas');
+            if(canvas) canvas.getContext('2d').clearRect(0, 0, canvas.width, canvas.height);
+        }
+
+        // ==========================================
+        // อัปโหลดรูปภาพผ่าน API
+        // ==========================================
         async function handlePhotoUpload(event, studentId) {
             const file = event.target.files[0];
             if (!file) return;
@@ -546,6 +681,9 @@
             reader.readAsDataURL(file);
         }
 
+        // ==========================================
+        // UI และ Logic หน้าตั้งค่า
+        // ==========================================
         function renderSettingsUI() {
             const roomList = document.getElementById('settings-room-list');
             roomList.innerHTML = '';
@@ -911,7 +1049,6 @@
             statusEl.innerText = `สถานะ: ${actionType} (${statusText})`;
             timeEl.innerText = `เวลาสแกน: ${currentTime}`;
 
-            // ส่งข้อมูลบันทึกลง Google Sheets ทันที (Background Sync)
             if (API_URL) {
                 try {
                     const todayStr = new Date().toLocaleDateString('th-TH');
