@@ -186,7 +186,7 @@
             <div class="bg-white rounded-lg shadow p-6 mb-8 flex flex-col md:flex-row items-center space-y-4 md:space-y-0 md:space-x-4">
                 <div class="flex-1 w-full relative">
                     <label class="block text-sm font-medium text-gray-700 mb-1">ค้นหาจากเลขประจำตัว หรือ ชื่อ-สกุล</label>
-                    <input type="text" id="search-history-id" class="w-full border border-gray-300 rounded-md px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500" placeholder="พิมพ์เลขประจำตัว หรือ ชื่อนักเรียน (เช่น 10001)..." oninput="handleSearchInput()" onfocus="handleSearchInput()">
+                    <input type="text" id="search-history-id" class="w-full border border-gray-300 rounded-md px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500" placeholder="พิมพ์เลขประจำตัว หรือ ชื่อนักเรียน (เช่น 47591)..." oninput="handleSearchInput()" onfocus="handleSearchInput()">
                     
                     <ul id="search-autocomplete-list" class="absolute z-20 w-full bg-white border border-gray-200 rounded-md shadow-lg max-h-60 overflow-y-auto hidden mt-1">
                         <!-- สร้างโดย JS -->
@@ -350,23 +350,14 @@
         let isAdminLoggedIn = false;
         let appStudents = []; 
 
-        let appSchedules = JSON.parse(localStorage.getItem('appSchedulesV2'));
-        if (!appSchedules || Object.keys(appSchedules).length === 0) {
-            appSchedules = {
-                'ม.1/1': [
-                    { name: 'คาบ 1', checkIn: '08:30', checkOut: '09:30' },
-                    { name: 'คาบ 2', checkIn: '09:30', checkOut: '10:30' }
-                ]
-            };
-            localStorage.setItem('appSchedulesV2', JSON.stringify(appSchedules));
-        }
+        let appSchedules = JSON.parse(localStorage.getItem('appSchedulesV2')) || {};
 
-        let selectedRoomSetting = Object.keys(appSchedules)[0] || '';
+        let selectedRoomSetting = '';
         const mockHistoryDb = {}; 
         const currentSessionLogs = {}; 
 
         // ==========================================
-        // 2. ฟังก์ชันโหลดข้อมูลนักเรียน
+        // 2. ฟังก์ชันโหลดข้อมูลนักเรียน และแยกระดับชั้น
         // ==========================================
         async function fetchStudentsData() {
             if (API_URL) {
@@ -375,6 +366,7 @@
                     const result = await response.json();
                     if(result.status === 'success') {
                         appStudents = result.data;
+                        extractAndInitializeRooms(); // สกัดห้องอัตโนมัติจากฐานข้อมูล
                         initAppData();
                     } else {
                         alert('เกิดข้อผิดพลาดในการโหลดข้อมูล: ' + result.message);
@@ -389,17 +381,40 @@
             }
         }
 
+        function extractAndInitializeRooms() {
+            let hasNewRooms = false;
+            // อ่านชื่อห้องทั้งหมดที่มีในข้อมูลนักเรียน
+            const uniqueRooms = [...new Set(appStudents.map(s => s.room))];
+            
+            uniqueRooms.forEach(room => {
+                if (room !== 'ไม่ระบุ' && !appSchedules[room]) {
+                    appSchedules[room] = []; 
+                    hasNewRooms = true;
+                }
+            });
+
+            if (Object.keys(appSchedules).length > 0 && !selectedRoomSetting) {
+                selectedRoomSetting = Object.keys(appSchedules)[0];
+            }
+
+            if (hasNewRooms) {
+                localStorage.setItem('appSchedulesV2', JSON.stringify(appSchedules));
+            }
+        }
+
         function generateMockData() {
             appStudents = [];
-            let idCounter = 47591; // ตั้งค่าเริ่มต้นให้ตรงกับข้อมูลชีท A-H เล็กน้อย
+            let idCounter = 47591; 
             const bgColors = ['0ea5e9', '10b981', 'f59e0b', '8b5cf6', 'ef4444', 'ec4899']; 
             
-            Object.keys(appSchedules).forEach(roomName => {
+            // จำลองโครงสร้างห้อง
+            const mockRooms = ['ม.1/1', 'ม.1/2', 'ม.2/1', 'ม.5/1'];
+            mockRooms.forEach(roomName => {
                 const parts = roomName.split('/');
-                const level = parts[0] || 'ม.1';
-                const rNum = parts[1] || '1';
+                const level = parts[0];
+                const rNum = parts[1];
 
-                for (let num = 1; num <= 5; num++) { 
+                for (let num = 1; num <= 3; num++) { 
                     const prefix = Math.random() > 0.5 ? 'เด็กชาย' : 'เด็กหญิง';
                     const randomColor = bgColors[Math.floor(Math.random() * bgColors.length)];
                     appStudents.push({
@@ -417,6 +432,7 @@
                     idCounter++;
                 }
             });
+            extractAndInitializeRooms();
             initAppData();
         }
 
@@ -508,7 +524,7 @@
             const roomList = document.getElementById('settings-room-list');
             roomList.innerHTML = '';
             
-            Object.keys(appSchedules).forEach((room) => {
+            Object.keys(appSchedules).sort().forEach((room) => {
                 const isActive = room === selectedRoomSetting ? 'active' : '';
                 roomList.innerHTML += `
                     <li onclick="selectSettingRoom('${room}')" class="room-item ${isActive} px-4 py-3 flex justify-between items-center hover:bg-blue-50 transition-colors border-b border-gray-100 last:border-0">
@@ -525,7 +541,7 @@
             let htmlOptions = '<option value="ไม่ระบุ">ไม่ระบุ (แสดงทั้งหมด)</option>';
             let copyOptions = '';
             
-            Object.keys(appSchedules).forEach(room => {
+            Object.keys(appSchedules).sort().forEach(room => {
                 htmlOptions += `<option value="${room}">${room}</option>`;
                 if(room !== selectedRoomSetting) {
                     copyOptions += `<option value="${room}">${room}</option>`;
@@ -1064,7 +1080,6 @@
             let filteredStudents = filterRoom !== 'ไม่ระบุ' ? appStudents.filter(s => s.room === filterRoom) : appStudents;
 
             filteredStudents.forEach((student) => {
-                // แก้ไขการดึงข้อมูลรูปภาพเพื่อให้แสดงผลได้ถูกต้อง
                 const photoHtml = student.photoUrl 
                     ? `<img src="${student.photoUrl}" id="img-student-${student.id}" class="w-12 h-12 rounded-full border border-gray-300 object-cover shadow-sm transition-opacity duration-300">`
                     : `<div id="img-student-${student.id}" class="w-12 h-12 rounded-full border border-gray-300 bg-gray-200 flex items-center justify-center text-gray-400 text-xs shadow-sm transition-opacity duration-300">ไม่มีรูป</div>`;
