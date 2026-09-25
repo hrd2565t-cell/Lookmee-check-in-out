@@ -6,7 +6,6 @@
     <title>ระบบเช็คชื่อนักเรียน QR Code</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-    <!-- ไลบรารีสร้าง QR Code และสแกนกล้อง -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
     <script src="https://unpkg.com/html5-qrcode" type="text/javascript"></script>
     <style>
@@ -53,7 +52,7 @@
 
     <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
 
-        <!-- TAB: สแกน QR (พร้อมกล้องเว็บแคมจริง) -->
+        <!-- TAB: สแกน QR -->
         <div id="scan-tab" class="tab-content active">
             <div class="bg-white rounded-lg shadow-lg p-6 max-w-xl mx-auto text-center">
                 <h2 class="text-2xl font-bold mb-2">จุดสแกนเช็คชื่อ</h2>
@@ -61,7 +60,6 @@
                     ✨ โหมดสแกนอัตโนมัติ: ระบบจะเทียบเวลาปัจจุบันกับตารางของแต่ละห้องให้อัตโนมัติ
                 </div>
 
-                <!-- พื้นที่กล้องสแกนจริง -->
                 <div class="mb-4 bg-black rounded-lg overflow-hidden relative shadow-inner">
                     <div id="reader" style="width: 100%;"></div>
                 </div>
@@ -98,11 +96,15 @@
         <div id="dashboard-tab" class="tab-content">
             <div class="flex flex-col md:flex-row justify-between items-center mb-6">
                 <h2 class="text-2xl font-bold mb-4 md:mb-0">สรุปผลการเช็คชื่อรายวัน</h2>
-                <div class="flex items-center bg-white px-4 py-2 rounded-lg shadow">
-                    <label class="mr-2 text-sm font-medium text-gray-700">กรองตามห้อง:</label>
-                    <select id="dashboard-room-filter" onchange="updateDashboard()" class="border border-gray-300 rounded-md px-3 py-1 focus:outline-none focus:ring-2 focus:ring-blue-500">
-                        <!-- สร้างโดย JS -->
-                    </select>
+                <div class="flex items-center space-x-3">
+                    <div class="flex items-center bg-white px-4 py-2 rounded-lg shadow">
+                        <label class="mr-2 text-sm font-medium text-gray-700">กรองตามห้อง:</label>
+                        <select id="dashboard-room-filter" onchange="updateDashboard()" class="border border-gray-300 rounded-md px-3 py-1 focus:outline-none focus:ring-2 focus:ring-blue-500">
+                            <!-- สร้างโดย JS -->
+                        </select>
+                    </div>
+                    <!-- ปุ่มล้างประวัติการสแกนในกรณีผิดพลาด -->
+                    <button onclick="clearTodayLogs()" class="bg-red-100 text-red-700 hover:bg-red-200 px-3 py-2 rounded-lg text-sm font-bold border border-red-300 transition-colors">🗑️ รีเซ็ตสแกนวันนี้</button>
                 </div>
             </div>
             
@@ -154,7 +156,7 @@
             </div>
         </div>
 
-        <!-- TAB: รายชื่อนักเรียน (พร้อมปุ่มดู QR Code ส่วนตัว) -->
+        <!-- TAB: รายชื่อนักเรียน -->
         <div id="students-tab" class="tab-content">
             <div class="flex flex-col md:flex-row justify-between items-center mb-6">
                 <h2 class="text-2xl font-bold mb-4 md:mb-0 flex items-center">
@@ -365,7 +367,7 @@
         
         let isAdminLoggedIn = false;
         let appStudents = []; 
-        let html5QrCode = null; // ตัวแปรควบคุมกล้องสแกน
+        let html5QrCode = null;
 
         let appSchedules = JSON.parse(localStorage.getItem('appSchedulesV2')) || {};
         let selectedRoomSetting = '';
@@ -463,12 +465,9 @@
             renderSettingsUI();
             renderStudentTable();
             updateDashboard();
-            initCameraScanner(); // เริ่มต้นเปิดกล้องสแกน
+            initCameraScanner();
         }
 
-        // ==========================================
-        // ระบบเปิดกล้องสแกน QR Code (Html5Qrcode)
-        // ==========================================
         function initCameraScanner() {
             if (html5QrCode) return;
             html5QrCode = new Html5Qrcode("reader");
@@ -478,13 +477,10 @@
                 { facingMode: "environment" }, 
                 config, 
                 (decodedText) => {
-                    // เมื่อสแกน QR Code ได้ นำรหัสไปประมวลผลทันที
                     document.getElementById('manual-student-id').value = decodedText.trim();
                     processScannedId(decodedText.trim());
                 },
-                (errorMessage) => {
-                    // ปล่อยผ่านกรณีสแกนหา QR ไม่เจอในแต่ละเฟรม
-                }
+                (errorMessage) => {}
             ).catch(err => {
                 console.warn("ไม่สามารถเปิดกล้องได้โดยตรง:", err);
             });
@@ -825,7 +821,7 @@
             inputEl.focus();
         }
 
-        function processScannedId(inputId) {
+        async function processScannedId(inputId) {
             const student = appStudents.find(s => s.id === inputId);
             
             const resultDiv = document.getElementById('scan-result');
@@ -914,6 +910,39 @@
             periodEl.innerText = `คาบเรียน: ${activePeriod.name} (${activePeriod.checkIn} - ${activePeriod.checkOut})`;
             statusEl.innerText = `สถานะ: ${actionType} (${statusText})`;
             timeEl.innerText = `เวลาสแกน: ${currentTime}`;
+
+            // ส่งข้อมูลบันทึกลง Google Sheets ทันที (Background Sync)
+            if (API_URL) {
+                try {
+                    const todayStr = new Date().toLocaleDateString('th-TH');
+                    await fetch(API_URL, {
+                        method: 'POST',
+                        body: JSON.stringify({
+                            action: 'saveLog',
+                            log: {
+                                date: todayStr,
+                                id: student.id,
+                                name: student.name,
+                                room: student.room,
+                                period: activePeriod.name,
+                                checkIn: currentSessionLogs[inputId][activePeriod.name].checkIn,
+                                checkOut: currentSessionLogs[inputId][activePeriod.name].checkOut,
+                                status: statusText
+                            }
+                        })
+                    });
+                } catch (e) {
+                    console.error("บันทึก Log ลง Sheets ไม่สำเร็จ:", e);
+                }
+            }
+        }
+
+        function clearTodayLogs() {
+            if (confirm("คุณต้องการรีเซ็ตข้อมูลการสแกนทั้งหมดของวันนี้ใช่หรือไม่?")) {
+                Object.keys(currentSessionLogs).forEach(k => delete currentSessionLogs[k]);
+                updateDashboard();
+                alert("รีเซ็ตข้อมูลสำเร็จเรียบร้อยครับ");
+            }
         }
 
         function updateDashboard() {
@@ -1096,9 +1125,6 @@
             }
         }
 
-        // ==========================================
-        // ฟังก์ชันสร้างและดู QR Code ของนักเรียนแต่ละคน
-        // ==========================================
         function showStudentQRCode(id, name) {
             document.getElementById('modal-student-name').innerText = name;
             document.getElementById('modal-student-id').innerText = `เลขประจำตัว: ${id}`;
@@ -1123,9 +1149,6 @@
             document.getElementById('qr-modal').classList.add('hidden');
         }
 
-        // ==========================================
-        // 7. เรนเดอร์ตารางรายชื่อพร้อมปุ่มดู QR Code
-        // ==========================================
         function renderStudentTable() {
             const tbody = document.getElementById('student-list-table');
             const filterRoom = document.getElementById('room-filter').value;
