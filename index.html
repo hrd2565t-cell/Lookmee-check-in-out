@@ -353,6 +353,11 @@
             <h3 class="text-xl font-bold mb-2">ลงทะเบียนใบหน้า</h3>
             <p id="enroll-student-name" class="text-gray-600 mb-4 text-lg font-medium"></p>
             
+            <!-- ปุ่มสลับกล้องในหน้าลงทะเบียน -->
+            <button onclick="toggleEnrollCamera()" class="mb-4 w-full bg-gray-200 hover:bg-gray-300 text-gray-800 font-bold py-2 px-4 rounded shadow-sm border border-gray-300 flex items-center justify-center transition-colors text-sm">
+                🔄 สลับกล้อง (หน้า/หลัง)
+            </button>
+
             <div class="relative bg-black rounded-lg overflow-hidden mb-4 flex justify-center" style="min-height: 250px;">
                 <video id="enroll-video" autoplay muted playsinline class="w-full h-auto object-cover max-h-[300px]"></video>
                 <canvas id="enroll-canvas" class="absolute top-0 left-0 w-full h-full"></canvas>
@@ -401,14 +406,14 @@
         let isAdminLoggedIn = false;
         let appStudents = []; 
         let currentScannerMode = 'qr'; 
-        let currentFacingMode = 'environment'; // 'environment' = กล้องหลัง, 'user' = กล้องหน้า
+        let currentFacingMode = 'environment'; 
+        let currentEnrollFacingMode = 'user'; // กล้องหน้าเป็นค่าเริ่มต้นสำหรับลงทะเบียนใบหน้า
 
         let html5QrCode = null; 
         let faceVideo = null;   
         let faceDetectionInterval = null;
-        let faceMatcher = null; // ตัวเทียบเคียงใบหน้าจริง
+        let faceMatcher = null; 
 
-        // ตัวแปรสำหรับระบบลงทะเบียน
         let enrollVideo = null;
         let enrollInterval = null;
         let currentEnrollId = null;
@@ -515,7 +520,7 @@
             renderSettingsUI();
             renderStudentTable();
             updateDashboard();
-            initFaceMatcher(); // เตรียมฐานข้อมูล AI ใบหน้า
+            initFaceMatcher(); 
             initCameraScanner(); 
         }
 
@@ -537,7 +542,6 @@
             });
             
             if(labeledDescriptors.length > 0) {
-                // ตัวเลข 0.45 คือความเข้มงวด (0.4-0.5 คือค่าที่เหมาะสม)
                 faceMatcher = new faceapi.FaceMatcher(labeledDescriptors, 0.45); 
             } else {
                 faceMatcher = null;
@@ -659,23 +663,20 @@
                     
                     if (!window.simulatedFaceScanCooldown) {
                         if (faceMatcher) {
-                            // เทียบใบหน้าที่เจอกับฐานข้อมูล
                             const bestMatch = faceMatcher.findBestMatch(resizedDetections[0].descriptor);
                             
                             if (bestMatch.label !== 'unknown') {
-                                // เจอคนที่ตรงกัน
                                 window.simulatedFaceScanCooldown = true;
-                                ctx.strokeStyle = "#10B981"; // กรอบสีเขียว
+                                ctx.strokeStyle = "#10B981"; 
                                 ctx.lineWidth = 4;
                                 ctx.strokeRect(box.x, box.y, box.width, box.height);
                                 
                                 playBeep('success');
-                                processScannedId(bestMatch.label); // bestMatch.label คือรหัสประจำตัวเด็ก
+                                processScannedId(bestMatch.label); 
                                 
                                 setTimeout(() => { window.simulatedFaceScanCooldown = false; }, 3000);
                             } else {
-                                // หน้าไม่คุ้น หรือยังไม่เคยลงทะเบียน
-                                ctx.strokeStyle = "#EF4444"; // กรอบสีแดง
+                                ctx.strokeStyle = "#EF4444"; 
                                 ctx.lineWidth = 3;
                                 ctx.strokeRect(box.x, box.y, box.width, box.height);
                                 ctx.fillStyle = "#EF4444";
@@ -683,8 +684,7 @@
                                 ctx.fillText("ไม่พบข้อมูล/ไม่คุ้นหน้า", box.x, box.y - 10);
                             }
                         } else {
-                            // ไม่มีใครเคยลงทะเบียนหน้าไว้เลย
-                            ctx.strokeStyle = "#F59E0B"; // กรอบเหลือง
+                            ctx.strokeStyle = "#F59E0B"; 
                             ctx.lineWidth = 3;
                             ctx.strokeRect(box.x, box.y, box.width, box.height);
                             ctx.fillStyle = "#F59E0B";
@@ -732,10 +732,16 @@
                 faceModelsLoaded = true;
             }
 
+            startEnrollCamera();
+        }
+
+        async function startEnrollCamera() {
             enrollVideo = document.getElementById('enroll-video');
             try {
-                // ใช้กล้องเดียวกับที่กำลังใช้งานอยู่
-                const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: currentFacingMode } }); 
+                if(enrollVideo.srcObject) {
+                    enrollVideo.srcObject.getTracks().forEach(t => t.stop());
+                }
+                const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: currentEnrollFacingMode } }); 
                 enrollVideo.srcObject = stream;
             } catch (err) {
                 alert("ไม่สามารถเปิดกล้องได้ กรุณาอนุญาตสิทธิ์กล้อง");
@@ -743,11 +749,18 @@
             }
         }
 
+        async function toggleEnrollCamera() {
+            currentEnrollFacingMode = currentEnrollFacingMode === "user" ? "environment" : "user";
+            await startEnrollCamera();
+        }
+
         document.getElementById('enroll-video').addEventListener('play', () => {
             const canvas = document.getElementById('enroll-canvas');
             const displaySize = { width: enrollVideo.clientWidth, height: enrollVideo.clientHeight };
             faceapi.matchDimensions(canvas, displaySize);
             
+            if(enrollInterval) clearInterval(enrollInterval);
+
             enrollInterval = setInterval(async () => {
                 const detections = await faceapi.detectAllFaces(enrollVideo, new faceapi.TinyFaceDetectorOptions()).withFaceLandmarks().withFaceDescriptors();
                 const resizedDetections = faceapi.resizeResults(detections, displaySize);
@@ -827,7 +840,7 @@
                 }
             }
             
-            initFaceMatcher(); // รีเซ็ตฐานข้อมูล AI ใหม่ให้จำหน้าเด็กคนนี้ได้ทันที
+            initFaceMatcher(); 
             closeEnrollModal();
         }
 
@@ -874,7 +887,7 @@
         }
 
         // ==========================================
-        // 3. UI และ Logic (แดชบอร์ด/ประวัติ)
+        // UI และ Logic (แดชบอร์ด/ประวัติ)
         // ==========================================
         const CORRECT_PIN = '336699';
 
@@ -1271,9 +1284,6 @@
 
         function closeQrModal() { document.getElementById('qr-modal').classList.add('hidden'); }
 
-        // ==========================================
-        // ตารางนักเรียน พร้อมฟีเจอร์ลงทะเบียนใบหน้า
-        // ==========================================
         function renderStudentTable() {
             const tbody = document.getElementById('student-list-table');
             const filterRoom = document.getElementById('room-filter').value;
@@ -1288,7 +1298,6 @@
                     ? `<img src="${student.photoUrl}" id="img-student-${student.id}" class="w-12 h-12 rounded-full border border-gray-300 object-cover shadow-sm transition-opacity duration-300">`
                     : `<div id="img-student-${student.id}" class="w-12 h-12 rounded-full border border-gray-300 bg-gray-200 flex items-center justify-center text-gray-400 text-xs shadow-sm transition-opacity duration-300">ไม่มีรูป</div>`;
                 
-                // ตรวจสอบว่ามีข้อมูลใบหน้า (อัตลักษณ์) ในระบบแล้วหรือยัง
                 const hasFace = student.faceData && student.faceData.trim() !== '';
                 const faceHtml = hasFace 
                     ? `<span class="text-green-600 font-bold text-xs block mb-1">✅ มีฐานข้อมูล</span>
