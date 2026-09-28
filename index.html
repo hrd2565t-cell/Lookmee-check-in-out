@@ -69,7 +69,6 @@
                     </div>
                 </div>
 
-                <!-- ปุ่มสลับกล้อง หน้า/หลัง -->
                 <button onclick="toggleCamera()" class="mb-4 w-full bg-gray-200 hover:bg-gray-300 text-gray-800 font-bold py-2 px-4 rounded shadow-sm border border-gray-300 flex items-center justify-center transition-colors">
                     🔄 สลับกล้อง (หน้า/หลัง)
                 </button>
@@ -353,7 +352,6 @@
             <h3 class="text-xl font-bold mb-2">ลงทะเบียนใบหน้า</h3>
             <p id="enroll-student-name" class="text-gray-600 mb-4 text-lg font-medium"></p>
             
-            <!-- ปุ่มสลับกล้องในหน้าลงทะเบียน -->
             <button onclick="toggleEnrollCamera()" class="mb-4 w-full bg-gray-200 hover:bg-gray-300 text-gray-800 font-bold py-2 px-4 rounded shadow-sm border border-gray-300 flex items-center justify-center transition-colors text-sm">
                 🔄 สลับกล้อง (หน้า/หลัง)
             </button>
@@ -397,9 +395,10 @@
         </div>
     </div>
 
+    <!-- ส่วนของการรันสคริปต์ -->
     <script>
         // ==========================================
-        // ตั้งค่าตัวแปรหลัก
+        // ตั้งค่าตัวแปรหลัก (แก้ URL ตรงนี้ให้ถูกต้อง)
         // ==========================================
         const API_URL = 'https://script.google.com/macros/s/AKfycbzHKYfG0Z_Fg-J_QHrg36jJt2rbOA3J0bnbYrDLy9vRUIWycfovHOvUnLRSzvEDdY7-/exec'; 
         
@@ -407,7 +406,7 @@
         let appStudents = []; 
         let currentScannerMode = 'qr'; 
         let currentFacingMode = 'environment'; 
-        let currentEnrollFacingMode = 'user'; // กล้องหน้าเป็นค่าเริ่มต้นสำหรับลงทะเบียนใบหน้า
+        let currentEnrollFacingMode = 'user'; 
 
         let html5QrCode = null; 
         let faceVideo = null;   
@@ -426,10 +425,10 @@
         const currentSessionLogs = {}; 
 
         // ==========================================
-        // เริ่มต้นการทำงาน (Initialization)
+        // โหลดข้อมูล
         // ==========================================
         async function fetchStudentsData() {
-            if (API_URL) {
+            if (API_URL && API_URL !== '...' && API_URL !== '') {
                 try {
                     const response = await fetch(API_URL);
                     const result = await response.json();
@@ -438,7 +437,9 @@
                         extractAndInitializeRooms(); 
                         initAppData();
                     } else {
-                        alert('เกิดข้อผิดพลาดในการโหลดข้อมูล: ' + result.message);
+                        console.error('API Error:', result.message);
+                        alert('เชื่อมต่อ API ได้ แต่พบข้อผิดพลาด: ' + result.message);
+                        generateMockData();
                     }
                 } catch (error) {
                     console.error('Fetch error:', error);
@@ -524,9 +525,6 @@
             initCameraScanner(); 
         }
 
-        // ==========================================
-        // ระบบ AI: สร้างฐานข้อมูลใบหน้าจากที่ลงทะเบียนไว้
-        // ==========================================
         function initFaceMatcher() {
             const labeledDescriptors = [];
             appStudents.forEach(student => {
@@ -542,7 +540,6 @@
             });
             
             if(labeledDescriptors.length > 0) {
-                // ตัวเลข 0.45 คือความเข้มงวด ยิ่งน้อยยิ่งเข้มงวด (0.4-0.5 คือค่าที่เหมาะสม)
                 faceMatcher = new faceapi.FaceMatcher(labeledDescriptors, 0.45); 
             } else {
                 faceMatcher = null;
@@ -550,7 +547,7 @@
         }
 
         // ==========================================
-        // การสลับกล้อง (หน้า / หลัง)
+        // จัดการฟังก์ชันหลักต่างๆ อย่างครบถ้วน
         // ==========================================
         async function toggleCamera() {
             currentFacingMode = currentFacingMode === "environment" ? "user" : "environment";
@@ -600,7 +597,6 @@
             }
         }
 
-        // --- ระบบสแกน QR Code ---
         function initCameraScanner() {
             if (html5QrCode) return;
             html5QrCode = new Html5Qrcode("reader");
@@ -619,7 +615,6 @@
             });
         }
 
-        // --- ระบบสแกนใบหน้า (AI เช็คชื่อของจริง) ---
         async function initFaceScanner() {
             faceVideo = document.getElementById('face-video');
             const loadingOverlay = document.getElementById('face-loading-overlay');
@@ -706,9 +701,6 @@
             if(canvas) canvas.getContext('2d').clearRect(0, 0, canvas.width, canvas.height);
         }
 
-        // ==========================================
-        // ระบบลงทะเบียนใบหน้า (Face Enrollment)
-        // ==========================================
         async function openEnrollModal(id, name) {
             currentEnrollId = id;
             document.getElementById('enroll-student-name').innerText = name;
@@ -845,9 +837,6 @@
             closeEnrollModal();
         }
 
-        // ==========================================
-        // อัปโหลดรูปภาพผ่าน API
-        // ==========================================
         async function handlePhotoUpload(event, studentId) {
             const file = event.target.files[0];
             if (!file) return;
@@ -888,10 +877,150 @@
         }
 
         // ==========================================
-        // UI และ Logic (แดชบอร์ด/ประวัติ)
+        // ฟังก์ชัน UI ส่วนที่เหลือ (แดชบอร์ด/การแสดงผล)
         // ==========================================
-        const CORRECT_PIN = '336699';
+        
+        function renderSettingsUI() {
+            const roomList = document.getElementById('settings-room-list');
+            roomList.innerHTML = '';
+            
+            const sortedRooms = Object.keys(appSchedules).sort((a, b) => a.localeCompare(b, 'th', { numeric: true }));
 
+            sortedRooms.forEach((room) => {
+                const isActive = room === selectedRoomSetting ? 'active' : '';
+                roomList.innerHTML += `
+                    <li onclick="selectSettingRoom('${room}')" class="room-item ${isActive} px-4 py-3 flex justify-between items-center hover:bg-blue-50 transition-colors border-b border-gray-100 last:border-0">
+                        <span class="font-medium text-gray-700">${room}</span>
+                        <button onclick="deleteRoom('${room}', event)" class="text-red-400 hover:text-red-600 text-xs font-bold transition-colors">ลบ</button>
+                    </li>
+                `;
+            });
+
+            const dashboardFilter = document.getElementById('dashboard-room-filter');
+            const studentFilter = document.getElementById('room-filter');
+            const copySelect = document.getElementById('copy-schedule-select');
+            
+            let htmlOptions = '<option value="ไม่ระบุ">ไม่ระบุ (แสดงทั้งหมด)</option>';
+            let copyOptions = '';
+            
+            sortedRooms.forEach(room => {
+                htmlOptions += `<option value="${room}">${room}</option>`;
+                if(room !== selectedRoomSetting) {
+                    copyOptions += `<option value="${room}">${room}</option>`;
+                }
+            });
+            
+            dashboardFilter.innerHTML = htmlOptions;
+            studentFilter.innerHTML = htmlOptions;
+            copySelect.innerHTML = copyOptions || '<option value="">ไม่มีห้องอื่น</option>';
+
+            renderScheduleForSelectedRoom();
+        }
+
+        function selectSettingRoom(room) {
+            selectedRoomSetting = room;
+            renderSettingsUI();
+        }
+
+        function addRoom() {
+            const input = document.getElementById('new-room-input');
+            const val = input.value.trim();
+            if (val && !appSchedules[val]) {
+                appSchedules[val] = []; 
+                localStorage.setItem('appSchedulesV2', JSON.stringify(appSchedules));
+                input.value = '';
+                selectedRoomSetting = val;
+                renderSettingsUI();
+            }
+        }
+
+        function deleteRoom(room, event) {
+            event.stopPropagation();
+            if(confirm(`ต้องการลบห้อง ${room} และตารางเวลาทั้งหมดใช่หรือไม่?`)) {
+                delete appSchedules[room];
+                localStorage.setItem('appSchedulesV2', JSON.stringify(appSchedules));
+                selectedRoomSetting = Object.keys(appSchedules)[0] || '';
+                renderSettingsUI();
+            }
+        }
+
+        function renderScheduleForSelectedRoom() {
+            document.getElementById('schedule-title').innerText = `⏰ ตารางเวลาของห้อง: ${selectedRoomSetting || '-'}`;
+            const list = document.getElementById('settings-time-list');
+            list.innerHTML = '';
+            
+            if(!selectedRoomSetting || !appSchedules[selectedRoomSetting]) return;
+
+            const schedule = appSchedules[selectedRoomSetting];
+            if(schedule.length === 0) {
+                list.innerHTML = '<div class="text-center text-gray-400 py-4 text-sm">ยังไม่มีตารางเรียน เลือกคาบด้านบนได้เลยครับ</div>';
+                return;
+            }
+
+            schedule.sort((a, b) => a.checkIn.localeCompare(b.checkIn)).forEach((slot, index) => {
+                list.innerHTML += `
+                    <li class="bg-white border border-gray-200 rounded-lg p-3 flex justify-between items-center shadow-sm">
+                        <div>
+                            <span class="font-bold text-green-700 block">${slot.name}</span>
+                            <span class="text-xs text-gray-500">เข้า: ${slot.checkIn} น. | ออก: ${slot.checkOut} น.</span>
+                        </div>
+                        <button onclick="deleteTimeSlot(${index})" class="text-red-400 hover:text-red-600 text-sm font-bold bg-red-50 px-2 py-1 rounded transition-colors">ลบ</button>
+                    </li>
+                `;
+            });
+        }
+
+        function addTimeSlot() {
+            if(!selectedRoomSetting) return alert('กรุณาเลือกหรือเพิ่มห้องเรียนก่อนครับ');
+            
+            const nameSelect = document.getElementById('new-time-name');
+            const inInput = document.getElementById('new-time-in');
+            const outInput = document.getElementById('new-time-out');
+            
+            const nameVal = nameSelect.value;
+            const inVal = inInput.value;
+            const outVal = outInput.value;
+
+            if (nameVal && inVal && outVal) {
+                appSchedules[selectedRoomSetting].push({ 
+                    name: nameVal, 
+                    checkIn: inVal,
+                    checkOut: outVal
+                });
+                localStorage.setItem('appSchedulesV2', JSON.stringify(appSchedules));
+                
+                const nextIndex = nameSelect.selectedIndex + 1;
+                if (nextIndex < nameSelect.options.length) {
+                    nameSelect.selectedIndex = nextIndex;
+                }
+                
+                inInput.value = outVal; 
+                outInput.value = '';
+                renderSettingsUI();
+            } else {
+                alert('กรุณากรอกข้อมูลให้ครบทั้ง ชื่อคาบ เวลาเข้า และเวลาออกครับ');
+            }
+        }
+
+        function deleteTimeSlot(index) {
+            appSchedules[selectedRoomSetting].splice(index, 1);
+            localStorage.setItem('appSchedulesV2', JSON.stringify(appSchedules));
+            renderSettingsUI();
+        }
+
+        function copySchedule() {
+            const copyFrom = document.getElementById('copy-schedule-select').value;
+            if(!copyFrom || !selectedRoomSetting) return;
+            
+            if(confirm(`คัดลอกตารางจาก ${copyFrom} มาทับที่ ${selectedRoomSetting} ใช่หรือไม่?`)) {
+                appSchedules[selectedRoomSetting] = JSON.parse(JSON.stringify(appSchedules[copyFrom]));
+                localStorage.setItem('appSchedulesV2', JSON.stringify(appSchedules));
+                renderSettingsUI();
+            }
+        }
+
+        const CORRECT_PIN = '336699';
+        
         function requestSwitchTab(tabId) {
             if (!isAdminLoggedIn && tabId !== 'scan') return;
             executeSwitchTab(tabId);
