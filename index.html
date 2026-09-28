@@ -75,7 +75,7 @@
                 </button>
 
                 <div id="qr-container" class="mb-4 bg-black rounded-lg overflow-hidden relative shadow-inner block">
-                    <div id="reader" style="width: 100%;"></div>
+                    <div id="reader" style="width: 100%; min-height: 300px;"></div>
                 </div>
 
                 <div id="face-container" class="mb-4 bg-black rounded-lg overflow-hidden relative shadow-inner hidden">
@@ -542,6 +542,7 @@
             });
             
             if(labeledDescriptors.length > 0) {
+                // ตัวเลข 0.45 คือความเข้มงวด ยิ่งน้อยยิ่งเข้มงวด (0.4-0.5 คือค่าที่เหมาะสม)
                 faceMatcher = new faceapi.FaceMatcher(labeledDescriptors, 0.45); 
             } else {
                 faceMatcher = null;
