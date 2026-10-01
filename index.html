@@ -73,16 +73,18 @@
                     🔄 สลับกล้อง (หน้า/หลัง)
                 </button>
 
+                <!-- กล้อง QR Code -->
                 <div id="qr-container" class="mb-4 bg-black rounded-lg overflow-hidden relative shadow-inner block">
                     <div id="reader" style="width: 100%; min-height: 300px;"></div>
                 </div>
 
+                <!-- กล้อง Face Scan -->
                 <div id="face-container" class="mb-4 bg-black rounded-lg overflow-hidden relative shadow-inner hidden">
                     <video id="face-video" autoplay muted playsinline class="w-full h-auto max-h-[400px] object-cover"></video>
                     <canvas id="face-canvas" class="absolute top-0 left-0 w-full h-full"></canvas>
                     <div id="face-loading-overlay" class="absolute inset-0 bg-black bg-opacity-70 flex flex-col items-center justify-center text-white z-10">
-                        <svg class="animate-spin h-10 w-10 mb-2 text-blue-500" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
-                        <p class="font-medium">กำลังโหลดโมเดล AI กรุณารอสักครู่...</p>
+                        <svg class="animate-spin h-10 w-10 mb-4 text-blue-500" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
+                        <p id="face-loading-text" class="font-bold text-lg text-center px-4">กำลังโหลดระบบ AI...<br><span class="text-sm font-normal text-gray-300 mt-2 block">(ครั้งแรกอาจใช้เวลา 5-10 วินาที<br>ครั้งต่อไปจะโหลดเสร็จทันที)</span></p>
                     </div>
                 </div>
 
@@ -213,9 +215,7 @@
                 <div class="flex-1 w-full relative">
                     <label class="block text-sm font-medium text-gray-700 mb-1">ค้นหาจากเลขประจำตัว หรือ ชื่อ-สกุล</label>
                     <input type="text" id="search-history-id" class="w-full border border-gray-300 rounded-md px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500" placeholder="พิมพ์เลขประจำตัว หรือ ชื่อนักเรียน (เช่น 47591)..." oninput="handleSearchInput()" onfocus="handleSearchInput()">
-                    
-                    <ul id="search-autocomplete-list" class="absolute z-20 w-full bg-white border border-gray-200 rounded-md shadow-lg max-h-60 overflow-y-auto hidden mt-1">
-                    </ul>
+                    <ul id="search-autocomplete-list" class="absolute z-20 w-full bg-white border border-gray-200 rounded-md shadow-lg max-h-60 overflow-y-auto hidden mt-1"></ul>
                 </div>
                 <button onclick="searchHistory()" class="w-full md:w-auto bg-blue-600 text-white px-6 py-2 rounded-md hover:bg-blue-700 font-medium mt-auto">ค้นหาประวัติ</button>
             </div>
@@ -352,6 +352,7 @@
             <h3 class="text-xl font-bold mb-2">ลงทะเบียนใบหน้า</h3>
             <p id="enroll-student-name" class="text-gray-600 mb-4 text-lg font-medium"></p>
             
+            <!-- ปุ่มสลับกล้องในหน้าลงทะเบียน -->
             <button onclick="toggleEnrollCamera()" class="mb-4 w-full bg-gray-200 hover:bg-gray-300 text-gray-800 font-bold py-2 px-4 rounded shadow-sm border border-gray-300 flex items-center justify-center transition-colors text-sm">
                 🔄 สลับกล้อง (หน้า/หลัง)
             </button>
@@ -398,7 +399,7 @@
     <!-- ส่วนของการรันสคริปต์ -->
     <script>
         // ==========================================
-        // ตั้งค่าตัวแปรหลัก (แก้ URL ตรงนี้ให้ถูกต้อง)
+        // ตั้งค่าตัวแปรหลัก
         // ==========================================
         const API_URL = 'https://script.google.com/macros/s/AKfycbzHKYfG0Z_Fg-J_QHrg36jJt2rbOA3J0bnbYrDLy9vRUIWycfovHOvUnLRSzvEDdY7-/exec'; 
         
@@ -417,7 +418,10 @@
         let enrollInterval = null;
         let currentEnrollId = null;
         let currentFaceDescriptor = null;
+        
+        // ตัวแปรสำหรับระบบ Caching AI
         let faceModelsLoaded = false;
+        let isCachingSetup = false;
 
         let appSchedules = JSON.parse(localStorage.getItem('appSchedulesV2')) || {};
         let selectedRoomSetting = '';
@@ -439,15 +443,13 @@
                     } else {
                         console.error('API Error:', result.message);
                         alert('เชื่อมต่อ API ได้ แต่พบข้อผิดพลาด: ' + result.message);
-                        generateMockData();
                     }
                 } catch (error) {
                     console.error('Fetch error:', error);
-                    alert('ไม่สามารถเชื่อมต่อฐานข้อมูลได้ ระบบจะใช้ข้อมูลจำลองแทน');
-                    generateMockData();
+                    alert('ไม่สามารถเชื่อมต่อฐานข้อมูลได้ กรุณาตรวจสอบอินเทอร์เน็ต');
                 }
             } else {
-                generateMockData();
+                alert("กรุณาใส่ API_URL ให้ถูกต้อง");
             }
         }
 
@@ -472,40 +474,6 @@
             }
         }
 
-        function generateMockData() {
-            appStudents = [];
-            let idCounter = 47591; 
-            const bgColors = ['0ea5e9', '10b981', 'f59e0b', '8b5cf6', 'ef4444', 'ec4899']; 
-            
-            const mockRooms = ['ม.1/1', 'ม.1/2', 'ม.1/10', 'ม.2/1', 'ม.5/1'];
-            mockRooms.forEach(roomName => {
-                const parts = roomName.split('/');
-                const level = parts[0];
-                const rNum = parts[1];
-
-                for (let num = 1; num <= 3; num++) { 
-                    const prefix = Math.random() > 0.5 ? 'เด็กชาย' : 'เด็กหญิง';
-                    const randomColor = bgColors[Math.floor(Math.random() * bgColors.length)];
-                    appStudents.push({
-                        photoUrl: `https://ui-avatars.com/api/?name=${idCounter}&background=${randomColor}&color=fff&size=150`,
-                        level: level,
-                        roomNum: rNum,
-                        id: idCounter.toString(),    
-                        rollNo: num.toString(),      
-                        prefix: prefix,
-                        firstName: `สมมติที่${idCounter}`,
-                        lastName: `นามสกุลทดสอบ`,
-                        faceData: '',
-                        name: `${prefix}${idCounter} นามสกุลทดสอบ`,
-                        room: roomName
-                    });
-                    idCounter++;
-                }
-            });
-            extractAndInitializeRooms();
-            initAppData();
-        }
-
         function initAppData() {
             appStudents.forEach(student => {
                 mockHistoryDb[student.id] = [];
@@ -525,6 +493,78 @@
             initCameraScanner(); 
         }
 
+        // ==========================================
+        // ระบบ Caching AI Models (Monkey Patching)
+        // เพื่อแก้ปัญหาการโหลดโมเดลช้า
+        // ==========================================
+        async function loadModelsWithCache(statusElement = null) {
+            if (faceModelsLoaded) return;
+            
+            const loadingOverlay = document.getElementById('face-loading-overlay');
+            const loadingText = document.getElementById('face-loading-text');
+            
+            if (loadingOverlay && !statusElement) loadingOverlay.classList.remove('hidden');
+            if (statusElement) statusElement.innerText = "กำลังตรวจเช็คไฟล์ AI ในเครื่อง...";
+
+            // สร้างระบบดักจับการดึงไฟล์ (Intercept Fetch) เพื่อเซฟลงเครื่อง
+            if (!isCachingSetup) {
+                faceapi.env.monkeyPatch({
+                    fetch: async (url, options) => {
+                        const cacheName = 'smart-checkin-models-v1';
+                        try {
+                            const cache = await caches.open(cacheName);
+                            const cachedResponse = await cache.match(url);
+                            
+                            // ถ้ามีไฟล์ในเครื่องแล้ว ให้ดึงมาใช้เลย (เร็วมาก ⚡)
+                            if (cachedResponse) {
+                                console.log('✅ โหลดโมเดลจาก Cache ในเครื่อง:', url);
+                                return cachedResponse;
+                            }
+                            
+                            // ถ้ายังไม่มี ให้โหลดจากเน็ตและเซฟลงเครื่อง
+                            console.log('☁️ กำลังดาวน์โหลดโมเดลจากอินเทอร์เน็ต:', url);
+                            if (statusElement) statusElement.innerText = "กำลังดาวน์โหลดไฟล์ AI (ทำครั้งเดียว)...";
+                            if (loadingText) loadingText.innerHTML = "กำลังดาวน์โหลดระบบ AI จากอินเทอร์เน็ต...<br><span class='text-sm font-normal text-yellow-300 mt-2 block'>(กรุณารอสักครู่ ห้ามปิดหน้าจอ)</span>";
+
+                            const networkResponse = await window.fetch(url, options);
+                            if (networkResponse.ok) {
+                                cache.put(url, networkResponse.clone());
+                            }
+                            return networkResponse;
+                        } catch (e) {
+                            console.warn("ไม่สามารถใช้ Cache API ได้ จะโหลดตรงจากเน็ตแทน");
+                            return window.fetch(url, options);
+                        }
+                    }
+                });
+                isCachingSetup = true;
+            }
+
+            const MODEL_URL = 'https://cdn.jsdelivr.net/npm/@vladmandic/face-api/model/';
+            
+            try {
+                await Promise.all([
+                    faceapi.nets.tinyFaceDetector.loadFromUri(MODEL_URL),
+                    faceapi.nets.faceLandmark68Net.loadFromUri(MODEL_URL),
+                    faceapi.nets.faceRecognitionNet.loadFromUri(MODEL_URL)
+                ]);
+                
+                faceModelsLoaded = true;
+                if (loadingOverlay && !statusElement) loadingOverlay.classList.add('hidden');
+                if (statusElement) {
+                    statusElement.innerText = "เตรียมระบบ AI สำเร็จ!";
+                    statusElement.className = "text-sm font-bold text-green-500 mb-4";
+                }
+            } catch (err) {
+                console.error("โหลดโมเดล AI ล้มเหลว:", err);
+                if (statusElement) statusElement.innerText = "โหลด AI ไม่สำเร็จ กรุณาเช็คอินเทอร์เน็ต";
+                if (loadingText) loadingText.innerHTML = "โหลด AI ไม่สำเร็จ<br><span class='text-sm text-red-300'>กรุณารีเฟรชหน้าเว็บและลองใหม่</span>";
+            }
+        }
+
+        // ==========================================
+        // ระบบ AI: สร้างฐานข้อมูลใบหน้า
+        // ==========================================
         function initFaceMatcher() {
             const labeledDescriptors = [];
             appStudents.forEach(student => {
@@ -547,7 +587,7 @@
         }
 
         // ==========================================
-        // จัดการฟังก์ชันหลักต่างๆ อย่างครบถ้วน
+        // การสลับโหมดกล้อง (QR / Face)
         // ==========================================
         async function toggleCamera() {
             currentFacingMode = currentFacingMode === "environment" ? "user" : "environment";
@@ -597,6 +637,7 @@
             }
         }
 
+        // --- ระบบสแกน QR Code ---
         function initCameraScanner() {
             if (html5QrCode) return;
             html5QrCode = new Html5Qrcode("reader");
@@ -615,21 +656,12 @@
             });
         }
 
+        // --- ระบบสแกนใบหน้า (AI เช็คชื่อของจริง) ---
         async function initFaceScanner() {
             faceVideo = document.getElementById('face-video');
-            const loadingOverlay = document.getElementById('face-loading-overlay');
             
-            if(!faceModelsLoaded) {
-                loadingOverlay.classList.remove('hidden');
-                const MODEL_URL = 'https://cdn.jsdelivr.net/npm/@vladmandic/face-api/model/';
-                await Promise.all([
-                    faceapi.nets.tinyFaceDetector.loadFromUri(MODEL_URL),
-                    faceapi.nets.faceLandmark68Net.loadFromUri(MODEL_URL),
-                    faceapi.nets.faceRecognitionNet.loadFromUri(MODEL_URL)
-                ]);
-                faceModelsLoaded = true;
-                loadingOverlay.classList.add('hidden');
-            }
+            // เรียกใช้ฟังก์ชันโหลดโมเดลแบบมี Cache
+            await loadModelsWithCache();
 
             try {
                 const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: currentFacingMode } });
@@ -701,6 +733,9 @@
             if(canvas) canvas.getContext('2d').clearRect(0, 0, canvas.width, canvas.height);
         }
 
+        // ==========================================
+        // ระบบลงทะเบียนใบหน้า (Face Enrollment)
+        // ==========================================
         async function openEnrollModal(id, name) {
             currentEnrollId = id;
             document.getElementById('enroll-student-name').innerText = name;
@@ -714,17 +749,8 @@
             statusEl.innerText = "กำลังเตรียมกล้อง...";
             statusEl.className = "text-sm font-bold text-yellow-600 mb-4";
 
-            if(!faceModelsLoaded) {
-                statusEl.innerText = "กำลังโหลดระบบ AI...";
-                const MODEL_URL = 'https://cdn.jsdelivr.net/npm/@vladmandic/face-api/model/';
-                await Promise.all([
-                    faceapi.nets.tinyFaceDetector.loadFromUri(MODEL_URL),
-                    faceapi.nets.faceLandmark68Net.loadFromUri(MODEL_URL),
-                    faceapi.nets.faceRecognitionNet.loadFromUri(MODEL_URL)
-                ]);
-                faceModelsLoaded = true;
-            }
-
+            // เรียกใช้ฟังก์ชันโหลดโมเดลแบบมี Cache สำหรับหน้าลงทะเบียน
+            await loadModelsWithCache(statusEl);
             startEnrollCamera();
         }
 
@@ -837,6 +863,9 @@
             closeEnrollModal();
         }
 
+        // ==========================================
+        // อัปโหลดรูปภาพผ่าน API
+        // ==========================================
         async function handlePhotoUpload(event, studentId) {
             const file = event.target.files[0];
             if (!file) return;
@@ -877,9 +906,8 @@
         }
 
         // ==========================================
-        // ฟังก์ชัน UI ส่วนที่เหลือ (แดชบอร์ด/การแสดงผล)
+        // UI การแสดงผลส่วนที่เหลือ
         // ==========================================
-        
         function renderSettingsUI() {
             const roomList = document.getElementById('settings-room-list');
             roomList.innerHTML = '';
@@ -982,11 +1010,7 @@
             const outVal = outInput.value;
 
             if (nameVal && inVal && outVal) {
-                appSchedules[selectedRoomSetting].push({ 
-                    name: nameVal, 
-                    checkIn: inVal,
-                    checkOut: outVal
-                });
+                appSchedules[selectedRoomSetting].push({ name: nameVal, checkIn: inVal, checkOut: outVal });
                 localStorage.setItem('appSchedulesV2', JSON.stringify(appSchedules));
                 
                 const nextIndex = nameSelect.selectedIndex + 1;
@@ -1011,7 +1035,6 @@
         function copySchedule() {
             const copyFrom = document.getElementById('copy-schedule-select').value;
             if(!copyFrom || !selectedRoomSetting) return;
-            
             if(confirm(`คัดลอกตารางจาก ${copyFrom} มาทับที่ ${selectedRoomSetting} ใช่หรือไม่?`)) {
                 appSchedules[selectedRoomSetting] = JSON.parse(JSON.stringify(appSchedules[copyFrom]));
                 localStorage.setItem('appSchedulesV2', JSON.stringify(appSchedules));
