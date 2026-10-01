@@ -56,11 +56,26 @@
 
         <!-- TAB: สแกน -->
         <div id="scan-tab" class="tab-content active">
-            <div class="bg-white rounded-lg shadow-lg p-6 max-w-xl mx-auto text-center">
+            <div class="bg-white rounded-lg shadow-lg p-6 max-w-xl mx-auto text-center relative overflow-hidden">
                 
                 <div class="flex justify-center mb-4 bg-gray-100 p-1 rounded-lg">
                     <button id="btn-mode-qr" onclick="setScannerMode('qr')" class="flex-1 py-2 px-4 rounded-md font-bold text-sm bg-white shadow-sm text-blue-600 transition-all">📱 สแกน QR Code</button>
                     <button id="btn-mode-face" onclick="setScannerMode('face')" class="flex-1 py-2 px-4 rounded-md font-bold text-sm text-gray-500 hover:text-gray-700 transition-all">🤖 สแกนใบหน้า (AI)</button>
+                </div>
+
+                <!-- แจ้งเตือนเช็คชื่อ (Pop-up Toast สวยๆ) -->
+                <div id="scan-toast-notification" class="absolute top-4 left-4 right-4 z-40 transform -translate-y-48 transition-transform duration-300 ease-in-out">
+                    <div id="toast-bg" class="bg-white rounded-lg shadow-2xl border-l-8 border-green-500 p-4 flex items-center space-x-4">
+                        <img id="toast-img" src="" class="w-16 h-16 rounded-full border border-gray-200 object-cover hidden">
+                        <div id="toast-icon" class="text-4xl">✅</div>
+                        <div class="flex-1 text-left">
+                            <p id="toast-name" class="font-bold text-gray-900 text-lg leading-tight">ชื่อ-สกุล</p>
+                            <p id="toast-info" class="text-sm text-gray-600 mt-1">รายละเอียด</p>
+                            <div id="toast-action-container" class="mt-2 hidden">
+                                <!-- ปุ่ม Undo จะโผล่ตรงนี้ -->
+                            </div>
+                        </div>
+                    </div>
                 </div>
 
                 <div class="mb-4 flex justify-between items-center">
@@ -98,21 +113,9 @@
                         </div>
                     </div>
 
-                    <!-- แจ้งเตือนเช็คชื่อ (Pop-up สวยๆ) -->
-                    <div id="scan-toast-notification" class="absolute top-4 left-4 right-4 z-30 transform -translate-y-24 transition-transform duration-300 ease-in-out">
-                        <div id="toast-bg" class="bg-white rounded-lg shadow-2xl border-l-8 border-green-500 p-4 flex items-center space-x-4">
-                            <img id="toast-img" src="" class="w-16 h-16 rounded-full border border-gray-200 object-cover hidden">
-                            <div id="toast-icon" class="text-4xl">✅</div>
-                            <div class="flex-1 text-left">
-                                <p id="toast-name" class="font-bold text-gray-900 text-lg leading-tight">ชื่อ-สกุล</p>
-                                <p id="toast-info" class="text-sm text-gray-600 mt-1">รายละเอียด</p>
-                            </div>
-                        </div>
-                    </div>
-
                     <div id="face-loading-overlay" class="absolute inset-0 bg-black bg-opacity-70 flex flex-col items-center justify-center text-white z-40">
-                        <svg class="animate-spin h-10 w-10 mb-4 text-blue-500" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
-                        <p id="face-loading-text" class="font-bold text-lg text-center px-4">กำลังโหลดระบบ AI...<br><span class="text-sm font-normal text-gray-300 mt-2 block">(ครั้งแรกอาจใช้เวลา 5-10 วินาที<br>ครั้งต่อไปจะโหลดเสร็จทันที)</span></p>
+                        <svg class="animate-spin h-10 w-10 mb-4 text-blue-500" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle></svg>
+                        <p id="face-loading-text" class="font-bold text-lg text-center px-4">กำลังโหลดระบบ AI...<br><span class="text-sm font-normal text-gray-300 mt-2 block">(ครั้งแรกอาจใช้เวลา 5-10 วินาที)</span></p>
                     </div>
                 </div>
 
@@ -125,7 +128,8 @@
                 </div>
 
                 <div id="scan-result" class="hidden rounded-lg p-4 mt-4 shadow-md border-2">
-                    <div class="flex flex-col sm:flex-row items-center sm:items-start space-y-4 sm:space-y-0 sm:space-x-6">
+                    <div class="flex flex-col sm:flex-row items-center sm:items-start space-y-4 sm:space-y-0 sm:space-x-6 relative">
+                        <!-- กล่องแสดงผลเดิม เผื่อไว้ดูประวัติล่าสุด -->
                         <div class="w-32 h-32 flex-shrink-0 bg-white rounded-lg border-2 border-gray-300 overflow-hidden shadow-sm flex items-center justify-center relative">
                             <img id="scan-photo" src="" alt="รูปนักเรียน" class="w-full h-full object-cover hidden">
                             <div id="scan-icon" class="text-5xl">✅</div>
@@ -171,7 +175,7 @@
                     <p id="stat-absent" class="text-3xl font-bold text-red-600">0</p>
                 </div>
                 <div class="bg-white rounded-lg shadow p-4 border-l-4 border-yellow-500">
-                    <p class="text-gray-500 text-sm">สแกนผิดปกติ (สาย/หนี)</p>
+                    <p class="text-gray-500 text-sm">สแกนผิดปกติ</p>
                     <p id="stat-late" class="text-3xl font-bold text-yellow-600">0</p>
                 </div>
             </div>
@@ -189,11 +193,11 @@
                     <table class="min-w-full divide-y divide-gray-200">
                         <thead class="bg-gray-50">
                             <tr>
-                                <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">เลขประจำตัว</th>
+                                <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">รหัส</th>
                                 <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">ชื่อ-สกุล</th>
                                 <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">คาบเรียน</th>
-                                <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">เวลาเข้า</th>
-                                <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">เวลาออก</th>
+                                <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">เข้า</th>
+                                <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">ออก</th>
                                 <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">สถานะ</th>
                             </tr>
                         </thead>
@@ -223,10 +227,9 @@
                         <tr>
                             <th class="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase">ภาพและใบหน้า</th>
                             <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">เลขประจำตัว</th>
-                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">เลขที่</th>
                             <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">ชื่อ-สกุล</th>
                             <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">ระดับชั้น/ห้อง</th>
-                            <th class="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase">บัตร QR Code</th>
+                            <th class="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase">จัดการ (Manual)</th>
                         </tr>
                     </thead>
                     <tbody id="student-list-table" class="bg-white divide-y divide-gray-200">
@@ -249,32 +252,27 @@
             </div>
 
             <div id="history-content" class="hidden">
+                <!-- เนื้อหาประวัติ -->
                 <div class="bg-white rounded-lg shadow p-6 mb-6 flex items-center space-x-6 border-t-4 border-blue-500">
-                    <img id="history-photo" src="" alt="รูปนักเรียน" class="w-24 h-24 rounded-lg border-2 border-gray-200 object-cover shadow-sm">
+                    <img id="history-photo" src="" class="w-24 h-24 rounded-lg border-2 border-gray-200 object-cover shadow-sm">
                     <div>
                         <h3 id="history-name" class="text-2xl font-bold text-gray-900">ชื่อ-สกุล</h3>
-                        <p id="history-info" class="text-gray-600 text-lg">เลขประจำตัว: - | เลขที่: - | ห้อง: -</p>
+                        <p id="history-info" class="text-gray-600 text-lg">รายละเอียด</p>
                     </div>
                 </div>
                 <div class="bg-white rounded-lg shadow overflow-hidden border border-gray-200">
-                    <div class="px-6 py-4 bg-gray-50 border-b border-gray-200">
-                        <h3 class="text-lg font-bold text-gray-800">รายละเอียดการเข้าออก</h3>
-                    </div>
-                    <div class="overflow-x-auto max-h-96 overflow-y-auto">
-                        <table class="min-w-full divide-y divide-gray-200">
-                            <thead class="bg-white sticky top-0 shadow-sm z-10">
-                                <tr>
-                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">วันที่</th>
-                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">คาบเรียน</th>
-                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">เข้า</th>
-                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">ออก</th>
-                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">สถานะ</th>
-                                </tr>
-                            </thead>
-                            <tbody id="history-table-body" class="bg-white divide-y divide-gray-200">
-                            </tbody>
-                        </table>
-                    </div>
+                    <table class="min-w-full divide-y divide-gray-200">
+                        <thead class="bg-gray-50">
+                            <tr>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">วันที่</th>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">คาบเรียน</th>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">เข้า</th>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">ออก</th>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">สถานะ</th>
+                            </tr>
+                        </thead>
+                        <tbody id="history-table-body" class="bg-white divide-y divide-gray-200"></tbody>
+                    </table>
                 </div>
             </div>
             
@@ -288,90 +286,11 @@
             <h2 class="text-2xl font-bold mb-6 flex items-center text-gray-800">
                 <span class="text-gray-400 mr-2">⚙️</span> ตั้งค่าระบบตารางเรียนรายห้อง
             </h2>
-            
-            <div class="flex flex-col md:flex-row gap-6">
-                <div class="w-full md:w-1/3 bg-white rounded-xl shadow-sm border border-blue-100 flex flex-col h-[500px]">
-                    <div class="bg-blue-50 border-b border-blue-100 px-4 py-3">
-                        <h3 class="font-bold text-blue-900">📚 รายชื่อห้องเรียน</h3>
-                    </div>
-                    <div class="p-4 border-b border-gray-100 flex space-x-2">
-                        <input type="text" id="new-room-input" class="flex-1 border border-gray-300 rounded px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" placeholder="เพิ่มห้อง (เช่น ม.2/1)">
-                        <button onclick="addRoom()" class="bg-blue-600 text-white px-3 py-1 rounded text-sm font-bold hover:bg-blue-700">+</button>
-                    </div>
-                    <div class="flex-1 overflow-y-auto">
-                        <ul id="settings-room-list" class="divide-y divide-gray-100 cursor-pointer"></ul>
-                    </div>
-                </div>
-
-                <div class="w-full md:w-2/3 bg-white rounded-xl shadow-sm border border-green-100 flex flex-col h-[500px]">
-                    <div class="bg-green-50 border-b border-green-100 px-6 py-4 flex justify-between items-center">
-                        <h3 class="text-lg font-bold text-green-900" id="schedule-title">⏰ ตารางเวลาของห้อง: -</h3>
-                        
-                        <div class="flex items-center space-x-2 text-sm">
-                            <span class="text-gray-600">คัดลอกคาบจาก:</span>
-                            <select id="copy-schedule-select" class="border border-gray-300 rounded px-2 py-1 focus:outline-none"></select>
-                            <button onclick="copySchedule()" class="bg-gray-200 hover:bg-gray-300 text-gray-800 px-3 py-1 rounded font-bold transition-colors">คัดลอก</button>
-                        </div>
-                    </div>
-                    
-                    <div class="p-6 bg-gray-50 border-b border-gray-200">
-                        <div class="grid grid-cols-4 gap-2 mb-2 items-end">
-                            <div class="col-span-2">
-                                <label class="block text-xs font-bold text-gray-600 mb-1">เลือกคาบเรียน</label>
-                                <select id="new-time-name" class="w-full border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500">
-                                    <option value="เข้าแถวหน้าเสาธง">เข้าแถวหน้าเสาธง</option>
-                                    <option value="คาบ 1" selected>คาบ 1</option>
-                                    <option value="คาบ 2">คาบ 2</option>
-                                    <option value="คาบ 3">คาบ 3</option>
-                                    <option value="คาบ 4">คาบ 4</option>
-                                    <option value="พักกลางวัน">พักกลางวัน</option>
-                                    <option value="คาบ 5">คาบ 5</option>
-                                    <option value="คาบ 6">คาบ 6</option>
-                                    <option value="คาบ 7">คาบ 7</option>
-                                    <option value="คาบ 8">คาบ 8</option>
-                                    <option value="คาบ 9">คาบ 9</option>
-                                    <option value="กิจกรรมพิเศษ">กิจกรรมพิเศษ</option>
-                                    <option value="ไม่ระบุ">ไม่ระบุ</option>
-                                </select>
-                            </div>
-                            <div class="col-span-1">
-                                <label class="block text-xs font-bold text-gray-600 mb-1">เวลาเข้า</label>
-                                <input type="time" id="new-time-in" class="w-full border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500">
-                            </div>
-                            <div class="col-span-1">
-                                <label class="block text-xs font-bold text-gray-600 mb-1">เวลาออก</label>
-                                <div class="flex space-x-2">
-                                    <input type="time" id="new-time-out" class="w-full border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500">
-                                </div>
-                            </div>
-                        </div>
-                        <button onclick="addTimeSlot()" class="w-full bg-green-600 text-white px-4 py-2 rounded shadow-sm hover:bg-green-700 font-bold text-sm mt-2 transition-colors">เพิ่มคาบเรียนลงตารางนี้</button>
-                    </div>
-
-                    <div class="flex-1 overflow-y-auto p-4">
-                        <ul id="settings-time-list" class="space-y-2"></ul>
-                    </div>
-                </div>
-            </div>
-            
             <div class="mt-8 text-center bg-gray-50 p-6 rounded-xl border border-gray-200">
-                 <button onclick="location.reload()" class="bg-gray-800 text-white px-10 py-3 rounded-lg hover:bg-gray-900 font-bold shadow-md transition-transform transform hover:scale-105">💾 บันทึกและรีเฟรชระบบ</button>
+                 <button onclick="location.reload()" class="bg-gray-800 text-white px-10 py-3 rounded-lg hover:bg-gray-900 font-bold shadow-md transition-transform transform hover:scale-105">💾 รีเฟรชระบบ</button>
             </div>
         </div>
 
-    </div>
-
-    <!-- Modal: แสดง QR Code -->
-    <div id="qr-modal" class="fixed inset-0 bg-black bg-opacity-50 z-50 hidden flex items-center justify-center">
-        <div class="bg-white p-6 rounded-lg shadow-xl max-w-sm w-full text-center">
-            <h3 class="text-lg font-bold mb-2">บัตร QR Code ประจำตัว</h3>
-            <p id="modal-student-name" class="text-md text-gray-700 font-semibold mb-1"></p>
-            <p id="modal-student-id" class="text-sm text-gray-500 mb-4"></p>
-            <div class="flex justify-center mb-6 bg-white p-4 border-2 border-gray-100 rounded">
-                <div id="qrcode-container"></div>
-            </div>
-            <button onclick="closeQrModal()" class="w-full bg-gray-200 text-gray-800 font-medium py-2 rounded hover:bg-gray-300 transition-colors">ปิดหน้าต่าง</button>
-        </div>
     </div>
 
     <!-- Modal: ลงทะเบียนใบหน้า (Face Enrollment) พร้อม Oval Mask -->
@@ -424,10 +343,17 @@
         </div>
     </div>
 
-    <!-- ส่วนของการรันสคริปต์ -->
+    <!-- Modal: แสดง QR Code -->
+    <div id="qr-modal" class="fixed inset-0 bg-black bg-opacity-50 z-50 hidden flex items-center justify-center">
+        <div class="bg-white p-6 rounded-lg shadow-xl max-w-sm w-full text-center">
+            <div id="qrcode-container" class="flex justify-center mb-4 bg-white p-4 border-2 border-gray-100 rounded"></div>
+            <button onclick="closeQrModal()" class="w-full bg-gray-200 text-gray-800 font-medium py-2 rounded">ปิด</button>
+        </div>
+    </div>
+
     <script>
         // ==========================================
-        // ตั้งค่าตัวแปรหลัก
+        // 1. ตั้งค่าตัวแปรหลัก
         // ==========================================
         const API_URL = 'https://script.google.com/macros/s/AKfycbzHKYfG0Z_Fg-J_QHrg36jJt2rbOA3J0bnbYrDLy9vRUIWycfovHOvUnLRSzvEDdY7-/exec'; 
         
@@ -456,17 +382,15 @@
         const currentSessionLogs = {}; 
 
         // ==========================================
-        // ระบบนาฬิกา Real-time
+        // 2. ระบบนาฬิกา Real-time
         // ==========================================
         function initRealtimeClock() {
             const dateEl = document.getElementById('realtime-date');
             const timeEl = document.getElementById('realtime-time');
-
             setInterval(() => {
                 const now = new Date();
                 const optionsDate = { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' };
                 dateEl.innerText = now.toLocaleDateString('th-TH', optionsDate);
-
                 const hours = String(now.getHours()).padStart(2, '0');
                 const minutes = String(now.getMinutes()).padStart(2, '0');
                 const seconds = String(now.getSeconds()).padStart(2, '0');
@@ -475,20 +399,23 @@
         }
 
         // ==========================================
-        // ระบบ Canvas Oval Mask (กรอบวงรีเจาะทะลุ)
+        // 3. ระบบ Canvas Oval Mask (กรอบวงรีเจาะทะลุ)
         // ==========================================
         function drawOvalMask(canvas, ctx, videoWidth, videoHeight, boxColor = '#10B981', instructionText = null) {
+            // ป้องกันการวาดหาก canvas ขนาดยังเป็น 0
+            if (canvas.width === 0 || canvas.height === 0) return;
+
             ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-            // 1. วาดพื้นหลังสีดำโปร่งแสง
+            // วาดพื้นหลังสีดำโปร่งแสง
             ctx.fillStyle = 'rgba(0, 0, 0, 0.65)';
             ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-            // 2. เจาะรูตรงกลางเป็นวงรี
+            // เจาะรูตรงกลางเป็นวงรี
             const centerX = canvas.width / 2;
             const centerY = canvas.height / 2;
-            const radiusX = canvas.width * 0.35; // ความกว้างวงรี
-            const radiusY = canvas.height * 0.4; // ความสูงวงรี
+            const radiusX = canvas.width * 0.35; 
+            const radiusY = canvas.height * 0.4; 
 
             ctx.globalCompositeOperation = 'destination-out';
             ctx.beginPath();
@@ -496,34 +423,29 @@
             ctx.fill();
             ctx.globalCompositeOperation = 'source-over';
 
-            // 3. วาดเส้นขอบวงรี (สีเปลี่ยนตามสถานะ)
+            // วาดเส้นขอบวงรี (สีเปลี่ยนตามสถานะ)
             ctx.beginPath();
             ctx.ellipse(centerX, centerY, radiusX, radiusY, 0, 0, 2 * Math.PI);
             ctx.lineWidth = 4;
             ctx.strokeStyle = boxColor;
             ctx.stroke();
 
-            // 4. วาดข้อความคำแนะนำตรงกลางจอ (ถ้ามี)
+            // วาดข้อความคำแนะนำตรงกลางจอ (ถ้ามี)
             if (instructionText) {
                 ctx.fillStyle = boxColor;
                 ctx.font = "bold 20px Prompt";
                 ctx.textAlign = "center";
                 ctx.textBaseline = "middle";
-                
-                // เพิ่มกล่องพื้นหลังให้ข้อความอ่านง่ายขึ้น
                 const textWidth = ctx.measureText(instructionText).width;
                 ctx.fillStyle = 'rgba(0,0,0,0.7)';
                 ctx.fillRect(centerX - textWidth/2 - 10, centerY - 80 - 15, textWidth + 20, 30);
-                
                 ctx.fillStyle = boxColor;
                 ctx.fillText(instructionText, centerX, centerY - 80);
             }
-
-            return { centerX, centerY, radiusX, radiusY };
         }
 
         // ==========================================
-        // โหลดข้อมูล
+        // 4. โหลดข้อมูล
         // ==========================================
         async function fetchStudentsData() {
             if (API_URL && API_URL !== '...' && API_URL !== '') {
@@ -540,8 +462,6 @@
                 } catch (error) {
                     alert('ไม่สามารถเชื่อมต่อฐานข้อมูลได้ กรุณาตรวจสอบอินเทอร์เน็ต');
                 }
-            } else {
-                alert("กรุณาใส่ API_URL ให้ถูกต้อง");
             }
         }
 
@@ -550,13 +470,11 @@
             const uniqueRooms = [...new Set(appStudents.map(s => s.room))];
             uniqueRooms.forEach(room => {
                 if (room !== 'ไม่ระบุ' && !appSchedules[room]) {
-                    appSchedules[room] = []; 
-                    hasNewRooms = true;
+                    appSchedules[room] = []; hasNewRooms = true;
                 }
             });
             if (Object.keys(appSchedules).length > 0 && !selectedRoomSetting) {
-                const sortedKeys = Object.keys(appSchedules).sort((a, b) => a.localeCompare(b, 'th', { numeric: true }));
-                selectedRoomSetting = sortedKeys[0];
+                selectedRoomSetting = Object.keys(appSchedules).sort((a, b) => a.localeCompare(b, 'th', { numeric: true }))[0];
             }
             if (hasNewRooms) localStorage.setItem('appSchedulesV2', JSON.stringify(appSchedules));
         }
@@ -567,20 +485,17 @@
                 const sched = appSchedules[student.room] || [];
                 if(sched.length > 0) {
                     const dateStr = new Date().toLocaleDateString('th-TH');
-                    mockHistoryDb[student.id].push({ 
-                        date: dateStr, periodName: sched[0].name, checkIn: sched[0].checkIn, checkOut: sched[0].checkOut, status: 'ทันเวลา', isLate: false, isEarly: false 
-                    });
+                    mockHistoryDb[student.id].push({ date: dateStr, periodName: sched[0].name, checkIn: sched[0].checkIn, checkOut: sched[0].checkOut, status: 'ทันเวลา', isLate: false, isEarly: false });
                 }
             });
             renderSettingsUI();
             renderStudentTable();
             updateDashboard();
             initFaceMatcher(); 
-            initCameraScanner(); 
         }
 
         // ==========================================
-        // ระบบ Caching AI Models
+        // 5. ระบบ Caching AI Models
         // ==========================================
         async function loadModelsWithCache(statusElement = null) {
             if (faceModelsLoaded) return;
@@ -588,7 +503,7 @@
             const loadingText = document.getElementById('face-loading-text');
             
             if (loadingOverlay && !statusElement) loadingOverlay.classList.remove('hidden');
-            if (statusElement) statusElement.innerText = "กำลังตรวจเช็คไฟล์ AI ในเครื่อง...";
+            if (statusElement) statusElement.innerText = "กำลังเตรียมระบบ AI...";
 
             if (!isCachingSetup) {
                 faceapi.env.monkeyPatch({
@@ -598,10 +513,6 @@
                             const cache = await caches.open(cacheName);
                             const cachedResponse = await cache.match(url);
                             if (cachedResponse) return cachedResponse;
-                            
-                            if (statusElement) statusElement.innerText = "กำลังดาวน์โหลดไฟล์ AI (ทำครั้งเดียว)...";
-                            if (loadingText) loadingText.innerHTML = "กำลังดาวน์โหลดระบบ AI จากอินเทอร์เน็ต...<br><span class='text-sm font-normal text-yellow-300 mt-2 block'>(กรุณารอสักครู่ ห้ามปิดหน้าจอ)</span>";
-
                             const networkResponse = await window.fetch(url, options);
                             if (networkResponse.ok) cache.put(url, networkResponse.clone());
                             return networkResponse;
@@ -628,46 +539,33 @@
                 }
             } catch (err) {
                 if (statusElement) statusElement.innerText = "โหลด AI ไม่สำเร็จ กรุณาเช็คอินเทอร์เน็ต";
-                if (loadingText) loadingText.innerHTML = "โหลด AI ไม่สำเร็จ<br><span class='text-sm text-red-300'>กรุณารีเฟรชหน้าเว็บและลองใหม่</span>";
             }
         }
 
-        // ==========================================
-        // ระบบ AI: สร้างฐานข้อมูลใบหน้า
-        // ==========================================
         function initFaceMatcher() {
             const labeledDescriptors = [];
             appStudents.forEach(student => {
                 if(student.faceData && student.faceData.trim() !== '') {
                     try {
-                        const arr = JSON.parse(student.faceData);
-                        const float32Arr = new Float32Array(arr);
+                        const float32Arr = new Float32Array(JSON.parse(student.faceData));
                         labeledDescriptors.push(new faceapi.LabeledFaceDescriptors(student.id, [float32Arr]));
                     } catch(e) {}
                 }
             });
-            if(labeledDescriptors.length > 0) {
-                faceMatcher = new faceapi.FaceMatcher(labeledDescriptors, 0.45); 
-            } else {
-                faceMatcher = null;
-            }
+            if(labeledDescriptors.length > 0) faceMatcher = new faceapi.FaceMatcher(labeledDescriptors, 0.45); 
+            else faceMatcher = null;
         }
 
         // ==========================================
-        // การสลับโหมดกล้อง (QR / Face)
+        // 6. การควบคุมกล้องหลัก (หน้าสแกนเช็คชื่อ)
         // ==========================================
         async function toggleCamera() {
             currentFacingMode = currentFacingMode === "environment" ? "user" : "environment";
             if (currentScannerMode === 'qr') {
-                if (html5QrCode) {
-                    await html5QrCode.stop().catch(e => console.log(e));
-                    html5QrCode.clear();
-                    html5QrCode = null;
-                }
+                if (html5QrCode) { await html5QrCode.stop().catch(e => {}); html5QrCode.clear(); html5QrCode = null; }
                 initCameraScanner();
             } else if (currentScannerMode === 'face') {
-                stopFaceScanner();
-                initFaceScanner();
+                stopFaceScanner(); initFaceScanner();
             }
         }
 
@@ -677,137 +575,118 @@
             const btnFace = document.getElementById('btn-mode-face');
             const qrContainer = document.getElementById('qr-container');
             const faceContainer = document.getElementById('face-container');
+            const hintBox = document.getElementById('scan-hint-box');
 
             if(mode === 'qr') {
                 btnQr.className = "flex-1 py-2 px-4 rounded-md font-bold text-sm bg-white shadow-sm text-blue-600 transition-all";
                 btnFace.className = "flex-1 py-2 px-4 rounded-md font-bold text-sm text-gray-500 hover:text-gray-700 transition-all";
-                qrContainer.classList.remove('hidden'); qrContainer.classList.add('block');
-                faceContainer.classList.remove('block'); faceContainer.classList.add('hidden');
-                document.getElementById('scan-hint-box').classList.add('hidden');
+                qrContainer.classList.remove('hidden'); faceContainer.classList.add('hidden'); hintBox.classList.add('hidden');
                 stopFaceScanner(); initCameraScanner();
             } else {
                 btnFace.className = "flex-1 py-2 px-4 rounded-md font-bold text-sm bg-white shadow-sm text-blue-600 transition-all";
                 btnQr.className = "flex-1 py-2 px-4 rounded-md font-bold text-sm text-gray-500 hover:text-gray-700 transition-all";
-                faceContainer.classList.remove('hidden'); faceContainer.classList.add('block');
-                qrContainer.classList.remove('block'); qrContainer.classList.add('hidden');
-                document.getElementById('scan-hint-box').classList.remove('hidden');
-                
-                if (html5QrCode) {
-                    html5QrCode.stop().then(() => { html5QrCode.clear(); html5QrCode = null; }).catch(err => console.log(err));
-                }
+                faceContainer.classList.remove('hidden'); qrContainer.classList.add('hidden'); hintBox.classList.remove('hidden');
+                if (html5QrCode) { html5QrCode.stop().then(() => { html5QrCode.clear(); html5QrCode = null; }).catch(err => {}); }
                 initFaceScanner();
             }
         }
 
-        // --- ระบบสแกน QR Code ---
         function initCameraScanner() {
             if (html5QrCode) return;
             html5QrCode = new Html5Qrcode("reader");
-            const config = { fps: 10, qrbox: { width: 250, height: 250 } };
             html5QrCode.start(
-                { facingMode: currentFacingMode }, config, 
-                (decodedText) => {
-                    document.getElementById('manual-student-id').value = decodedText.trim();
-                    processScannedId(decodedText.trim());
-                },
+                { facingMode: currentFacingMode }, { fps: 10, qrbox: { width: 250, height: 250 } }, 
+                (decodedText) => { document.getElementById('manual-student-id').value = decodedText.trim(); processScannedId(decodedText.trim()); },
                 (errorMessage) => {}
             ).catch(err => {});
         }
 
-        // --- ระบบสแกนใบหน้า (AI เช็คชื่อของจริง) พร้อม Oval Mask ---
         async function initFaceScanner() {
             faceVideo = document.getElementById('face-video');
             await loadModelsWithCache();
-
             try {
                 const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: currentFacingMode } });
                 faceVideo.srcObject = stream;
             } catch (err) {
-                alert("ไม่สามารถเปิดกล้องสแกนใบหน้าได้ กรุณาอนุญาตให้บราว์เซอร์เข้าถึงกล้อง");
+                alert("ไม่สามารถเปิดกล้องสแกนใบหน้าได้ กรุณาอนุญาตให้เข้าถึงกล้อง");
             }
         }
 
         document.getElementById('face-video').addEventListener('play', () => {
             const canvas = document.getElementById('face-canvas');
             const hintText = document.getElementById('scan-hint-text');
-            const displaySize = { width: faceVideo.clientWidth, height: faceVideo.clientHeight };
-            faceapi.matchDimensions(canvas, displaySize);
             
-            faceDetectionInterval = setInterval(async () => {
-                if(currentScannerMode !== 'face') return;
+            // รอให้วิดีโอมีขนาดก่อนตั้งค่า canvas
+            setTimeout(() => {
+                const displaySize = { width: faceVideo.videoWidth || 500, height: faceVideo.videoHeight || 400 };
+                faceapi.matchDimensions(canvas, displaySize);
                 
-                const detections = await faceapi.detectAllFaces(faceVideo, new faceapi.TinyFaceDetectorOptions()).withFaceLandmarks().withFaceDescriptors();
-                const resizedDetections = faceapi.resizeResults(detections, displaySize);
+                // วาดกรอบรอไว้ก่อนเลย
                 const ctx = canvas.getContext('2d');
+                drawOvalMask(canvas, ctx, displaySize.width, displaySize.height, '#6B7280');
                 
-                // วาด Oval Mask ทับเป็นพื้นหลังเสมอ
-                drawOvalMask(canvas, ctx, displaySize.width, displaySize.height, '#6B7280'); // สีเทาตอนรอ
+                faceDetectionInterval = setInterval(async () => {
+                    if(currentScannerMode !== 'face') return;
+                    
+                    const detections = await faceapi.detectAllFaces(faceVideo, new faceapi.TinyFaceDetectorOptions()).withFaceLandmarks().withFaceDescriptors();
+                    const resizedDetections = faceapi.resizeResults(detections, displaySize);
+                    
+                    drawOvalMask(canvas, ctx, displaySize.width, displaySize.height, '#6B7280'); // วาดทับใหม่ทุกรอบ
 
-                if(detections.length > 0) {
-                    const box = resizedDetections[0].detection.box;
-                    const faceCenterX = box.x + (box.width / 2);
-                    const faceCenterY = box.y + (box.height / 2);
-                    const canvasCenterX = displaySize.width / 2;
-                    const canvasCenterY = displaySize.height / 2;
+                    if(detections.length > 0) {
+                        const box = resizedDetections[0].detection.box;
+                        const faceCenterX = box.x + (box.width / 2);
+                        const faceCenterY = box.y + (box.height / 2);
+                        const canvasCenterX = displaySize.width / 2;
+                        const canvasCenterY = displaySize.height / 2;
 
-                    // คำนวณระยะห่างหน้ากับจุดศูนย์กลาง
-                    const distanceX = Math.abs(faceCenterX - canvasCenterX);
-                    const distanceY = Math.abs(faceCenterY - canvasCenterY);
-                    const isCentered = distanceX < 60 && distanceY < 60;
-                    const isRightSize = box.width > 120 && box.width < 250; // หน้าไม่เล็ก/ใหญ่ไป
+                        const distanceX = Math.abs(faceCenterX - canvasCenterX);
+                        const distanceY = Math.abs(faceCenterY - canvasCenterY);
+                        const isCentered = distanceX < 60 && distanceY < 60;
+                        const isRightSize = box.width > 80 && box.width < 300; 
 
-                    if (!isCentered) {
-                        hintText.innerText = "กรุณาขยับใบหน้าให้อยู่ตรงกลางกรอบ";
-                        hintText.className = "bg-yellow-500 bg-opacity-90 text-white px-4 py-2 rounded-full font-bold text-sm shadow-lg border border-yellow-600";
-                        drawOvalMask(canvas, ctx, displaySize.width, displaySize.height, '#F59E0B'); 
-                    } else if (!isRightSize) {
-                        hintText.innerText = box.width <= 120 ? "ขยับเข้ามาใกล้กล้องอีกนิด" : "ถอยหลังออกไปนิดนึง";
-                        hintText.className = "bg-yellow-500 bg-opacity-90 text-white px-4 py-2 rounded-full font-bold text-sm shadow-lg border border-yellow-600";
-                        drawOvalMask(canvas, ctx, displaySize.width, displaySize.height, '#F59E0B');
-                    } else {
-                        // หน้าอยู่ตรงกลางและขนาดพอดีแล้ว
-                        hintText.innerText = "กำลังค้นหาข้อมูลนักเรียน...";
-                        hintText.className = "bg-blue-500 bg-opacity-90 text-white px-4 py-2 rounded-full font-bold text-sm shadow-lg border border-blue-600";
-                        drawOvalMask(canvas, ctx, displaySize.width, displaySize.height, '#3B82F6');
+                        if (!isCentered) {
+                            hintText.innerText = "กรุณาขยับใบหน้าให้อยู่ตรงกลางกรอบ";
+                            hintText.className = "bg-yellow-500 text-white px-4 py-2 rounded-full font-bold text-sm";
+                            drawOvalMask(canvas, ctx, displaySize.width, displaySize.height, '#F59E0B'); 
+                        } else if (!isRightSize) {
+                            hintText.innerText = box.width <= 80 ? "ขยับเข้ามาใกล้กล้องอีกนิด" : "ถอยหลังออกไปนิดนึง";
+                            hintText.className = "bg-yellow-500 text-white px-4 py-2 rounded-full font-bold text-sm";
+                            drawOvalMask(canvas, ctx, displaySize.width, displaySize.height, '#F59E0B');
+                        } else {
+                            hintText.innerText = "กำลังค้นหาข้อมูลนักเรียน...";
+                            hintText.className = "bg-blue-500 text-white px-4 py-2 rounded-full font-bold text-sm";
+                            drawOvalMask(canvas, ctx, displaySize.width, displaySize.height, '#3B82F6');
 
-                        if (!window.simulatedFaceScanCooldown && faceMatcher) {
-                            const bestMatch = faceMatcher.findBestMatch(resizedDetections[0].descriptor);
-                            
-                            if (bestMatch.label !== 'unknown') {
-                                window.simulatedFaceScanCooldown = true;
+                            if (!window.simulatedFaceScanCooldown && faceMatcher) {
+                                const bestMatch = faceMatcher.findBestMatch(resizedDetections[0].descriptor);
                                 
-                                // วาดกรอบสีเขียวสำเร็จ
-                                drawOvalMask(canvas, ctx, displaySize.width, displaySize.height, '#10B981', '✅ ตรวจสอบสำเร็จ');
-                                
-                                playBeep('success');
-                                processScannedId(bestMatch.label); 
-                                
-                                setTimeout(() => { window.simulatedFaceScanCooldown = false; }, 3000);
-                            } else {
-                                drawOvalMask(canvas, ctx, displaySize.width, displaySize.height, '#EF4444', '❌ ไม่พบข้อมูลใบหน้านี้');
+                                if (bestMatch.label !== 'unknown') {
+                                    window.simulatedFaceScanCooldown = true;
+                                    drawOvalMask(canvas, ctx, displaySize.width, displaySize.height, '#10B981', '✅ ตรวจสอบสำเร็จ');
+                                    playBeep('success');
+                                    processScannedId(bestMatch.label); 
+                                    setTimeout(() => { window.simulatedFaceScanCooldown = false; }, 3000);
+                                } else {
+                                    drawOvalMask(canvas, ctx, displaySize.width, displaySize.height, '#EF4444', '❌ ไม่คุ้นหน้า');
+                                }
                             }
-                        } else if (!faceMatcher) {
-                            drawOvalMask(canvas, ctx, displaySize.width, displaySize.height, '#EF4444', 'ยังไม่มีฐานข้อมูลในระบบ');
                         }
+                    } else {
+                        hintText.innerText = "กรุณานำใบหน้ามาไว้ในกรอบ";
+                        hintText.className = "bg-gray-900 text-white px-4 py-2 rounded-full font-bold text-sm";
                     }
-                } else {
-                    hintText.innerText = "กรุณานำใบหน้ามาไว้ในกรอบ";
-                    hintText.className = "bg-gray-900 bg-opacity-80 text-white px-4 py-2 rounded-full font-bold text-sm shadow-lg border border-gray-600";
-                }
-            }, 200);
+                }, 200);
+            }, 100);
         });
 
         function stopFaceScanner() {
             if(faceDetectionInterval) clearInterval(faceDetectionInterval);
-            if(faceVideo && faceVideo.srcObject) {
-                faceVideo.srcObject.getTracks().forEach(track => track.stop());
-            }
-            const canvas = document.getElementById('face-canvas');
-            if(canvas) canvas.getContext('2d').clearRect(0, 0, canvas.width, canvas.height);
+            if(faceVideo && faceVideo.srcObject) { faceVideo.srcObject.getTracks().forEach(track => track.stop()); }
         }
 
         // ==========================================
-        // ระบบลงทะเบียนใบหน้า (Face Enrollment) พร้อม Oval Mask
+        // 7. ระบบลงทะเบียนใบหน้า (Face Enrollment) พร้อม Oval Mask
         // ==========================================
         async function openEnrollModal(id, name) {
             currentEnrollId = id;
@@ -816,11 +695,8 @@
             
             const btnSave = document.getElementById('btn-save-face');
             const statusEl = document.getElementById('enroll-status');
-            
-            btnSave.disabled = true;
-            btnSave.classList.add('opacity-50', 'cursor-not-allowed');
-            statusEl.innerText = "กำลังเตรียมกล้อง...";
-            statusEl.className = "text-sm font-bold text-yellow-600 mb-4 bg-yellow-50 py-2 rounded border border-yellow-200";
+            btnSave.disabled = true; btnSave.classList.add('opacity-50', 'cursor-not-allowed');
+            statusEl.innerText = "กำลังเตรียมกล้อง..."; statusEl.className = "text-sm font-bold text-yellow-600 mb-4 bg-yellow-50 py-2 rounded border border-yellow-200";
 
             await loadModelsWithCache(statusEl);
             startEnrollCamera();
@@ -829,15 +705,10 @@
         async function startEnrollCamera() {
             enrollVideo = document.getElementById('enroll-video');
             try {
-                if(enrollVideo.srcObject) {
-                    enrollVideo.srcObject.getTracks().forEach(t => t.stop());
-                }
+                if(enrollVideo.srcObject) enrollVideo.srcObject.getTracks().forEach(t => t.stop());
                 const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: currentEnrollFacingMode } }); 
                 enrollVideo.srcObject = stream;
-            } catch (err) {
-                alert("ไม่สามารถเปิดกล้องได้ กรุณาอนุญาตสิทธิ์กล้อง");
-                closeEnrollModal();
-            }
+            } catch (err) { alert("เปิดกล้องไม่ได้"); closeEnrollModal(); }
         }
 
         async function toggleEnrollCamera() {
@@ -847,156 +718,152 @@
 
         document.getElementById('enroll-video').addEventListener('play', () => {
             const canvas = document.getElementById('enroll-canvas');
-            const displaySize = { width: enrollVideo.clientWidth, height: enrollVideo.clientHeight };
-            faceapi.matchDimensions(canvas, displaySize);
             
-            if(enrollInterval) clearInterval(enrollInterval);
-
-            enrollInterval = setInterval(async () => {
-                const detections = await faceapi.detectAllFaces(enrollVideo, new faceapi.TinyFaceDetectorOptions()).withFaceLandmarks().withFaceDescriptors();
-                const resizedDetections = faceapi.resizeResults(detections, displaySize);
-                const ctx = canvas.getContext('2d');
+            setTimeout(() => {
+                const displaySize = { width: enrollVideo.clientWidth, height: enrollVideo.clientHeight };
+                faceapi.matchDimensions(canvas, displaySize);
                 
-                const statusEl = document.getElementById('enroll-status');
-                const btnSave = document.getElementById('btn-save-face');
+                if(enrollInterval) clearInterval(enrollInterval);
 
-                if (detections.length === 1) {
-                    const box = resizedDetections[0].detection.box;
-                    const faceCenterX = box.x + (box.width / 2);
-                    const faceCenterY = box.y + (box.height / 2);
-                    const canvasCenterX = displaySize.width / 2;
-                    const canvasCenterY = displaySize.height / 2;
+                enrollInterval = setInterval(async () => {
+                    const detections = await faceapi.detectAllFaces(enrollVideo, new faceapi.TinyFaceDetectorOptions()).withFaceLandmarks().withFaceDescriptors();
+                    const resizedDetections = faceapi.resizeResults(detections, displaySize);
+                    const ctx = canvas.getContext('2d');
+                    
+                    const statusEl = document.getElementById('enroll-status');
+                    const btnSave = document.getElementById('btn-save-face');
 
-                    const distanceX = Math.abs(faceCenterX - canvasCenterX);
-                    const distanceY = Math.abs(faceCenterY - canvasCenterY);
-                    const isCentered = distanceX < 50 && distanceY < 50;
-                    const isRightSize = box.width > 100 && box.width < 250;
+                    if (detections.length === 1) {
+                        const box = resizedDetections[0].detection.box;
+                        const distanceX = Math.abs((box.x + box.width/2) - (displaySize.width/2));
+                        const distanceY = Math.abs((box.y + box.height/2) - (displaySize.height/2));
+                        const isCentered = distanceX < 50 && distanceY < 50;
+                        const isRightSize = box.width > 90 && box.width < 250;
 
-                    if (!isCentered || !isRightSize) {
-                        drawOvalMask(canvas, ctx, displaySize.width, displaySize.height, '#F59E0B');
-                        statusEl.innerText = !isCentered ? "⚠️ กรุณาขยับหน้าให้อยู่ตรงกลางกรอบ" : (box.width <= 100 ? "⚠️ ขยับเข้ามาใกล้กล้องอีกนิด" : "⚠️ ถอยหลังออกไปนิดนึง");
-                        statusEl.className = "text-sm font-bold text-yellow-600 mb-4 bg-yellow-50 py-2 px-2 rounded border border-yellow-200";
-                        btnSave.disabled = true; btnSave.classList.add('opacity-50', 'cursor-not-allowed');
-                    } else {
-                        // หน้าสมบูรณ์พร้อมบันทึก
-                        drawOvalMask(canvas, ctx, displaySize.width, displaySize.height, '#10B981');
-                        statusEl.innerText = "✅ ใบหน้าชัดเจนและอยู่ตรงกลาง พร้อมบันทึก";
-                        statusEl.className = "text-sm font-bold text-green-700 mb-4 bg-green-50 py-2 px-2 rounded border border-green-200";
-                        
-                        if(btnSave.disabled) {
-                            btnSave.disabled = false;
-                            btnSave.classList.remove('opacity-50', 'cursor-not-allowed');
+                        if (!isCentered || !isRightSize) {
+                            drawOvalMask(canvas, ctx, displaySize.width, displaySize.height, '#F59E0B');
+                            statusEl.innerText = !isCentered ? "⚠️ ขยับหน้าให้อยู่ตรงกลางกรอบ" : (box.width <= 90 ? "⚠️ ขยับเข้ามาใกล้กล้อง" : "⚠️ ถอยหลังออกไปนิดนึง");
+                            statusEl.className = "text-sm font-bold text-yellow-600 mb-4 bg-yellow-50 py-2 px-2 rounded";
+                            btnSave.disabled = true; btnSave.classList.add('opacity-50', 'cursor-not-allowed');
+                        } else {
+                            drawOvalMask(canvas, ctx, displaySize.width, displaySize.height, '#10B981');
+                            statusEl.innerText = "✅ ใบหน้าชัดเจน พร้อมบันทึก";
+                            statusEl.className = "text-sm font-bold text-green-700 mb-4 bg-green-50 py-2 px-2 rounded";
+                            btnSave.disabled = false; btnSave.classList.remove('opacity-50', 'cursor-not-allowed');
+                            currentFaceDescriptor = detections[0].descriptor;
                         }
-                        currentFaceDescriptor = detections[0].descriptor;
+                    } else {
+                        drawOvalMask(canvas, ctx, displaySize.width, displaySize.height, detections.length > 1 ? '#EF4444' : '#6B7280');
+                        statusEl.innerText = detections.length > 1 ? "❌ มีหลายคนในกล้อง" : "กำลังค้นหาใบหน้า...";
+                        statusEl.className = "text-sm font-bold text-gray-600 mb-4 bg-gray-50 py-2 px-2 rounded";
+                        btnSave.disabled = true; btnSave.classList.add('opacity-50', 'cursor-not-allowed');
                     }
-                } else if (detections.length > 1) {
-                    drawOvalMask(canvas, ctx, displaySize.width, displaySize.height, '#EF4444');
-                    statusEl.innerText = "❌ ตรวจพบหลายใบหน้า กรุณาให้มีคนเดียว";
-                    statusEl.className = "text-sm font-bold text-red-600 mb-4 bg-red-50 py-2 px-2 rounded border border-red-200";
-                    btnSave.disabled = true; btnSave.classList.add('opacity-50', 'cursor-not-allowed');
-                } else {
-                    drawOvalMask(canvas, ctx, displaySize.width, displaySize.height, '#6B7280');
-                    statusEl.innerText = "กำลังค้นหาใบหน้า...";
-                    statusEl.className = "text-sm font-bold text-gray-600 mb-4 bg-gray-50 py-2 px-2 rounded border border-gray-200";
-                    btnSave.disabled = true; btnSave.classList.add('opacity-50', 'cursor-not-allowed');
-                }
-            }, 150);
+                }, 150);
+            }, 100);
         });
 
         function closeEnrollModal() {
             if(enrollInterval) clearInterval(enrollInterval);
-            if(enrollVideo && enrollVideo.srcObject) {
-                enrollVideo.srcObject.getTracks().forEach(t => t.stop());
-            }
+            if(enrollVideo && enrollVideo.srcObject) enrollVideo.srcObject.getTracks().forEach(t => t.stop());
             document.getElementById('enroll-modal').classList.add('hidden');
         }
 
         async function saveFaceEnrollment() {
             if(!currentFaceDescriptor || !currentEnrollId) return;
-            
             const btnSave = document.getElementById('btn-save-face');
-            btnSave.innerText = "กำลังประมวลผลและบันทึก...";
-            btnSave.disabled = true;
+            btnSave.innerText = "กำลังบันทึก..."; btnSave.disabled = true;
 
-            const descriptorArray = Array.from(currentFaceDescriptor);
-            const faceDataStr = JSON.stringify(descriptorArray);
-
+            const faceDataStr = JSON.stringify(Array.from(currentFaceDescriptor));
             const studentIndex = appStudents.findIndex(s => s.id === currentEnrollId);
-            if (studentIndex > -1) {
-                appStudents[studentIndex].faceData = faceDataStr;
-            }
+            if (studentIndex > -1) appStudents[studentIndex].faceData = faceDataStr;
 
             if (API_URL) {
                 try {
-                    const response = await fetch(API_URL, {
-                        method: 'POST',
-                        body: JSON.stringify({
-                            action: 'saveFaceData',
-                            id: currentEnrollId,
-                            faceData: faceDataStr
-                        })
-                    });
-                    const result = await response.json();
-                    if(result.status === 'success') {
-                        alert("บันทึกอัตลักษณ์ใบหน้าเรียบร้อยแล้ว!");
-                        renderStudentTable();
-                    } else {
-                        alert("เกิดข้อผิดพลาดในการบันทึก: " + result.message);
-                    }
-                } catch (err) {
-                    alert("ระบบขัดข้อง บันทึกได้แค่ในเครื่องเบื้องต้นเท่านั้น");
-                }
+                    await fetch(API_URL, { method: 'POST', body: JSON.stringify({ action: 'saveFaceData', id: currentEnrollId, faceData: faceDataStr }) });
+                    alert("บันทึกใบหน้าเรียบร้อย!"); renderStudentTable();
+                } catch (err) { alert("ระบบขัดข้อง บันทึกได้แค่ในเครื่องเบื้องต้น"); }
             }
-            
-            initFaceMatcher(); 
-            closeEnrollModal();
+            initFaceMatcher(); closeEnrollModal();
         }
 
         // ==========================================
-        // ระบบประมวลผลการเช็คชื่อ (Show Toast Notification)
+        // 8. ระบบประมวลผลเช็คชื่อ (Manual & Auto) + Undo
         // ==========================================
-        function showToastNotification(student, actionType, statusText, isLate, isEarly, timeStr) {
+        
+        // รับค่าจากการกดปุ่มเช็คชื่อด้วยมือในตาราง
+        function processManualScanById(studentId) {
+            if(confirm(`ต้องการเช็คชื่อรหัส ${studentId} ด้วยตนเองใช่หรือไม่?`)) {
+                processScannedId(studentId);
+            }
+        }
+
+        // ฟังก์ชันยกเลิกการเช็คชื่อ (Undo)
+        async function undoLastScan(id, periodName) {
+            if (currentSessionLogs[id] && currentSessionLogs[id][periodName]) {
+                delete currentSessionLogs[id][periodName];
+            }
+            
+            // ซ่อน Pop-up แจ้งเตือนทันที
+            document.getElementById('scan-toast-notification').classList.add('-translate-y-48');
+
+            if (API_URL) {
+                const todayStr = new Date().toLocaleDateString('th-TH');
+                try {
+                    await fetch(API_URL, {
+                        method: 'POST',
+                        body: JSON.stringify({ action: 'undoLog', log: { date: todayStr, id: id, period: periodName } })
+                    });
+                    alert("ยกเลิกการเช็คชื่อล่าสุดสำเร็จ!");
+                    updateDashboard();
+                } catch(e) { console.error("Undo error", e); }
+            }
+        }
+
+        function showToastNotification(student, actionType, statusText, isLate, isEarly, timeStr, activePeriodName) {
             const toastEl = document.getElementById('scan-toast-notification');
             const bgEl = document.getElementById('toast-bg');
             const iconEl = document.getElementById('toast-icon');
             const nameEl = document.getElementById('toast-name');
             const infoEl = document.getElementById('toast-info');
             const imgEl = document.getElementById('toast-img');
+            const actionContainer = document.getElementById('toast-action-container');
 
             if (student) {
-                imgEl.src = student.photoUrl || '';
-                imgEl.classList.remove('hidden');
+                imgEl.src = student.photoUrl || ''; imgEl.classList.remove('hidden');
                 nameEl.innerText = student.name;
                 infoEl.innerText = `${actionType} (${statusText}) เวลา: ${timeStr} น.`;
                 
                 bgEl.className = "bg-white rounded-lg shadow-2xl border-l-8 p-4 flex items-center space-x-4";
                 if(isEarly) { bgEl.classList.add('border-red-500'); iconEl.innerText = '🏃'; }
-                else if(isLate) { bgEl.classList.add('border-yellow-500'); iconEl.innerText = '⚠️️'; }
+                else if(isLate) { bgEl.classList.add('border-yellow-500'); iconEl.innerText = '⚠'; }
                 else if(actionType === 'Check-Out') { bgEl.classList.add('border-blue-500'); iconEl.innerText = '👋'; }
                 else { bgEl.classList.add('border-green-500'); iconEl.innerText = '✅'; }
+
+                // สร้างปุ่ม Undo ให้เฉพาะครูหรือเฉพาะการสแกนปกติ
+                if (actionType !== 'สแกนซ้ำ') {
+                    actionContainer.innerHTML = `<button onclick="undoLastScan('${student.id}', '${activePeriodName}')" class="text-xs bg-red-100 text-red-700 px-3 py-1 rounded hover:bg-red-200 border border-red-300 font-bold">↩️ ยกเลิกรายการนี้ (Undo)</button>`;
+                    actionContainer.classList.remove('hidden');
+                } else {
+                    actionContainer.classList.add('hidden');
+                }
             } else {
                 imgEl.classList.add('hidden');
-                nameEl.innerText = "ไม่พบข้อมูล/เกิดข้อผิดพลาด";
-                infoEl.innerText = statusText;
+                nameEl.innerText = "เกิดข้อผิดพลาด"; infoEl.innerText = statusText;
                 bgEl.className = "bg-red-50 rounded-lg shadow-2xl border-l-8 border-red-600 p-4 flex items-center space-x-4";
-                iconEl.innerText = '❌';
+                iconEl.innerText = '❌'; actionContainer.classList.add('hidden');
             }
 
-            // แสดง Pop-up (เลื่อนลงมา)
-            toastEl.classList.remove('-translate-y-24');
-            toastEl.classList.add('translate-y-0');
-
-            // ซ่อน Pop-up หลังจาก 4 วินาที
-            setTimeout(() => {
-                toastEl.classList.remove('translate-y-0');
-                toastEl.classList.add('-translate-y-24');
-            }, 4000);
+            toastEl.classList.remove('-translate-y-48'); toastEl.classList.add('translate-y-0');
+            
+            // ซ่อน Pop-up หลังจาก 5 วินาที
+            if(window.toastTimeout) clearTimeout(window.toastTimeout);
+            window.toastTimeout = setTimeout(() => {
+                toastEl.classList.remove('translate-y-0'); toastEl.classList.add('-translate-y-48');
+            }, 5000);
         }
 
         async function processScannedId(inputId) {
             const student = appStudents.find(s => s.id === inputId);
-            
-            // อัปเดตข้อมูลกล่องด้านล่าง (เผื่อไว้สำหรับโหมด QR Code)
             const resultDiv = document.getElementById('scan-result');
             const photoEl = document.getElementById('scan-photo');
             const nameEl = document.getElementById('scan-name');
@@ -1007,8 +874,7 @@
 
             if (!student) {
                 playBeep('error');
-                showToastNotification(null, null, `เลขประจำตัว ${inputId} ไม่มีในระบบ`, false, false, '');
-                
+                showToastNotification(null, null, `เลขประจำตัว ${inputId} ไม่มีในระบบ`, false, false, '', '');
                 resultDiv.className = "bg-red-50 p-4 mt-4 text-left border-2 border-red-400 block rounded-lg shadow-md";
                 photoEl.classList.add('hidden'); nameEl.innerText = "ไม่พบข้อมูลนักเรียน"; nameEl.className = "text-2xl font-bold text-red-700 mb-1";
                 idEl.innerText = `รหัสสแกน: ${inputId}`; periodEl.innerText = ""; statusEl.innerText = "ตรวจสอบรหัสอีกครั้ง"; timeEl.innerText = "";
@@ -1016,25 +882,18 @@
             }
 
             const schedule = appSchedules[student.room] || [];
-            if(schedule.length === 0) {
-                alert(`ห้อง ${student.room} ยังไม่มีการตั้งตารางเวลา`);
-                return;
-            }
+            if(schedule.length === 0) { alert(`ห้อง ${student.room} ยังไม่มีการตั้งตารางเวลา`); return; }
 
             const currentTime = getCurrentTimeStr();
             let activePeriod = schedule.sort((a, b) => a.checkIn.localeCompare(b.checkIn))[0]; 
-            for(let p of schedule) {
-                if (currentTime <= p.checkOut) { activePeriod = p; break; }
-            }
+            for(let p of schedule) { if (currentTime <= p.checkOut) { activePeriod = p; break; } }
 
             if(!currentSessionLogs[inputId]) currentSessionLogs[inputId] = {};
             let log = currentSessionLogs[inputId][activePeriod.name];
             
             let actionType = ''; let statusText = ''; let isLate = false; let isEarly = false; let uiStyleClass = '';
 
-            photoEl.src = student.photoUrl;
-            photoEl.classList.remove('hidden'); 
-            nameEl.className = "text-2xl font-bold text-gray-900 mb-1";
+            photoEl.src = student.photoUrl; photoEl.classList.remove('hidden'); nameEl.className = "text-2xl font-bold text-gray-900 mb-1";
 
             if (!log) {
                 isLate = currentTime > activePeriod.checkIn;
@@ -1052,8 +911,7 @@
                 playBeep(isEarly ? 'warn' : 'success');
             } else {
                 playBeep('warn');
-                showToastNotification(student, 'สแกนซ้ำ', `สแกนออกคาบ ${activePeriod.name} ไปแล้ว`, false, false, log.checkOut);
-                
+                showToastNotification(student, 'สแกนซ้ำ', `สแกนออกคาบ ${activePeriod.name} ไปแล้ว`, false, false, log.checkOut, activePeriod.name);
                 resultDiv.className = "bg-gray-100 border-gray-400 p-4 mt-4 text-left border-2 block rounded-lg shadow-md";
                 statusEl.className = "text-lg font-bold mb-1 text-gray-700";
                 nameEl.innerText = student.name; idEl.innerText = `รหัส: ${student.id} | ห้อง: ${student.room}`;
@@ -1061,284 +919,28 @@
                 return;
             }
 
-            // เรียก Pop-up Toast สวยๆ แจ้งเตือนตรงหน้าสแกนหน้า
-            showToastNotification(student, actionType, statusText, isLate, isEarly, currentTime);
+            // แสดง Pop-up พร้อมปุ่ม Undo
+            showToastNotification(student, actionType, statusText, isLate, isEarly, currentTime, activePeriod.name);
 
-            // อัปเดตกล่องล่างด้วย
             resultDiv.className = `${uiStyleClass} p-4 mt-4 text-left border-2 block rounded-lg shadow-md`;
-            nameEl.innerText = student.name;
-            idEl.innerText = `รหัส: ${student.id} | ห้อง: ${student.room}`;
-            periodEl.innerText = `คาบเรียน: ${activePeriod.name}`;
-            statusEl.innerText = `สถานะ: ${actionType} (${statusText})`;
-            timeEl.innerText = `เวลาสแกน: ${currentTime}`;
+            nameEl.innerText = student.name; idEl.innerText = `รหัส: ${student.id} | ห้อง: ${student.room}`;
+            periodEl.innerText = `คาบเรียน: ${activePeriod.name}`; statusEl.innerText = `สถานะ: ${actionType} (${statusText})`; timeEl.innerText = `เวลาสแกน: ${currentTime}`;
 
             if (API_URL) {
                 try {
                     const todayStr = new Date().toLocaleDateString('th-TH');
                     await fetch(API_URL, {
                         method: 'POST',
-                        body: JSON.stringify({
-                            action: 'saveLog',
-                            log: {
-                                date: todayStr, id: student.id, name: student.name, room: student.room, period: activePeriod.name,
-                                checkIn: currentSessionLogs[inputId][activePeriod.name].checkIn,
-                                checkOut: currentSessionLogs[inputId][activePeriod.name].checkOut,
-                                status: statusText
-                            }
-                        })
+                        body: JSON.stringify({ action: 'saveLog', log: { date: todayStr, id: student.id, name: student.name, room: student.room, period: activePeriod.name, checkIn: currentSessionLogs[inputId][activePeriod.name].checkIn, checkOut: currentSessionLogs[inputId][activePeriod.name].checkOut, status: statusText } })
                     });
-                } catch (e) { console.error("บันทึก Log ไม่สำเร็จ:", e); }
+                } catch (e) { console.error("บันทึก Log ไม่สำเร็จ"); }
             }
+            updateDashboard(); // อัปเดตตารางสรุป
         }
 
         // ==========================================
-        // ฟังก์ชันอัปโหลดรูป
+        // 9. ฟังก์ชัน UI อื่นๆ (ตาราง/ค้นหา)
         // ==========================================
-        async function handlePhotoUpload(event, studentId) {
-            const file = event.target.files[0];
-            if (!file) return;
-            if (!file.type.startsWith('image/')) return alert('กรุณาเลือกไฟล์รูปภาพเท่านั้นครับ');
-
-            const studentIndex = appStudents.findIndex(s => s.id === studentId);
-            if(studentIndex === -1) return;
-            const studentRoom = appStudents[studentIndex].room;
-
-            const reader = new FileReader();
-            reader.onload = async function(e) {
-                const imageUrl = e.target.result;
-                const imgElement = document.getElementById(`img-student-${studentId}`);
-                if (imgElement) { imgElement.src = imageUrl; imgElement.style.opacity = '0.5'; }
-                appStudents[studentIndex].photoUrl = imageUrl;
-
-                if (!API_URL) { if (imgElement) imgElement.style.opacity = '1'; return; }
-
-                try {
-                    const response = await fetch(API_URL, {
-                        method: 'POST',
-                        body: JSON.stringify({ action: 'uploadPhoto', id: studentId, room: studentRoom, imageBase64: imageUrl })
-                    });
-                    const result = await response.json();
-                    if(result.status === 'success') {
-                        appStudents[studentIndex].photoUrl = result.url;
-                        if (imgElement) { imgElement.src = result.url; imgElement.style.opacity = '1'; }
-                    } else {
-                        alert('อัปโหลดผิดพลาด: ' + result.message);
-                        if (imgElement) imgElement.style.opacity = '1';
-                    }
-                } catch (err) {
-                    alert('ระบบเครือข่ายมีปัญหา');
-                    if (imgElement) imgElement.style.opacity = '1';
-                }
-            };
-            reader.readAsDataURL(file);
-        }
-
-        // ==========================================
-        // ฟังก์ชัน UI ส่วนที่เหลือ
-        // ==========================================
-        function renderSettingsUI() {
-            const roomList = document.getElementById('settings-room-list');
-            roomList.innerHTML = '';
-            const sortedRooms = Object.keys(appSchedules).sort((a, b) => a.localeCompare(b, 'th', { numeric: true }));
-
-            sortedRooms.forEach((room) => {
-                const isActive = room === selectedRoomSetting ? 'active' : '';
-                roomList.innerHTML += `
-                    <li onclick="selectSettingRoom('${room}')" class="room-item ${isActive} px-4 py-3 flex justify-between items-center hover:bg-blue-50 transition-colors border-b border-gray-100 last:border-0">
-                        <span class="font-medium text-gray-700">${room}</span>
-                        <button onclick="deleteRoom('${room}', event)" class="text-red-400 hover:text-red-600 text-xs font-bold transition-colors">ลบ</button>
-                    </li>
-                `;
-            });
-
-            const dashboardFilter = document.getElementById('dashboard-room-filter');
-            const studentFilter = document.getElementById('room-filter');
-            const copySelect = document.getElementById('copy-schedule-select');
-            
-            let htmlOptions = '<option value="ไม่ระบุ">ไม่ระบุ (แสดงทั้งหมด)</option>';
-            let copyOptions = '';
-            
-            sortedRooms.forEach(room => {
-                htmlOptions += `<option value="${room}">${room}</option>`;
-                if(room !== selectedRoomSetting) { copyOptions += `<option value="${room}">${room}</option>`; }
-            });
-            
-            dashboardFilter.innerHTML = htmlOptions;
-            studentFilter.innerHTML = htmlOptions;
-            copySelect.innerHTML = copyOptions || '<option value="">ไม่มีห้องอื่น</option>';
-            renderScheduleForSelectedRoom();
-        }
-
-        function selectSettingRoom(room) { selectedRoomSetting = room; renderSettingsUI(); }
-
-        function addRoom() {
-            const input = document.getElementById('new-room-input');
-            const val = input.value.trim();
-            if (val && !appSchedules[val]) {
-                appSchedules[val] = []; 
-                localStorage.setItem('appSchedulesV2', JSON.stringify(appSchedules));
-                input.value = ''; selectedRoomSetting = val; renderSettingsUI();
-            }
-        }
-
-        function deleteRoom(room, event) {
-            event.stopPropagation();
-            if(confirm(`ต้องการลบห้อง ${room} และตารางเวลาทั้งหมดใช่หรือไม่?`)) {
-                delete appSchedules[room];
-                localStorage.setItem('appSchedulesV2', JSON.stringify(appSchedules));
-                selectedRoomSetting = Object.keys(appSchedules)[0] || '';
-                renderSettingsUI();
-            }
-        }
-
-        function renderScheduleForSelectedRoom() {
-            document.getElementById('schedule-title').innerText = `⏰ ตารางเวลาของห้อง: ${selectedRoomSetting || '-'}`;
-            const list = document.getElementById('settings-time-list');
-            list.innerHTML = '';
-            
-            if(!selectedRoomSetting || !appSchedules[selectedRoomSetting]) return;
-            const schedule = appSchedules[selectedRoomSetting];
-            if(schedule.length === 0) {
-                list.innerHTML = '<div class="text-center text-gray-400 py-4 text-sm">ยังไม่มีตารางเรียน เลือกคาบด้านบนได้เลยครับ</div>';
-                return;
-            }
-
-            schedule.sort((a, b) => a.checkIn.localeCompare(b.checkIn)).forEach((slot, index) => {
-                list.innerHTML += `
-                    <li class="bg-white border border-gray-200 rounded-lg p-3 flex justify-between items-center shadow-sm">
-                        <div><span class="font-bold text-green-700 block">${slot.name}</span><span class="text-xs text-gray-500">เข้า: ${slot.checkIn} น. | ออก: ${slot.checkOut} น.</span></div>
-                        <button onclick="deleteTimeSlot(${index})" class="text-red-400 hover:text-red-600 text-sm font-bold bg-red-50 px-2 py-1 rounded transition-colors">ลบ</button>
-                    </li>
-                `;
-            });
-        }
-
-        function addTimeSlot() {
-            if(!selectedRoomSetting) return alert('กรุณาเลือกหรือเพิ่มห้องเรียนก่อนครับ');
-            const nameSelect = document.getElementById('new-time-name');
-            const inInput = document.getElementById('new-time-in');
-            const outInput = document.getElementById('new-time-out');
-            const nameVal = nameSelect.value; const inVal = inInput.value; const outVal = outInput.value;
-
-            if (nameVal && inVal && outVal) {
-                appSchedules[selectedRoomSetting].push({ name: nameVal, checkIn: inVal, checkOut: outVal });
-                localStorage.setItem('appSchedulesV2', JSON.stringify(appSchedules));
-                const nextIndex = nameSelect.selectedIndex + 1;
-                if (nextIndex < nameSelect.options.length) { nameSelect.selectedIndex = nextIndex; }
-                inInput.value = outVal; outInput.value = ''; renderSettingsUI();
-            } else { alert('กรุณากรอกข้อมูลให้ครบทั้ง ชื่อคาบ เวลาเข้า และเวลาออกครับ'); }
-        }
-
-        function deleteTimeSlot(index) {
-            appSchedules[selectedRoomSetting].splice(index, 1);
-            localStorage.setItem('appSchedulesV2', JSON.stringify(appSchedules)); renderSettingsUI();
-        }
-
-        function copySchedule() {
-            const copyFrom = document.getElementById('copy-schedule-select').value;
-            if(!copyFrom || !selectedRoomSetting) return;
-            if(confirm(`คัดลอกตารางจาก ${copyFrom} มาทับที่ ${selectedRoomSetting} ใช่หรือไม่?`)) {
-                appSchedules[selectedRoomSetting] = JSON.parse(JSON.stringify(appSchedules[copyFrom]));
-                localStorage.setItem('appSchedulesV2', JSON.stringify(appSchedules)); renderSettingsUI();
-            }
-        }
-
-        const CORRECT_PIN = '336699';
-        
-        function requestSwitchTab(tabId) {
-            if (!isAdminLoggedIn && tabId !== 'scan') return;
-            executeSwitchTab(tabId);
-        }
-
-        function executeSwitchTab(tabId) {
-            document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
-            document.getElementById(tabId + '-tab').classList.add('active');
-            if(tabId === 'students') renderStudentTable();
-            if(tabId === 'dashboard') updateDashboard();
-        }
-
-        function openPinModal() {
-            document.getElementById('pin-modal').classList.remove('hidden');
-            document.getElementById('pin-error').innerText = '';
-            clearPinBoxes();
-            setTimeout(() => document.querySelectorAll('.pin-box')[0].focus(), 100);
-        }
-
-        function closePinModal() { document.getElementById('pin-modal').classList.add('hidden'); clearPinBoxes(); }
-
-        function logoutAdmin() {
-            isAdminLoggedIn = false; document.getElementById('admin-menus').classList.add('hidden');
-            document.getElementById('btn-login').classList.remove('hidden'); document.getElementById('btn-logout').classList.add('hidden'); executeSwitchTab('scan');
-        }
-
-        function clearPinBoxes() { document.querySelectorAll('.pin-box').forEach(inp => { inp.value = ''; inp.classList.remove('error'); }); }
-
-        const pinInputs = document.querySelectorAll('.pin-box');
-        pinInputs.forEach((input, index) => {
-            input.addEventListener('input', (e) => {
-                e.target.value = e.target.value.replace(/[^0-9]/g, '');
-                input.classList.remove('error'); document.getElementById('pin-error').innerText = '';
-                if (e.target.value !== '') {
-                    if (index < pinInputs.length - 1) pinInputs[index + 1].focus();
-                    else checkPinCompletion(); 
-                }
-            });
-            input.addEventListener('keydown', (e) => {
-                if (e.key === 'Backspace' && e.target.value === '') { if (index > 0) pinInputs[index - 1].focus(); }
-            });
-            input.addEventListener('paste', (e) => {
-                e.preventDefault();
-                const text = (e.clipboardData || window.clipboardData).getData('text').replace(/[^0-9]/g, '').substring(0, 6);
-                for(let i = 0; i < text.length; i++) pinInputs[i].value = text[i];
-                if(text.length > 0) {
-                    if(text.length < 6) pinInputs[text.length].focus(); else checkPinCompletion();
-                }
-            });
-        });
-
-        function checkPinCompletion() {
-            let pin = ''; pinInputs.forEach(inp => pin += inp.value);
-            if (pin.length === 6) {
-                if (pin === CORRECT_PIN) {
-                    isAdminLoggedIn = true; closePinModal();
-                    document.getElementById('admin-menus').classList.remove('hidden');
-                    document.getElementById('btn-login').classList.add('hidden');
-                    document.getElementById('btn-logout').classList.remove('hidden');
-                    executeSwitchTab('dashboard');
-                } else {
-                    document.getElementById('pin-error').innerText = 'รหัส PIN ไม่ถูกต้อง';
-                    pinInputs.forEach(inp => inp.classList.add('error'));
-                    setTimeout(() => { clearPinBoxes(); pinInputs[0].focus(); }, 800);
-                }
-            }
-        }
-
-        function playBeep(type) {
-            if(audioCtx.state === 'suspended') audioCtx.resume();
-            const osc = audioCtx.createOscillator(); const gain = audioCtx.createGain();
-            osc.connect(gain); gain.connect(audioCtx.destination);
-            
-            if (type === 'success') {
-                osc.type = 'sine'; osc.frequency.setValueAtTime(800, audioCtx.currentTime); gain.gain.setValueAtTime(0.1, audioCtx.currentTime);
-                osc.start(); osc.stop(audioCtx.currentTime + 0.15);
-            } else {
-                osc.type = 'square'; osc.frequency.setValueAtTime(300, audioCtx.currentTime); gain.gain.setValueAtTime(0.1, audioCtx.currentTime);
-                osc.start(); osc.stop(audioCtx.currentTime + 0.3);
-            }
-        }
-
-        function getCurrentTimeStr() {
-            const now = new Date(); return `${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}`;
-        }
-
-        function handleEnter(e) { if(e.key === 'Enter') processManualScan(); }
-
-        function processManualScan() {
-            const inputEl = document.getElementById('manual-student-id');
-            const inputId = inputEl.value.trim();
-            if (!inputId) return; processScannedId(inputId); inputEl.value = ''; inputEl.focus();
-        }
-
         function clearTodayLogs() {
             if (confirm("คุณต้องการรีเซ็ตข้อมูลการสแกนทั้งหมดของวันนี้ใช่หรือไม่?")) {
                 Object.keys(currentSessionLogs).forEach(k => delete currentSessionLogs[k]);
@@ -1379,9 +981,7 @@
                 [...displayLogs].reverse().forEach(log => {
                     let statusHtml = log.isLate ? `<span class="px-2 text-xs font-semibold rounded-full bg-yellow-100 text-yellow-800">สาย</span>` : `<span class="px-2 text-xs font-semibold rounded-full bg-green-100 text-green-800">ทันเวลา</span>`;
                     if(log.checkOut) {
-                        statusHtml += log.isEarly 
-                            ? ` <span class="px-2 text-xs font-semibold rounded-full bg-red-100 text-red-800 ml-1">ออกก่อนกำหนด</span>`
-                            : ` <span class="px-2 text-xs font-semibold rounded-full bg-blue-100 text-blue-800 ml-1">กลับ</span>`;
+                        statusHtml += log.isEarly ? ` <span class="px-2 text-xs font-semibold rounded-full bg-red-100 text-red-800 ml-1">ออกก่อน</span>` : ` <span class="px-2 text-xs font-semibold rounded-full bg-blue-100 text-blue-800 ml-1">กลับ</span>`;
                     }
                     tableBody.innerHTML += `
                         <tr>
@@ -1416,31 +1016,19 @@
                 listEl.innerHTML = '<li class="px-4 py-3 text-gray-500 text-sm">ไม่พบข้อมูลนักเรียน</li>';
                 listEl.classList.remove('hidden'); return;
             }
-
             listEl.innerHTML = filtered.map(s => `
                 <li onclick="selectSearchItem('${s.id}')" class="px-4 py-3 hover:bg-blue-50 cursor-pointer border-b border-gray-100 last:border-0 flex items-center space-x-3 transition-colors">
                     <img src="${s.photoUrl}" class="w-10 h-10 rounded-full shadow-sm">
-                    <div>
-                        <div class="font-bold text-sm text-blue-700">${s.id}</div>
-                        <div class="text-xs text-gray-600">${s.name} (ห้อง ${s.room})</div>
-                    </div>
-                </li>
-            `).join('');
+                    <div><div class="font-bold text-sm text-blue-700">${s.id}</div><div class="text-xs text-gray-600">${s.name} (ห้อง ${s.room})</div></div>
+                </li>`).join('');
             listEl.classList.remove('hidden');
         }
 
-        function selectSearchItem(id) {
-            document.getElementById('search-history-id').value = id;
-            document.getElementById('search-autocomplete-list').classList.add('hidden');
-            searchHistory(); 
-        }
+        function selectSearchItem(id) { document.getElementById('search-history-id').value = id; document.getElementById('search-autocomplete-list').classList.add('hidden'); searchHistory(); }
 
         document.addEventListener('click', function(e) {
-            const searchInput = document.getElementById('search-history-id');
-            const autocompleteList = document.getElementById('search-autocomplete-list');
-            if (e.target !== searchInput && !autocompleteList.contains(e.target)) {
-                autocompleteList.classList.add('hidden');
-            }
+            const searchInput = document.getElementById('search-history-id'); const autocompleteList = document.getElementById('search-autocomplete-list');
+            if (e.target !== searchInput && !autocompleteList.contains(e.target)) autocompleteList.classList.add('hidden');
         });
 
         function searchHistory() {
@@ -1466,9 +1054,7 @@
                     const l = currentSessionLogs[inputId][pName];
                     let statusText = l.isLate ? 'สาย' : 'ทันเวลา';
                     if(l.checkOut && l.isEarly) statusText = 'ออกก่อนกำหนด';
-                    allRecordsForDisplay.push({
-                        date: todayStr + ' (วันนี้)', periodName: pName, checkIn: l.checkIn, checkOut: l.checkOut || '-', status: statusText, isLate: l.isLate, isEarly: l.isEarly
-                    });
+                    allRecordsForDisplay.push({ date: todayStr + ' (วันนี้)', periodName: pName, checkIn: l.checkIn, checkOut: l.checkOut || '-', status: statusText, isLate: l.isLate, isEarly: l.isEarly });
                 });
             }
 
@@ -1489,24 +1075,12 @@
                             <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-600">${rec.periodName}</td>
                             <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-600">${rec.checkIn}</td>
                             <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-600">${rec.checkOut}</td>
-                            <td class="px-6 py-4 whitespace-nowrap text-sm">
-                                <span class="px-3 py-1 inline-flex text-xs leading-5 font-semibold rounded-full ${statusClass}">${rec.status}</span>
-                            </td>
+                            <td class="px-6 py-4 whitespace-nowrap text-sm"><span class="px-3 py-1 inline-flex text-xs leading-5 font-semibold rounded-full ${statusClass}">${rec.status}</span></td>
                         </tr>
                     `;
                 });
             }
         }
-
-        function showStudentQRCode(id, name) {
-            document.getElementById('modal-student-name').innerText = name;
-            document.getElementById('modal-student-id').innerText = `เลขประจำตัว: ${id}`;
-            const qrContainer = document.getElementById('qrcode-container');
-            qrContainer.innerHTML = ''; document.getElementById('qr-modal').classList.remove('hidden');
-            setTimeout(() => { new QRCode(qrContainer, { text: id, width: 180, height: 180, colorDark : "#000000", colorLight : "#ffffff", correctLevel : QRCode.CorrectLevel.H }); }, 50);
-        }
-
-        function closeQrModal() { document.getElementById('qr-modal').classList.add('hidden'); }
 
         function renderStudentTable() {
             const tbody = document.getElementById('student-list-table');
@@ -1524,10 +1098,8 @@
                 
                 const hasFace = student.faceData && student.faceData.trim() !== '';
                 const faceHtml = hasFace 
-                    ? `<span class="text-green-600 font-bold text-xs block mb-1">✅ มีฐานข้อมูล</span>
-                       <button onclick="openEnrollModal('${student.id}', '${student.name}')" class="text-xs bg-gray-100 hover:bg-gray-200 border px-2 py-1 rounded">🔄 อัปเดตใบหน้า</button>`
-                    : `<span class="text-red-500 font-bold text-xs block mb-1">❌ ไม่มีฐานข้อมูล</span>
-                       <button onclick="openEnrollModal('${student.id}', '${student.name}')" class="text-xs bg-blue-100 text-blue-700 hover:bg-blue-200 border border-blue-300 px-2 py-1 rounded font-bold">🤖 ลงทะเบียน</button>`;
+                    ? `<span class="text-green-600 font-bold text-xs block mb-1">✅ มีฐานข้อมูล</span><button onclick="openEnrollModal('${student.id}', '${student.name}')" class="text-xs bg-gray-100 hover:bg-gray-200 border px-2 py-1 rounded">🔄 อัปเดตใบหน้า</button>`
+                    : `<span class="text-red-500 font-bold text-xs block mb-1">❌ ไม่มีฐานข้อมูล</span><button onclick="openEnrollModal('${student.id}', '${student.name}')" class="text-xs bg-blue-100 text-blue-700 hover:bg-blue-200 border border-blue-300 px-2 py-1 rounded font-bold">🤖 ลงทะเบียน</button>`;
 
                 tbody.innerHTML += `
                     <tr class="hover:bg-gray-50">
@@ -1535,22 +1107,17 @@
                             <div class="flex flex-col items-center">
                                 ${photoHtml}
                                 <label class="cursor-pointer bg-blue-50 text-blue-600 hover:bg-blue-100 text-xs font-bold py-1 px-2 rounded border border-blue-200 mt-2">
-                                    📷 เปลี่ยนรูป
-                                    <input type="file" class="hidden" accept="image/*" capture="environment" onchange="handlePhotoUpload(event, '${student.id}')">
+                                    📷 เปลี่ยนรูป<input type="file" class="hidden" accept="image/*" capture="environment" onchange="handlePhotoUpload(event, '${student.id}')">
                                 </label>
                             </div>
-                            <div class="border-l border-gray-200 pl-4 flex flex-col justify-center text-center">
-                                ${faceHtml}
-                            </div>
+                            <div class="border-l border-gray-200 pl-4 flex flex-col justify-center text-center">${faceHtml}</div>
                         </td>
                         <td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-blue-600 align-middle">${student.id}</td>
-                        <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-600 align-middle">${student.rollNo}</td>
                         <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900 align-middle">${student.name}</td>
                         <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500 align-middle">${student.room}</td>
                         <td class="px-6 py-4 whitespace-nowrap text-center align-middle">
-                            <button onclick="showStudentQRCode('${student.id}', '${student.name}')" class="bg-gray-100 hover:bg-gray-200 text-gray-800 text-xs font-semibold py-1 px-3 border rounded shadow-sm">
-                                🖨️ ดู QR
-                            </button>
+                            <button onclick="processManualScanById('${student.id}')" class="bg-green-100 hover:bg-green-200 text-green-700 text-xs font-bold py-1 px-3 border border-green-300 rounded shadow-sm mb-1 w-full">✅ เช็คชื่อมือ</button>
+                            <button onclick="showStudentQRCode('${student.id}', '${student.name}')" class="bg-gray-100 hover:bg-gray-200 text-gray-800 text-xs font-semibold py-1 px-3 border rounded shadow-sm w-full">🖨️ ดู QR</button>
                         </td>
                     </tr>
                 `;
@@ -1559,7 +1126,7 @@
 
         window.onload = () => {
             const AudioContext = window.AudioContext || window.webkitAudioContext;
-            window.audioCtx = new AudioContext(); // เตรียมเสียง Beep
+            window.audioCtx = new AudioContext(); 
             initRealtimeClock(); 
             fetchStudentsData();
         };
