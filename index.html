@@ -69,6 +69,12 @@
                     </div>
                 </div>
 
+                <!-- นาฬิกาแบบ Real-time -->
+                <div class="mb-4 bg-blue-50 border border-blue-200 rounded-lg p-3 shadow-inner flex flex-col items-center justify-center">
+                    <p id="realtime-date" class="text-sm font-medium text-blue-600 mb-1">กำลังโหลดวันที่...</p>
+                    <p id="realtime-time" class="text-5xl font-bold text-blue-800 font-mono tracking-wider drop-shadow-sm">00:00:00</p>
+                </div>
+
                 <button onclick="toggleCamera()" class="mb-4 w-full bg-gray-200 hover:bg-gray-300 text-gray-800 font-bold py-2 px-4 rounded shadow-sm border border-gray-300 flex items-center justify-center transition-colors">
                     🔄 สลับกล้อง (หน้า/หลัง)
                 </button>
@@ -429,6 +435,28 @@
         const currentSessionLogs = {}; 
 
         // ==========================================
+        // ระบบนาฬิกา Real-time
+        // ==========================================
+        function initRealtimeClock() {
+            const dateEl = document.getElementById('realtime-date');
+            const timeEl = document.getElementById('realtime-time');
+
+            setInterval(() => {
+                const now = new Date();
+                
+                // รูปแบบวันที่ภาษาไทย
+                const optionsDate = { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' };
+                dateEl.innerText = now.toLocaleDateString('th-TH', optionsDate);
+
+                // รูปแบบเวลา HH:MM:SS
+                const hours = String(now.getHours()).padStart(2, '0');
+                const minutes = String(now.getMinutes()).padStart(2, '0');
+                const seconds = String(now.getSeconds()).padStart(2, '0');
+                timeEl.innerText = `${hours}:${minutes}:${seconds}`;
+            }, 1000);
+        }
+
+        // ==========================================
         // โหลดข้อมูล
         // ==========================================
         async function fetchStudentsData() {
@@ -494,8 +522,7 @@
         }
 
         // ==========================================
-        // ระบบ Caching AI Models (Monkey Patching)
-        // เพื่อแก้ปัญหาการโหลดโมเดลช้า
+        // ระบบ Caching AI Models
         // ==========================================
         async function loadModelsWithCache(statusElement = null) {
             if (faceModelsLoaded) return;
@@ -506,7 +533,6 @@
             if (loadingOverlay && !statusElement) loadingOverlay.classList.remove('hidden');
             if (statusElement) statusElement.innerText = "กำลังตรวจเช็คไฟล์ AI ในเครื่อง...";
 
-            // สร้างระบบดักจับการดึงไฟล์ (Intercept Fetch) เพื่อเซฟลงเครื่อง
             if (!isCachingSetup) {
                 faceapi.env.monkeyPatch({
                     fetch: async (url, options) => {
@@ -515,14 +541,10 @@
                             const cache = await caches.open(cacheName);
                             const cachedResponse = await cache.match(url);
                             
-                            // ถ้ามีไฟล์ในเครื่องแล้ว ให้ดึงมาใช้เลย (เร็วมาก ⚡)
                             if (cachedResponse) {
-                                console.log('✅ โหลดโมเดลจาก Cache ในเครื่อง:', url);
                                 return cachedResponse;
                             }
                             
-                            // ถ้ายังไม่มี ให้โหลดจากเน็ตและเซฟลงเครื่อง
-                            console.log('☁️ กำลังดาวน์โหลดโมเดลจากอินเทอร์เน็ต:', url);
                             if (statusElement) statusElement.innerText = "กำลังดาวน์โหลดไฟล์ AI (ทำครั้งเดียว)...";
                             if (loadingText) loadingText.innerHTML = "กำลังดาวน์โหลดระบบ AI จากอินเทอร์เน็ต...<br><span class='text-sm font-normal text-yellow-300 mt-2 block'>(กรุณารอสักครู่ ห้ามปิดหน้าจอ)</span>";
 
@@ -532,7 +554,6 @@
                             }
                             return networkResponse;
                         } catch (e) {
-                            console.warn("ไม่สามารถใช้ Cache API ได้ จะโหลดตรงจากเน็ตแทน");
                             return window.fetch(url, options);
                         }
                     }
@@ -660,7 +681,6 @@
         async function initFaceScanner() {
             faceVideo = document.getElementById('face-video');
             
-            // เรียกใช้ฟังก์ชันโหลดโมเดลแบบมี Cache
             await loadModelsWithCache();
 
             try {
@@ -749,7 +769,6 @@
             statusEl.innerText = "กำลังเตรียมกล้อง...";
             statusEl.className = "text-sm font-bold text-yellow-600 mb-4";
 
-            // เรียกใช้ฟังก์ชันโหลดโมเดลแบบมี Cache สำหรับหน้าลงทะเบียน
             await loadModelsWithCache(statusEl);
             startEnrollCamera();
         }
@@ -863,9 +882,6 @@
             closeEnrollModal();
         }
 
-        // ==========================================
-        // อัปโหลดรูปภาพผ่าน API
-        // ==========================================
         async function handlePhotoUpload(event, studentId) {
             const file = event.target.files[0];
             if (!file) return;
@@ -906,7 +922,7 @@
         }
 
         // ==========================================
-        // UI การแสดงผลส่วนที่เหลือ
+        // ฟังก์ชัน UI ส่วนที่เหลือ
         // ==========================================
         function renderSettingsUI() {
             const roomList = document.getElementById('settings-room-list');
@@ -1487,6 +1503,7 @@
         }
 
         window.onload = () => {
+            initRealtimeClock(); // เรียกใช้นาฬิกาทันทีที่เปิดเว็บ
             fetchStudentsData();
         };
     </script>
