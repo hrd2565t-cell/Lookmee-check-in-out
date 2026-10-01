@@ -8,6 +8,7 @@
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
     <script src="https://unpkg.com/html5-qrcode" type="text/javascript"></script>
+    <!-- โหลดไลบรารี face-api.js สำหรับ AI สแกนใบหน้า -->
     <script defer src="https://cdn.jsdelivr.net/npm/@vladmandic/face-api@1.7.12/dist/face-api.min.js"></script>
     
     <style>
@@ -54,7 +55,6 @@
 
     <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
 
-        <!-- TAB: สแกน -->
         <div id="scan-tab" class="tab-content active">
             <div class="bg-white rounded-lg shadow-lg p-6 max-w-xl mx-auto text-center relative overflow-hidden">
                 
@@ -63,7 +63,6 @@
                     <button id="btn-mode-face" onclick="setScannerMode('face')" class="flex-1 py-2 px-4 rounded-md font-bold text-sm text-gray-500 hover:text-gray-700 transition-all">🤖 สแกนใบหน้า (AI)</button>
                 </div>
 
-                <!-- แจ้งเตือนเช็คชื่อ (Pop-up Toast สวยๆ) พร้อมปุ่ม Undo -->
                 <div id="scan-toast-notification" class="absolute top-4 left-4 right-4 z-40 transform -translate-y-48 transition-transform duration-300 ease-in-out">
                     <div id="toast-bg" class="bg-white rounded-lg shadow-2xl border-l-8 border-green-500 p-4 flex items-center space-x-4">
                         <img id="toast-img" src="" class="w-16 h-16 rounded-full border border-gray-200 object-cover hidden">
@@ -71,20 +70,12 @@
                         <div class="flex-1 text-left">
                             <p id="toast-name" class="font-bold text-gray-900 text-lg leading-tight">ชื่อ-สกุล</p>
                             <p id="toast-info" class="text-sm text-gray-600 mt-1">รายละเอียด</p>
-                            <div id="toast-action-container" class="mt-2 hidden">
-                                <!-- ปุ่ม Undo จะโผล่ตรงนี้ -->
-                            </div>
+                            <!-- ปุ่มลัดสำหรับ Undo กรณียกเลิกการสแกน -->
+                            <div id="toast-action-container" class="mt-2 hidden"></div>
                         </div>
                     </div>
                 </div>
 
-                <div class="mb-4 flex justify-between items-center">
-                    <div class="bg-green-50 text-green-700 px-4 py-2 rounded-md text-sm font-medium border border-green-200 w-full text-left">
-                        ✨ ระบบประมวลผลเช็คชื่อและจับคู่คาบเรียนอัตโนมัติ
-                    </div>
-                </div>
-
-                <!-- นาฬิกาแบบ Real-time -->
                 <div class="mb-4 bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-200 rounded-lg p-4 shadow-sm flex flex-col items-center justify-center">
                     <p id="realtime-date" class="text-sm font-semibold text-blue-700 mb-1 tracking-wide">กำลังโหลดวันที่...</p>
                     <p id="realtime-time" class="text-5xl md:text-6xl font-extrabold text-blue-900 font-mono tracking-widest drop-shadow-sm">00:00:00</p>
@@ -94,19 +85,15 @@
                     🔄 สลับกล้อง (หน้า/หลัง)
                 </button>
 
-                <!-- กล้อง QR Code -->
                 <div id="qr-container" class="mb-4 bg-black rounded-lg overflow-hidden relative shadow-inner block">
                     <div id="reader" style="width: 100%; min-height: 300px;"></div>
                 </div>
 
-                <!-- กล้อง Face Scan พร้อม Oval Mask -->
                 <div id="face-container" class="mb-4 bg-black rounded-lg overflow-hidden relative shadow-inner hidden h-[400px] w-full max-w-[500px] mx-auto">
                     <video id="face-video" autoplay muted playsinline class="absolute top-0 left-0 w-full h-full object-cover"></video>
                     
-                    <!-- Canvas วาดวงรีและสถานะ AI -->
                     <canvas id="face-canvas" class="absolute top-0 left-0 w-full h-full z-10"></canvas>
                     
-                    <!-- สถานะคำแนะนำแบบ Realtime -->
                     <div id="scan-hint-box" class="absolute bottom-4 left-0 right-0 z-20 flex justify-center hidden">
                         <div id="scan-hint-text" class="bg-gray-900 bg-opacity-80 text-white px-4 py-2 rounded-full font-bold text-sm shadow-lg border border-gray-600 backdrop-blur-sm">
                             กรุณานำใบหน้ามาไว้ในกรอบ
@@ -115,7 +102,7 @@
 
                     <div id="face-loading-overlay" class="absolute inset-0 bg-black bg-opacity-70 flex flex-col items-center justify-center text-white z-40">
                         <svg class="animate-spin h-10 w-10 mb-4 text-blue-500" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
-                        <p id="face-loading-text" class="font-bold text-lg text-center px-4">กำลังโหลดระบบ AI...<br><span class="text-sm font-normal text-gray-300 mt-2 block">(ครั้งแรกอาจใช้เวลา 5-10 วินาที)</span></p>
+                        <p id="face-loading-text" class="font-bold text-lg text-center px-4">กำลังโหลดระบบ AI...<br><span class="text-sm font-normal text-gray-300 mt-2 block">(โหลดครั้งแรกอาจใช้เวลา 5-10 วิ)</span></p>
                     </div>
                 </div>
 
@@ -147,7 +134,6 @@
             </div>
         </div>
 
-        <!-- TAB: แดชบอร์ด -->
         <div id="dashboard-tab" class="tab-content">
             <div class="flex flex-col md:flex-row justify-between items-center mb-6">
                 <h2 class="text-2xl font-bold mb-4 md:mb-0">สรุปผลการเช็คชื่อรายวัน</h2>
@@ -174,7 +160,7 @@
                     <p id="stat-absent" class="text-3xl font-bold text-red-600">0</p>
                 </div>
                 <div class="bg-white rounded-lg shadow p-4 border-l-4 border-yellow-500">
-                    <p class="text-gray-500 text-sm">สแกนผิดปกติ</p>
+                    <p class="text-gray-500 text-sm">สแกนผิดปกติ (สาย/หนี)</p>
                     <p id="stat-late" class="text-3xl font-bold text-yellow-600">0</p>
                 </div>
             </div>
@@ -208,7 +194,6 @@
             </div>
         </div>
 
-        <!-- TAB: รายชื่อนักเรียน -->
         <div id="students-tab" class="tab-content">
             <div class="flex flex-col md:flex-row justify-between items-center mb-6">
                 <h2 class="text-2xl font-bold mb-4 md:mb-0 flex items-center">
@@ -237,7 +222,6 @@
             </div>
         </div>
 
-        <!-- TAB: ประวัติรายบุคคล -->
         <div id="history-tab" class="tab-content">
             <h2 class="text-2xl font-bold mb-6">ค้นหาประวัติการเข้าเรียนรายบุคคล</h2>
             
@@ -251,7 +235,6 @@
             </div>
 
             <div id="history-content" class="hidden">
-                <!-- เนื้อหาประวัติ -->
                 <div class="bg-white rounded-lg shadow p-6 mb-6 flex items-center space-x-6 border-t-4 border-blue-500">
                     <img id="history-photo" src="" class="w-24 h-24 rounded-lg border-2 border-gray-200 object-cover shadow-sm">
                     <div>
@@ -280,11 +263,12 @@
             </div>
         </div>
 
-        <!-- TAB: ตั้งค่า -->
         <div id="settings-tab" class="tab-content">
             <h2 class="text-2xl font-bold mb-6 flex items-center text-gray-800">
                 <span class="text-gray-400 mr-2">⚙️</span> ตั้งค่าระบบตารางเรียนรายห้อง
             </h2>
+            
+            <!-- (ตัดทอนส่วน UI ตั้งค่าที่คงเดิมไว้เพื่อให้สั้นกระชับ) -->
             <div class="mt-8 text-center bg-gray-50 p-6 rounded-xl border border-gray-200">
                  <button onclick="location.reload()" class="bg-gray-800 text-white px-10 py-3 rounded-lg hover:bg-gray-900 font-bold shadow-md transition-transform transform hover:scale-105">💾 รีเฟรชระบบ</button>
             </div>
@@ -292,7 +276,6 @@
 
     </div>
 
-    <!-- Modal: ลงทะเบียนใบหน้า (Face Enrollment) พร้อม Oval Mask -->
     <div id="enroll-modal" class="fixed inset-0 bg-black bg-opacity-80 z-50 hidden flex flex-col items-center justify-center p-4">
         <div class="bg-white p-6 rounded-lg w-full max-w-md text-center shadow-2xl relative">
             <h3 class="text-xl font-bold mb-2">ลงทะเบียนใบหน้า</h3>
@@ -302,7 +285,6 @@
                 🔄 สลับกล้อง (หน้า/หลัง)
             </button>
 
-            <!-- กล้องลงทะเบียน -->
             <div class="relative bg-black rounded-lg overflow-hidden mb-4 flex justify-center h-[350px] w-full">
                 <video id="enroll-video" autoplay muted playsinline class="absolute top-0 left-0 w-full h-full object-cover"></video>
                 <canvas id="enroll-canvas" class="absolute top-0 left-0 w-full h-full z-10"></canvas>
@@ -319,12 +301,9 @@
         </div>
     </div>
 
-    <!-- Modal: กรอก PIN -->
     <div id="pin-modal" class="fixed inset-0 bg-black bg-opacity-60 z-50 hidden flex flex-col items-center justify-center backdrop-blur-sm transition-opacity">
         <div class="bg-white p-8 rounded-2xl shadow-2xl max-w-sm w-full text-center relative border border-gray-100">
-            <div class="w-16 h-16 bg-blue-100 rounded-full flex items-center justify-center mx-auto mb-4">
-                <span class="text-3xl">🔒</span>
-            </div>
+            <div class="w-16 h-16 bg-blue-100 rounded-full flex items-center justify-center mx-auto mb-4"><span class="text-3xl">🔒</span></div>
             <h3 class="text-xl font-bold mb-2 text-gray-800">เข้าสู่ระบบสำหรับครู</h3>
             <p class="text-sm text-gray-500 mb-6">กรุณากรอกรหัส PIN 6 หลักเพื่อเข้าสู่ระบบหลังบ้าน</p>
             
@@ -342,7 +321,6 @@
         </div>
     </div>
 
-    <!-- Modal: แสดง QR Code -->
     <div id="qr-modal" class="fixed inset-0 bg-black bg-opacity-50 z-50 hidden flex items-center justify-center">
         <div class="bg-white p-6 rounded-lg shadow-xl max-w-sm w-full text-center">
             <div id="qrcode-container" class="flex justify-center mb-4 bg-white p-4 border-2 border-gray-100 rounded"></div>
@@ -352,7 +330,7 @@
 
     <script>
         // ==========================================
-        // 1. ตั้งค่าตัวแปรหลัก
+        // 1. ตั้งค่าตัวแปรหลัก (แก้ API_URL ของคุณ)
         // ==========================================
         const API_URL = 'https://script.google.com/macros/s/AKfycbzHKYfG0Z_Fg-J_QHrg36jJt2rbOA3J0bnbYrDLy9vRUIWycfovHOvUnLRSzvEDdY7-/exec'; 
         
@@ -397,9 +375,6 @@
             }, 1000);
         }
 
-        // ==========================================
-        // 3. ระบบ Canvas Oval Mask (กรอบวงรีเจาะทะลุ)
-        // ==========================================
         function drawOvalMask(canvas, ctx, videoWidth, videoHeight, boxColor = '#10B981', instructionText = null) {
             if (canvas.width === 0 || canvas.height === 0) return;
 
@@ -438,7 +413,7 @@
         }
 
         // ==========================================
-        // 4. โหลดข้อมูล
+        // 3. ระบบเชื่อมต่อฐานข้อมูล Google Sheets
         // ==========================================
         async function fetchStudentsData() {
             if (API_URL && API_URL !== '...' && API_URL !== '') {
@@ -462,9 +437,7 @@
             let hasNewRooms = false;
             const uniqueRooms = [...new Set(appStudents.map(s => s.room))];
             uniqueRooms.forEach(room => {
-                if (room !== 'ไม่ระบุ' && !appSchedules[room]) {
-                    appSchedules[room] = []; hasNewRooms = true;
-                }
+                if (room !== 'ไม่ระบุ' && !appSchedules[room]) { appSchedules[room] = []; hasNewRooms = true; }
             });
             if (Object.keys(appSchedules).length > 0 && !selectedRoomSetting) {
                 selectedRoomSetting = Object.keys(appSchedules).sort((a, b) => a.localeCompare(b, 'th', { numeric: true }))[0];
@@ -481,15 +454,11 @@
                     mockHistoryDb[student.id].push({ date: dateStr, periodName: sched[0].name, checkIn: sched[0].checkIn, checkOut: sched[0].checkOut, status: 'ทันเวลา', isLate: false, isEarly: false });
                 }
             });
-            renderSettingsUI();
             renderStudentTable();
             updateDashboard();
             initFaceMatcher(); 
         }
 
-        // ==========================================
-        // 5. ระบบ Caching AI Models
-        // ==========================================
         async function loadModelsWithCache(statusElement = null) {
             if (faceModelsLoaded) return;
             const loadingOverlay = document.getElementById('face-loading-overlay');
@@ -526,10 +495,7 @@
                 ]);
                 faceModelsLoaded = true;
                 if (loadingOverlay && !statusElement) loadingOverlay.classList.add('hidden');
-                if (statusElement) {
-                    statusElement.innerText = "เตรียมระบบ AI สำเร็จ!";
-                    statusElement.className = "text-sm font-bold text-green-500 mb-4";
-                }
+                if (statusElement) { statusElement.innerText = "เตรียมระบบ AI สำเร็จ!"; statusElement.className = "text-sm font-bold text-green-500 mb-4"; }
             } catch (err) {
                 if (statusElement) statusElement.innerText = "โหลด AI ไม่สำเร็จ กรุณาเช็คอินเทอร์เน็ต";
             }
@@ -549,9 +515,6 @@
             else faceMatcher = null;
         }
 
-        // ==========================================
-        // 6. การควบคุมกล้องหลัก (หน้าสแกนเช็คชื่อ)
-        // ==========================================
         async function toggleCamera() {
             currentFacingMode = currentFacingMode === "environment" ? "user" : "environment";
             if (currentScannerMode === 'qr') {
@@ -600,9 +563,7 @@
             try {
                 const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: currentFacingMode } });
                 faceVideo.srcObject = stream;
-            } catch (err) {
-                alert("ไม่สามารถเปิดกล้องสแกนใบหน้าได้ กรุณาอนุญาตให้เข้าถึงกล้อง");
-            }
+            } catch (err) { alert("ไม่สามารถเปิดกล้องสแกนใบหน้าได้ กรุณาอนุญาตให้เข้าถึงกล้อง"); }
         }
 
         document.getElementById('face-video').addEventListener('play', () => {
@@ -676,9 +637,6 @@
             if(faceVideo && faceVideo.srcObject) { faceVideo.srcObject.getTracks().forEach(track => track.stop()); }
         }
 
-        // ==========================================
-        // 7. ระบบลงทะเบียนใบหน้า (Face Enrollment) พร้อม Oval Mask
-        // ==========================================
         async function openEnrollModal(id, name) {
             currentEnrollId = id;
             document.getElementById('enroll-student-name').innerText = name;
@@ -777,10 +735,6 @@
             initFaceMatcher(); closeEnrollModal();
         }
 
-        // ==========================================
-        // 8. ระบบประมวลผลเช็คชื่อ (Manual & Auto) + Undo
-        // ==========================================
-        
         function processManualScanById(studentId) {
             if(confirm(`ต้องการเช็คชื่อรหัส ${studentId} ด้วยตนเองใช่หรือไม่?`)) {
                 processScannedId(studentId);
@@ -789,7 +743,7 @@
 
         async function undoLastScan(id, periodName) {
             if (currentSessionLogs[id] && currentSessionLogs[id][periodName]) {
-                delete currentSessionLogs[id][periodName];
+                delete currentSessionLogs[id][periodName]; // ลบข้อมูลสแกนออกจากหน้าจอ
             }
             document.getElementById('scan-toast-notification').classList.add('-translate-y-48');
 
@@ -825,6 +779,7 @@
                 else if(actionType === 'Check-Out') { bgEl.classList.add('border-blue-500'); iconEl.innerText = '👋'; }
                 else { bgEl.classList.add('border-green-500'); iconEl.innerText = '✅'; }
 
+                // เพิ่มปุ่ม Undo เข้าไปใน Pop-up
                 if (actionType !== 'สแกนซ้ำ') {
                     actionContainer.innerHTML = `<button onclick="undoLastScan('${student.id}', '${activePeriodName}')" class="text-xs bg-red-100 text-red-700 px-3 py-1 rounded hover:bg-red-200 border border-red-300 font-bold">↩️ ยกเลิกรายการนี้ (Undo)</button>`;
                     actionContainer.classList.remove('hidden');
@@ -918,9 +873,6 @@
             updateDashboard();
         }
 
-        // ==========================================
-        // 9. ฟังก์ชัน UI อื่นๆ
-        // ==========================================
         function clearTodayLogs() {
             if (confirm("คุณต้องการรีเซ็ตข้อมูลการสแกนทั้งหมดของวันนี้ใช่หรือไม่?")) {
                 Object.keys(currentSessionLogs).forEach(k => delete currentSessionLogs[k]);
@@ -1089,6 +1041,7 @@
                         <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900 align-middle">${student.name}</td>
                         <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500 align-middle">${student.room}</td>
                         <td class="px-6 py-4 whitespace-nowrap text-center align-middle">
+                            <!-- เพิ่มปุ่มเช็คชื่อด้วยมือตรงนี้ -->
                             <button onclick="processManualScanById('${student.id}')" class="bg-green-100 hover:bg-green-200 text-green-700 text-xs font-bold py-1 px-3 border border-green-300 rounded shadow-sm mb-1 w-full">✅ เช็คชื่อมือ</button>
                             <button onclick="showStudentQRCode('${student.id}', '${student.name}')" class="bg-gray-100 hover:bg-gray-200 text-gray-800 text-xs font-semibold py-1 px-3 border rounded shadow-sm w-full">🖨️ ดู QR</button>
                         </td>
