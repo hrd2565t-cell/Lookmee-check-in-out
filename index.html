@@ -63,7 +63,7 @@
                     <button id="btn-mode-face" onclick="setScannerMode('face')" class="flex-1 py-2 px-4 rounded-md font-bold text-sm text-gray-500 hover:text-gray-700 transition-all">🤖 สแกนใบหน้า (AI)</button>
                 </div>
 
-                <!-- แจ้งเตือนเช็คชื่อ (Pop-up Toast สวยๆ) -->
+                <!-- แจ้งเตือนเช็คชื่อ (Pop-up Toast สวยๆ) พร้อมปุ่ม Undo -->
                 <div id="scan-toast-notification" class="absolute top-4 left-4 right-4 z-40 transform -translate-y-48 transition-transform duration-300 ease-in-out">
                     <div id="toast-bg" class="bg-white rounded-lg shadow-2xl border-l-8 border-green-500 p-4 flex items-center space-x-4">
                         <img id="toast-img" src="" class="w-16 h-16 rounded-full border border-gray-200 object-cover hidden">
@@ -114,7 +114,7 @@
                     </div>
 
                     <div id="face-loading-overlay" class="absolute inset-0 bg-black bg-opacity-70 flex flex-col items-center justify-center text-white z-40">
-                        <svg class="animate-spin h-10 w-10 mb-4 text-blue-500" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle></svg>
+                        <svg class="animate-spin h-10 w-10 mb-4 text-blue-500" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
                         <p id="face-loading-text" class="font-bold text-lg text-center px-4">กำลังโหลดระบบ AI...<br><span class="text-sm font-normal text-gray-300 mt-2 block">(ครั้งแรกอาจใช้เวลา 5-10 วินาที)</span></p>
                     </div>
                 </div>
@@ -129,7 +129,6 @@
 
                 <div id="scan-result" class="hidden rounded-lg p-4 mt-4 shadow-md border-2">
                     <div class="flex flex-col sm:flex-row items-center sm:items-start space-y-4 sm:space-y-0 sm:space-x-6 relative">
-                        <!-- กล่องแสดงผลเดิม เผื่อไว้ดูประวัติล่าสุด -->
                         <div class="w-32 h-32 flex-shrink-0 bg-white rounded-lg border-2 border-gray-300 overflow-hidden shadow-sm flex items-center justify-center relative">
                             <img id="scan-photo" src="" alt="รูปนักเรียน" class="w-full h-full object-cover hidden">
                             <div id="scan-icon" class="text-5xl">✅</div>
@@ -402,16 +401,12 @@
         // 3. ระบบ Canvas Oval Mask (กรอบวงรีเจาะทะลุ)
         // ==========================================
         function drawOvalMask(canvas, ctx, videoWidth, videoHeight, boxColor = '#10B981', instructionText = null) {
-            // ป้องกันการวาดหาก canvas ขนาดยังเป็น 0
             if (canvas.width === 0 || canvas.height === 0) return;
 
             ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-            // วาดพื้นหลังสีดำโปร่งแสง
             ctx.fillStyle = 'rgba(0, 0, 0, 0.65)';
             ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-            // เจาะรูตรงกลางเป็นวงรี
             const centerX = canvas.width / 2;
             const centerY = canvas.height / 2;
             const radiusX = canvas.width * 0.35; 
@@ -423,14 +418,12 @@
             ctx.fill();
             ctx.globalCompositeOperation = 'source-over';
 
-            // วาดเส้นขอบวงรี (สีเปลี่ยนตามสถานะ)
             ctx.beginPath();
             ctx.ellipse(centerX, centerY, radiusX, radiusY, 0, 0, 2 * Math.PI);
             ctx.lineWidth = 4;
             ctx.strokeStyle = boxColor;
             ctx.stroke();
 
-            // วาดข้อความคำแนะนำตรงกลางจอ (ถ้ามี)
             if (instructionText) {
                 ctx.fillStyle = boxColor;
                 ctx.font = "bold 20px Prompt";
@@ -616,12 +609,10 @@
             const canvas = document.getElementById('face-canvas');
             const hintText = document.getElementById('scan-hint-text');
             
-            // รอให้วิดีโอมีขนาดก่อนตั้งค่า canvas
             setTimeout(() => {
                 const displaySize = { width: faceVideo.videoWidth || 500, height: faceVideo.videoHeight || 400 };
                 faceapi.matchDimensions(canvas, displaySize);
                 
-                // วาดกรอบรอไว้ก่อนเลย
                 const ctx = canvas.getContext('2d');
                 drawOvalMask(canvas, ctx, displaySize.width, displaySize.height, '#6B7280');
                 
@@ -631,7 +622,7 @@
                     const detections = await faceapi.detectAllFaces(faceVideo, new faceapi.TinyFaceDetectorOptions()).withFaceLandmarks().withFaceDescriptors();
                     const resizedDetections = faceapi.resizeResults(detections, displaySize);
                     
-                    drawOvalMask(canvas, ctx, displaySize.width, displaySize.height, '#6B7280'); // วาดทับใหม่ทุกรอบ
+                    drawOvalMask(canvas, ctx, displaySize.width, displaySize.height, '#6B7280'); 
 
                     if(detections.length > 0) {
                         const box = resizedDetections[0].detection.box;
@@ -790,20 +781,16 @@
         // 8. ระบบประมวลผลเช็คชื่อ (Manual & Auto) + Undo
         // ==========================================
         
-        // รับค่าจากการกดปุ่มเช็คชื่อด้วยมือในตาราง
         function processManualScanById(studentId) {
             if(confirm(`ต้องการเช็คชื่อรหัส ${studentId} ด้วยตนเองใช่หรือไม่?`)) {
                 processScannedId(studentId);
             }
         }
 
-        // ฟังก์ชันยกเลิกการเช็คชื่อ (Undo)
         async function undoLastScan(id, periodName) {
             if (currentSessionLogs[id] && currentSessionLogs[id][periodName]) {
                 delete currentSessionLogs[id][periodName];
             }
-            
-            // ซ่อน Pop-up แจ้งเตือนทันที
             document.getElementById('scan-toast-notification').classList.add('-translate-y-48');
 
             if (API_URL) {
@@ -813,9 +800,8 @@
                         method: 'POST',
                         body: JSON.stringify({ action: 'undoLog', log: { date: todayStr, id: id, period: periodName } })
                     });
-                    alert("ยกเลิกการเช็คชื่อล่าสุดสำเร็จ!");
-                    updateDashboard();
-                } catch(e) { console.error("Undo error", e); }
+                    alert("ยกเลิกการเช็คชื่อล่าสุดสำเร็จ!"); updateDashboard();
+                } catch(e) {}
             }
         }
 
@@ -839,13 +825,10 @@
                 else if(actionType === 'Check-Out') { bgEl.classList.add('border-blue-500'); iconEl.innerText = '👋'; }
                 else { bgEl.classList.add('border-green-500'); iconEl.innerText = '✅'; }
 
-                // สร้างปุ่ม Undo ให้เฉพาะครูหรือเฉพาะการสแกนปกติ
                 if (actionType !== 'สแกนซ้ำ') {
                     actionContainer.innerHTML = `<button onclick="undoLastScan('${student.id}', '${activePeriodName}')" class="text-xs bg-red-100 text-red-700 px-3 py-1 rounded hover:bg-red-200 border border-red-300 font-bold">↩️ ยกเลิกรายการนี้ (Undo)</button>`;
                     actionContainer.classList.remove('hidden');
-                } else {
-                    actionContainer.classList.add('hidden');
-                }
+                } else { actionContainer.classList.add('hidden'); }
             } else {
                 imgEl.classList.add('hidden');
                 nameEl.innerText = "เกิดข้อผิดพลาด"; infoEl.innerText = statusText;
@@ -854,8 +837,6 @@
             }
 
             toastEl.classList.remove('-translate-y-48'); toastEl.classList.add('translate-y-0');
-            
-            // ซ่อน Pop-up หลังจาก 5 วินาที
             if(window.toastTimeout) clearTimeout(window.toastTimeout);
             window.toastTimeout = setTimeout(() => {
                 toastEl.classList.remove('translate-y-0'); toastEl.classList.add('-translate-y-48');
@@ -919,7 +900,6 @@
                 return;
             }
 
-            // แสดง Pop-up พร้อมปุ่ม Undo
             showToastNotification(student, actionType, statusText, isLate, isEarly, currentTime, activePeriod.name);
 
             resultDiv.className = `${uiStyleClass} p-4 mt-4 text-left border-2 block rounded-lg shadow-md`;
@@ -933,13 +913,13 @@
                         method: 'POST',
                         body: JSON.stringify({ action: 'saveLog', log: { date: todayStr, id: student.id, name: student.name, room: student.room, period: activePeriod.name, checkIn: currentSessionLogs[inputId][activePeriod.name].checkIn, checkOut: currentSessionLogs[inputId][activePeriod.name].checkOut, status: statusText } })
                     });
-                } catch (e) { console.error("บันทึก Log ไม่สำเร็จ"); }
+                } catch (e) {}
             }
-            updateDashboard(); // อัปเดตตารางสรุป
+            updateDashboard();
         }
 
         // ==========================================
-        // 9. ฟังก์ชัน UI อื่นๆ (ตาราง/ค้นหา)
+        // 9. ฟังก์ชัน UI อื่นๆ
         // ==========================================
         function clearTodayLogs() {
             if (confirm("คุณต้องการรีเซ็ตข้อมูลการสแกนทั้งหมดของวันนี้ใช่หรือไม่?")) {
@@ -980,9 +960,7 @@
             } else {
                 [...displayLogs].reverse().forEach(log => {
                     let statusHtml = log.isLate ? `<span class="px-2 text-xs font-semibold rounded-full bg-yellow-100 text-yellow-800">สาย</span>` : `<span class="px-2 text-xs font-semibold rounded-full bg-green-100 text-green-800">ทันเวลา</span>`;
-                    if(log.checkOut) {
-                        statusHtml += log.isEarly ? ` <span class="px-2 text-xs font-semibold rounded-full bg-red-100 text-red-800 ml-1">ออกก่อน</span>` : ` <span class="px-2 text-xs font-semibold rounded-full bg-blue-100 text-blue-800 ml-1">กลับ</span>`;
-                    }
+                    if(log.checkOut) { statusHtml += log.isEarly ? ` <span class="px-2 text-xs font-semibold rounded-full bg-red-100 text-red-800 ml-1">ออกก่อน</span>` : ` <span class="px-2 text-xs font-semibold rounded-full bg-blue-100 text-blue-800 ml-1">กลับ</span>`; }
                     tableBody.innerHTML += `
                         <tr>
                             <td class="px-4 py-3 whitespace-nowrap text-sm text-gray-500">${log.student.id}</td>
@@ -1012,10 +990,7 @@
             if (!inputVal) { listEl.classList.add('hidden'); return; }
 
             const filtered = appStudents.filter(s => s.id.includes(inputVal) || s.name.toLowerCase().includes(inputVal)).slice(0, 10); 
-            if (filtered.length === 0) {
-                listEl.innerHTML = '<li class="px-4 py-3 text-gray-500 text-sm">ไม่พบข้อมูลนักเรียน</li>';
-                listEl.classList.remove('hidden'); return;
-            }
+            if (filtered.length === 0) { listEl.innerHTML = '<li class="px-4 py-3 text-gray-500 text-sm">ไม่พบข้อมูลนักเรียน</li>'; listEl.classList.remove('hidden'); return; }
             listEl.innerHTML = filtered.map(s => `
                 <li onclick="selectSearchItem('${s.id}')" class="px-4 py-3 hover:bg-blue-50 cursor-pointer border-b border-gray-100 last:border-0 flex items-center space-x-3 transition-colors">
                     <img src="${s.photoUrl}" class="w-10 h-10 rounded-full shadow-sm">
@@ -1044,7 +1019,7 @@
             notFoundDiv.classList.add('hidden'); contentDiv.classList.remove('hidden');
             document.getElementById('history-photo').src = student.photoUrl || '';
             document.getElementById('history-name').innerText = student.name;
-            document.getElementById('history-info').innerText = `เลขประจำตัว: ${student.id} | เลขที่: ${student.rollNo} | ห้อง: ${student.room}`;
+            document.getElementById('history-info').innerText = `เลขประจำตัว: ${student.id} | ห้อง: ${student.room}`;
 
             let allRecordsForDisplay = [...(mockHistoryDb[inputId] || [])];
             
@@ -1060,10 +1035,8 @@
 
             const tbody = document.getElementById('history-table-body');
             tbody.innerHTML = '';
-            
-            if(allRecordsForDisplay.length === 0) {
-                tbody.innerHTML = '<tr><td colspan="5" class="px-6 py-4 text-center text-gray-500">ไม่มีประวัติการเข้าเรียน</td></tr>';
-            } else {
+            if(allRecordsForDisplay.length === 0) { tbody.innerHTML = '<tr><td colspan="5" class="px-6 py-4 text-center text-gray-500">ไม่มีประวัติการเข้าเรียน</td></tr>'; } 
+            else {
                 [...allRecordsForDisplay].reverse().forEach(rec => {
                     let statusClass = 'bg-green-100 text-green-800';
                     if (rec.isLate) statusClass = 'bg-yellow-100 text-yellow-800';
