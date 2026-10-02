@@ -754,7 +754,7 @@
                 statusEl.innerText = "กำลังโหลดระบบ AI...";
                 loadModelsWithCache(statusEl);
             } else {
-                 statusEl.innerText = "กำลังค้นหาใบหน้า...";
+                 statusEl.innerText = "กรุณาจัดใบหน้าให้อยู่ในกรอบ...";
             }
         }
 
@@ -776,7 +776,8 @@
             const canvas = document.getElementById('enroll-canvas');
             
             setTimeout(() => {
-                const displaySize = { width: enrollVideo.clientWidth, height: enrollVideo.clientHeight };
+                // อัปเดตให้ดึงขนาดจากจอจริงๆ เพื่อแก้ปัญหากรอบวงรีไม่ยอมโชว์
+                const displaySize = { width: enrollVideo.offsetWidth || 350, height: enrollVideo.offsetHeight || 350 };
                 faceapi.matchDimensions(canvas, displaySize);
                 
                 if(enrollInterval) clearInterval(enrollInterval);
@@ -815,12 +816,12 @@
                         }
                     } else {
                         drawOvalMask(canvas, ctx, displaySize.width, displaySize.height, detections.length > 1 ? '#EF4444' : '#6B7280');
-                        statusEl.innerText = detections.length > 1 ? "❌ มีหลายคนในกล้อง" : "กำลังค้นหาใบหน้า...";
+                        statusEl.innerText = detections.length > 1 ? "❌ มีหลายคนในกล้อง" : "กรุณาจัดใบหน้าให้อยู่ในกรอบ...";
                         statusEl.className = "text-sm font-bold text-gray-600 mb-4 bg-gray-50 py-2 px-2 rounded";
                         btnSave.disabled = true; btnSave.classList.add('opacity-50', 'cursor-not-allowed');
                     }
                 }, 150);
-            }, 100);
+            }, 300); // ดีเลย์เพิ่มนิดนึงให้วิดีโอมาเต็มจอก่อนค่อยวาดกรอบ
         });
 
         function closeEnrollModal() {
