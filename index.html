@@ -77,7 +77,9 @@
                         <div class="flex-1 text-left">
                             <p id="toast-name" class="font-bold text-gray-900 text-lg leading-tight">ชื่อ-สกุล</p>
                             <p id="toast-info" class="text-sm text-gray-600 mt-1">รายละเอียด</p>
-                            <div id="toast-action-container" class="mt-2 hidden"></div>
+                            <div id="toast-action-container" class="mt-2 hidden">
+                                <!-- ปุ่ม Undo จะถูกแทรกตรงนี้ -->
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -102,14 +104,14 @@
                         </div>
                     </div>
 
-                    <div id="face-loading-overlay" class="absolute inset-0 bg-black bg-opacity-70 flex flex-col items-center justify-center text-white z-40">
+                    <div id="face-loading-overlay" class="absolute inset-0 bg-black bg-opacity-70 flex flex-col items-center justify-center text-white z-40 hidden">
                         <svg class="animate-spin h-10 w-10 mb-4 text-blue-500" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
                         <p id="face-loading-text" class="font-bold text-lg text-center px-4">กำลังโหลดระบบ AI...<br><span class="text-sm font-normal text-gray-300 mt-2 block">(โหลดครั้งแรกอาจใช้เวลา 5-10 วิ)</span></p>
                     </div>
                 </div>
 
                 <div class="mb-4">
-                    <label class="block text-sm font-medium text-gray-700 text-left mb-1">หรือกรอกเลขประจำตัว</label>
+                    <label class="block text-sm font-medium text-gray-700 text-left mb-1">หรือทดสอบกรอกเลขประจำตัว</label>
                     <div class="flex">
                         <input type="text" id="manual-student-id" class="flex-1 border border-gray-300 rounded-l-md px-4 py-3 focus:outline-none focus:ring-2 focus:ring-blue-500 text-lg" placeholder="ระบุเลขประจำตัว" onkeypress="handleEnter(event)">
                         <button onclick="processManualScan()" class="bg-blue-600 text-white px-6 py-3 rounded-r-md hover:bg-blue-700 font-bold text-lg">สแกน</button>
@@ -356,7 +358,7 @@
                 <canvas id="enroll-canvas" class="absolute top-0 left-0 w-full h-full z-10"></canvas>
             </div>
             
-            <p id="enroll-status" class="text-sm font-bold text-yellow-600 mb-4 bg-yellow-50 py-2 rounded border border-yellow-200">กำลังค้นหาใบหน้า...</p>
+            <p id="enroll-status" class="text-sm font-bold text-yellow-600 mb-4 bg-yellow-50 py-2 rounded border border-yellow-200">กำลังเปิดกล้อง...</p>
             
             <button id="btn-save-face" disabled onclick="saveFaceEnrollment()" class="w-full bg-blue-600 text-white font-bold py-3 rounded-lg opacity-50 cursor-not-allowed mb-2 hover:bg-blue-700 transition-colors shadow-md">
                 📸 บันทึกอัตลักษณ์ใบหน้า
@@ -398,7 +400,7 @@
 
 <script>
         // ==========================================
-        // ตั้งค่าตัวแปรหลัก และ URL ของ Google Sheet
+        // ตั้งค่าตัวแปรหลัก
         // ==========================================
         const API_URL = 'https://script.google.com/macros/s/AKfycbzHKYfG0Z_Fg-J_QHrg36jJt2rbOA3J0bnbYrDLy9vRUIWycfovHOvUnLRSzvEDdY7-/exec'; 
         
@@ -539,8 +541,8 @@
             const loadingOverlay = document.getElementById('face-loading-overlay');
             const loadingText = document.getElementById('face-loading-text');
             
+            // โชว์ Overlay เฉพาะถ้าเป็นการโหลดในหน้าจอหลัก (สแกน)
             if (loadingOverlay && !statusElement) loadingOverlay.classList.remove('hidden');
-            if (statusElement) statusElement.innerText = "กำลังเตรียมระบบ AI...";
 
             if (!isCachingSetup) {
                 faceapi.env.monkeyPatch({
@@ -633,19 +635,36 @@
             ).catch(err => {});
         }
 
+        // ==========================================
+        // อัปเดตใหม่: เปิดกล้องก่อน แล้วค่อยโหลด AI
+        // ==========================================
         async function initFaceScanner() {
             faceVideo = document.getElementById('face-video');
-            await loadModelsWithCache();
+            
+            // 1. เปิดกล้องทันที (เอาใจคนรอ)
             try {
                 const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: currentFacingMode } });
                 faceVideo.srcObject = stream;
-            } catch (err) { alert("ไม่สามารถเปิดกล้องสแกนใบหน้าได้ กรุณาอนุญาตให้เข้าถึงกล้อง"); }
+            } catch (err) { 
+                alert("ไม่สามารถเปิดกล้องสแกนใบหน้าได้ กรุณาอนุญาตให้เข้าถึงกล้อง"); 
+                return;
+            }
+
+            // 2. โหลด AI อยู่เบื้องหลัง
+            if (!faceModelsLoaded) {
+                const loadingOverlay = document.getElementById('face-loading-overlay');
+                loadingOverlay.classList.remove('hidden');
+                loadModelsWithCache().then(() => {
+                    loadingOverlay.classList.add('hidden');
+                });
+            }
         }
 
         document.getElementById('face-video').addEventListener('play', () => {
             const canvas = document.getElementById('face-canvas');
             const hintText = document.getElementById('scan-hint-text');
             
+            // รอให้วิดีโอเล่นนิ่งก่อนเซ็ตขนาด Canvas
             setTimeout(() => {
                 const displaySize = { width: faceVideo.videoWidth || 500, height: faceVideo.videoHeight || 400 };
                 faceapi.matchDimensions(canvas, displaySize);
@@ -653,6 +672,10 @@
                 
                 faceDetectionInterval = setInterval(async () => {
                     if(currentScannerMode !== 'face') return;
+                    if(!faceModelsLoaded) {
+                        drawOvalMask(canvas, ctx, displaySize.width, displaySize.height, '#6B7280', 'รอระบบ AI สักครู่...'); 
+                        return;
+                    }
                     
                     const detections = await faceapi.detectAllFaces(faceVideo, new faceapi.TinyFaceDetectorOptions()).withFaceLandmarks().withFaceDescriptors();
                     const resizedDetections = faceapi.resizeResults(detections, displaySize);
@@ -720,10 +743,19 @@
             const btnSave = document.getElementById('btn-save-face');
             const statusEl = document.getElementById('enroll-status');
             btnSave.disabled = true; btnSave.classList.add('opacity-50', 'cursor-not-allowed');
-            statusEl.innerText = "กำลังเตรียมกล้อง..."; statusEl.className = "text-sm font-bold text-yellow-600 mb-4 bg-yellow-50 py-2 rounded border border-yellow-200";
+            statusEl.innerText = "กำลังเปิดกล้อง..."; 
+            statusEl.className = "text-sm font-bold text-yellow-600 mb-4 bg-yellow-50 py-2 px-2 rounded border border-yellow-200";
 
-            await loadModelsWithCache(statusEl);
-            startEnrollCamera();
+            // 1. เปิดกล้องทันที
+            await startEnrollCamera();
+
+            // 2. โหลด AI แบบไม่บล็อกกล้อง
+            if (!faceModelsLoaded) {
+                statusEl.innerText = "กำลังโหลดระบบ AI...";
+                loadModelsWithCache(statusEl);
+            } else {
+                 statusEl.innerText = "กำลังค้นหาใบหน้า...";
+            }
         }
 
         async function startEnrollCamera() {
@@ -750,11 +782,17 @@
                 if(enrollInterval) clearInterval(enrollInterval);
 
                 enrollInterval = setInterval(async () => {
-                    const detections = await faceapi.detectAllFaces(enrollVideo, new faceapi.TinyFaceDetectorOptions()).withFaceLandmarks().withFaceDescriptors();
-                    const resizedDetections = faceapi.resizeResults(detections, displaySize);
                     const ctx = canvas.getContext('2d');
                     const statusEl = document.getElementById('enroll-status');
                     const btnSave = document.getElementById('btn-save-face');
+
+                    if(!faceModelsLoaded) {
+                        drawOvalMask(canvas, ctx, displaySize.width, displaySize.height, '#6B7280');
+                        return;
+                    }
+
+                    const detections = await faceapi.detectAllFaces(enrollVideo, new faceapi.TinyFaceDetectorOptions()).withFaceLandmarks().withFaceDescriptors();
+                    const resizedDetections = faceapi.resizeResults(detections, displaySize);
 
                     if (detections.length === 1) {
                         const box = resizedDetections[0].detection.box;
@@ -1087,6 +1125,7 @@
                     : `<span class="text-red-500 font-bold text-xs block mb-1">❌ ไม่มีฐานข้อมูล</span>
                        <button onclick="openEnrollModal('${student.id}', '${student.name}')" class="text-xs bg-blue-100 text-blue-700 hover:bg-blue-200 border border-blue-300 px-2 py-1 rounded font-bold">🤖 ลงทะเบียน</button>`;
 
+                // เพิ่มปุ่มเช็คชื่อมือ
                 tbody.innerHTML += `
                     <tr class="hover:bg-gray-50">
                         <td class="px-6 py-4 whitespace-nowrap flex space-x-4 items-center">
