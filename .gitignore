@@ -1,0 +1,23 @@
+# dependencies
+node_modules/
+
+# next.js
+.next/
+out/
+
+# env (มีความลับ ห้าม commit)
+.env.local
+.env*.local
+
+# logs
+*.log
+dev-server.log
+npm-debug.log*
+
+# supabase local
+supabase/.temp/
+
+# OS
+.DS_Store
+Thumbs.db
+Desktop.ini
