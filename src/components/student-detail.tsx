@@ -132,6 +132,19 @@ export function StudentDetail({
       <h4 className="mb-1.5 mt-4 text-[14.5px] font-bold text-[#16233a]">
         รูปใบหน้าที่ลงทะเบียน
       </h4>
+      <button
+        type="button"
+        onClick={() => void toggleTwin()}
+        aria-pressed={twinFlag}
+        title="ปักธงแล้ว scanner จะบังคับยืนยันมือทุกครั้ง (ใช้ได้แม้ยังไม่ลงทะเบียนใบหน้า)"
+        className={
+          twinFlag
+            ? "mb-2 rounded-md bg-[#6a1b9a] px-2.5 py-1 text-[12.5px] font-bold text-white"
+            : "mb-2 rounded-md border border-[#d8e0ec] bg-white px-2.5 py-1 text-[12.5px] font-bold text-[#5b6b82] hover:bg-[#f1f5fa]"
+        }
+      >
+        {twinFlag ? "★ ปักธงแฝดแล้ว" : "☆ ปักธงแฝด"}
+      </button>
       {facePhoto === undefined ? (
         <p className="py-2 text-center text-[13.5px] text-[#5b6b82]">กำลังโหลด...</p>
       ) : facePhoto ? (
@@ -155,19 +168,6 @@ export function StudentDetail({
                   ลงทะเบียนใหม่
                 </button>
               ) : null}
-              <button
-                type="button"
-                onClick={() => void toggleTwin()}
-                aria-pressed={twinFlag}
-                title="ปักธงแล้ว scanner จะบังคับยืนยันมือทุกครั้ง"
-                className={
-                  twinFlag
-                    ? "rounded-md bg-[#6a1b9a] px-2.5 py-1 text-[12.5px] font-bold text-white"
-                    : "rounded-md border border-[#d8e0ec] bg-white px-2.5 py-1 text-[12.5px] font-bold text-[#5b6b82] hover:bg-[#f1f5fa]"
-                }
-              >
-                {twinFlag ? "★ ปักธงแฝดแล้ว" : "☆ ปักธงแฝด"}
-              </button>
               <button
                 type="button"
                 onClick={() => void deleteFace()}
