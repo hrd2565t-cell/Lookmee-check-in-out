@@ -421,50 +421,97 @@ export default function StudentsPage() {
     setNotice("");
   };
 
+  /* ---------- นำเข้าหลายคน: เทมเพลตล็อกหัว + ตรวจเข้ม + พรีวิว ---------- */
+  const TEMPLATE_HEADER = ["เลขประจำตัว", "คำนำหน้า", "ชื่อ", "นามสกุล", "กลุ่ม", "เลขที่"];
+
+  const downloadTemplate = () => {
+    const example = ["47xxx", "เด็กชาย", "ชื่อจริง", "นามสกุล", groupList[0] ?? "ม.1/1", "1"];
+    const csv = "\uFEFF" + TEMPLATE_HEADER.join(",") + "\n" + example.join(",") + "\n";
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "template-import-students.csv";
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  };
+
+  type ImportRow = {
+    code: string;
+    prefix: string;
+    first: string;
+    last: string;
+    group: string;
+    number: string;
+  };
+  const [importPreview, setImportPreview] = useState<{
+    valid: ImportRow[];
+    errors: string[];
+  } | null>(null);
+  const [importing, setImporting] = useState(false);
+
   const importCsv = async (file: File) => {
-    const text = await file.text();
+    const text = (await file.text()).replace(/^\uFEFF/, "");
     const lines = text.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
-    const start = /^\D/.test(lines[0] ?? "") ? 1 : 0; // ข้าม header ถ้ามี
-    let added = 0;
-    let skipped = 0;
+    if (lines.length < 2) {
+      setNotice("ไฟล์ว่าง — โหลดเทมเพลตมากรอกก่อนนำเข้า");
+      return;
+    }
+    const header = (lines[0] ?? "").split(",").map((c) => c.trim());
+    if (header.join(",") !== TEMPLATE_HEADER.join(",")) {
+      setNotice("หัวตารางไม่ตรงเทมเพลต — กด “โหลดเทมเพลต” มากรอกใหม่");
+      return;
+    }
     const seen = new Set(studentList.map((s) => s.studentId));
-    const newcomers: Student[] = [];
-    const newcomersRaw: Array<{ code: string; prefix: string; first: string; last: string; group: string }> = [];
-    const missingGroups = new Set<string>();
-    for (const line of lines.slice(start)) {
+    const valid: ImportRow[] = [];
+    const errors: string[] = [];
+    lines.slice(1).forEach((line, i) => {
+      const rowNo = i + 2;
       const cols = line.split(",").map((c) => c.trim());
-      if (cols.length < 5) {
-        skipped++;
-        continue;
+      if (cols.length !== 6) {
+        errors.push(`แถวที่ ${rowNo}: คอลัมน์ไม่ครบ 6 ช่อง`);
+        return;
       }
-      const code = cols[0];
-      const prefix = PREFIXES.includes(cols[1]) ? cols[1] : PREFIXES[0];
-      const grp = cols[cols.length - 2];
-      const mid = cols.slice(2, cols.length - 2);
-      const first = mid[0] ?? "";
-      const last = mid.slice(1).join(",");
-      if (!/^\d+$/.test(code) || !first || !groupList.includes(grp) || seen.has(code)) {
-        if (!groupList.includes(grp)) missingGroups.add(grp);
-        skipped++;
-        continue;
+      const [code, prefix, first, last, grp, number] = cols as [string, string, string, string, string, string];
+      if (!/^\d+$/.test(code)) {
+        errors.push(`แถวที่ ${rowNo}: เลขประจำตัวต้องเป็นตัวเลข`);
+        return;
+      }
+      if (seen.has(code)) {
+        errors.push(`แถวที่ ${rowNo}: เลข ${code} ซ้ำ (มีในระบบ/ซ้ำในไฟล์)`);
+        return;
+      }
+      if (!PREFIXES.includes(prefix)) {
+        errors.push(`แถวที่ ${rowNo}: คำนำหน้าต้องเป็น ${PREFIXES.join("/")}`);
+        return;
+      }
+      if (!first) {
+        errors.push(`แถวที่ ${rowNo}: ชื่อว่าง`);
+        return;
+      }
+      if (!groupList.includes(grp)) {
+        errors.push(`แถวที่ ${rowNo}: ไม่มีกลุ่ม ${grp} ในระบบ (เพิ่มกลุ่มก่อน)`);
+        return;
+      }
+      if (!number) {
+        errors.push(`แถวที่ ${rowNo}: เลขที่ว่าง`);
+        return;
       }
       seen.add(code);
-      const thaiName = `${prefix}${first}${last ? ` ${last}` : ""}`;
-      newcomersRaw.push({ code, prefix, first, last, group: grp });
-      newcomers.push({
-        id: code,
-        thaiName,
-        studentId: code,
-        group: grp,
-        registered: false,
-        initials: initialsFor(`${first} ${last}`.trim()),
-        color: colorFor(code),
-      });
-      added++;
-    }
-    if (dbLive && newcomersRaw.length > 0) {
+      valid.push({ code, prefix, first, last, group: grp, number });
+    });
+    setImportPreview({ valid, errors });
+  };
+
+  const confirmImport = async () => {
+    if (!importPreview || importing) return;
+    setImporting(true);
+    const { valid } = importPreview;
+    if (dbLive && valid.length > 0) {
       const rows = [];
-      for (const r of newcomersRaw) {
+      for (const r of valid) {
         const gid = await ensureGroupId(r.group);
         if (!gid) continue;
         rows.push({
@@ -472,7 +519,7 @@ export default function StudentsPage() {
           prefix: r.prefix,
           first_name: r.first,
           last_name: r.last || null,
-          class_no: "",
+          class_no: r.number,
           group_id: gid,
           status: "active",
           face_status: "unregistered",
@@ -480,14 +527,31 @@ export default function StudentsPage() {
       }
       const { error } = await supabase.from("students").insert(rows);
       if (error) {
-        setNotice(`นำเข้า DB ไม่สำเร็จ: ${error.message} — แสดงเฉพาะในหน้านี้`);
+        setNotice(`นำเข้า DB ไม่สำเร็จ: ${error.message}`);
+        setImporting(false);
+        return;
       }
     }
-    setStudentList((s) => [...s, ...newcomers]);
+    setStudentList((s) => [
+      ...s,
+      ...valid.map((r) => {
+        const thaiName = `${r.prefix}${r.first}${r.last ? ` ${r.last}` : ""}`;
+        return {
+          id: r.code,
+          thaiName,
+          studentId: r.code,
+          group: r.group,
+          registered: false,
+          initials: initialsFor(`${r.first} ${r.last}`.trim()),
+          color: colorFor(r.code),
+        };
+      }),
+    ]);
     setNotice(
-      `นำเข้า ${added} คน${skipped ? `, ข้าม ${skipped} แถว` : ""}` +
-        (missingGroups.size ? ` (กลุ่มที่ไม่มีในระบบ: ${[...missingGroups].join(", ")})` : ""),
+      `นำเข้า ${valid.length} คน${importPreview.errors.length ? `, ข้าม ${importPreview.errors.length} แถว` : ""}`,
     );
+    setImportPreview(null);
+    setImporting(false);
   };
 
   const groupRowProps = (name: string) => ({
@@ -559,6 +623,13 @@ export default function StudentsPage() {
             <UIButton variant="green" onClick={() => fileRef.current?.click()} className="h-9 px-3.5 text-[13.5px]">
               นำเข้าจากไฟล์ใหม่
             </UIButton>
+            <button
+              type="button"
+              onClick={downloadTemplate}
+              className="text-[13px] font-semibold text-[#2474c6] hover:underline"
+            >
+              โหลดเทมเพลต
+            </button>
             <input
               ref={fileRef}
               type="file"
@@ -695,6 +766,13 @@ export default function StudentsPage() {
             >
               นำเข้าจากไฟล์ (Excel)
             </UIButton>
+            <button
+              type="button"
+              onClick={downloadTemplate}
+              className="text-[13px] font-semibold text-[#2474c6] hover:underline"
+            >
+              โหลดเทมเพลต
+            </button>
           </div>
         </Card>
       </div>
@@ -815,6 +893,63 @@ export default function StudentsPage() {
           }
           onClose={() => setEnrollCode(null)}
         />
+      ) : null}
+      {/* พรีวิวก่อนนำเข้าจริง */}
+      {importPreview ? (
+        <Modal title="ตรวจสอบก่อนนำเข้า" onClose={() => setImportPreview(null)}>
+          <div className="flex gap-2 text-[14px]">
+            <span className="rounded-md bg-[#e6f4ea] px-2.5 py-1 font-bold text-[#166c2e]">
+              ใช้ได้ {importPreview.valid.length} แถว
+            </span>
+            <span className="rounded-md bg-[#fdecec] px-2.5 py-1 font-bold text-[#c62828]">
+              เสีย {importPreview.errors.length} แถว
+            </span>
+          </div>
+          {importPreview.valid.length > 0 ? (
+            <div className="mt-2">
+              <p className="text-[13.5px] font-bold text-[#16233a]">
+                ตัวอย่างที่จะนำเข้า (5 แถวแรก)
+              </p>
+              <ul className="mt-1 divide-y divide-[#eef2f7] rounded-lg border border-[#eef2f7] px-3">
+                {importPreview.valid.slice(0, 5).map((r) => (
+                  <li key={r.code} className="py-1.5 text-[13.5px] text-[#16233a]">
+                    {r.prefix}{r.first}{r.last ? ` ${r.last}` : ""} · {r.group} · เลขที่ {r.number}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
+          {importPreview.errors.length > 0 ? (
+            <div className="mt-2">
+              <p className="text-[13.5px] font-bold text-[#c62828]">แถวที่ใช้ไม่ได้</p>
+              <ul className="slim-scroll mt-1 max-h-[160px] space-y-1 overflow-y-auto rounded-lg bg-[#fef6f6] p-2.5 text-[13px] text-[#c62828]">
+                {importPreview.errors.slice(0, 30).map((e, i) => (
+                  <li key={i}>• {e}</li>
+                ))}
+                {importPreview.errors.length > 30 ? (
+                  <li>• และอีก {importPreview.errors.length - 30} แถว...</li>
+                ) : null}
+              </ul>
+            </div>
+          ) : null}
+          <div className="mt-3 flex justify-end gap-2">
+            <UIButton
+              variant="blue"
+              onClick={() => setImportPreview(null)}
+              className="h-10 bg-[#5b6b82] hover:bg-[#465364] focus-visible:ring-[#5b6b82]/40"
+            >
+              ยกเลิก
+            </UIButton>
+            <UIButton
+              variant="green"
+              onClick={() => void confirmImport()}
+              disabled={importPreview.valid.length === 0 || importing}
+              className="h-10 disabled:opacity-40"
+            >
+              {importing ? "กำลังนำเข้า..." : `ยืนยันนำเข้า ${importPreview.valid.length} คน`}
+            </UIButton>
+          </div>
+        </Modal>
       ) : null}
     </AppShell>
   );
