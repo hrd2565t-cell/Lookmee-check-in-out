@@ -46,6 +46,40 @@ export function FaceEnrollModal({
     [students, code],
   );
 
+  // รูป + ธงเดิมของคนที่ลงทะเบียนไว้แล้ว (กด "แก้ไขสแกนหน้า" มา)
+  const [existing, setExisting] = useState<{ photo: string | null; twin: boolean } | null>(null);
+  useEffect(() => {
+    if (!found?.registered || !isSupabaseConfigured) return;
+    let cancelled = false;
+    (async () => {
+      const { data } = await supabase
+        .from("students")
+        .select("photo_url,twin_flag")
+        .eq("student_code", found.studentId)
+        .single();
+      if (!cancelled && data) {
+        const row = data as { photo_url: string | null; twin_flag: boolean | null };
+        setExisting({ photo: row.photo_url, twin: row.twin_flag === true });
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [found?.registered, found?.studentId]);
+
+  const toggleExistingTwin = async () => {
+    if (!found || !existing) return;
+    const next = !existing.twin;
+    setExisting({ ...existing, twin: next });
+    if (isSupabaseConfigured) {
+      const { error } = await supabase
+        .from("students")
+        .update({ twin_flag: next })
+        .eq("student_code", found.studentId);
+      if (error) setExisting({ ...existing, twin: !next });
+    }
+  };
+
   useEffect(() => {
     let cancelled = false;
     const video = videoRef.current;
@@ -170,7 +204,10 @@ export function FaceEnrollModal({
         <span className="mt-1 flex gap-2">
           <input
             value={code}
-            onChange={(e) => setCode(e.target.value)}
+            onChange={(e) => {
+              setCode(e.target.value);
+              setExisting(null);
+            }}
             placeholder="เช่น 47591"
             inputMode="numeric"
             className={inputCls}
@@ -187,6 +224,39 @@ export function FaceEnrollModal({
             ไม่พบรหัสนี้ในระบบ
           </p>
         )
+      ) : null}
+      {found?.registered ? (
+        <div className="mt-2 flex items-center gap-3 rounded-lg border border-[#e4eaf3] p-2">
+          {existing?.photo ? (
+            /* eslint-disable-next-line @next/next/no-img-element */
+            <img
+              src={existing.photo}
+              alt="รูปที่ลงทะเบียนไว้"
+              className="h-16 w-14 shrink-0 rounded-md object-cover"
+            />
+          ) : (
+            <span className="inline-flex h-16 w-14 shrink-0 items-center justify-center rounded-md bg-[#fef6ec] px-1 text-center text-[11px] font-bold text-[#e65100]">
+              ไม่มีรูป (ลงทะเบียนก่อนระบบเก็บรูป)
+            </span>
+          )}
+          <div className="min-w-0 flex-1">
+            <p className="text-[12.5px] font-semibold text-[#16233a]">
+              ลงทะเบียนไว้แล้ว — บันทึกใหม่จะเขียนทับของเดิม
+            </p>
+            <button
+              type="button"
+              onClick={() => void toggleExistingTwin()}
+              aria-pressed={existing?.twin === true}
+              className={
+                existing?.twin
+                  ? "mt-1 rounded-md bg-[#6a1b9a] px-2.5 py-1 text-[12px] font-bold text-white"
+                  : "mt-1 rounded-md border border-[#d8e0ec] bg-white px-2.5 py-1 text-[12px] font-bold text-[#5b6b82] hover:bg-[#f1f5fa]"
+              }
+            >
+              {existing?.twin ? "★ ปักธงแฝดแล้ว" : "☆ ปักธงแฝด"}
+            </button>
+          </div>
+        </div>
       ) : null}
 
       <div className="relative mt-3 overflow-hidden rounded-lg bg-[#3a4148]">
