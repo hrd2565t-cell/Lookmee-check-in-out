@@ -13,6 +13,8 @@ import {
 } from "@/components/icons";
 import { Avatar, Card, CardTitle, Modal, UIButton } from "@/components/ui";
 import { StudentDetail } from "@/components/student-detail";
+import { FaceEnrollModal } from "@/components/face-enroll";
+import type { Student } from "@/data/students";
 import {
   PAGE_SIZE,
   type AttendanceStatus,
@@ -202,6 +204,20 @@ export default function ReportsPage() {
   const [fType, setFType] = useState<LeaveType>("sick");
   const [fReason, setFReason] = useState("");
   const [detailCode, setDetailCode] = useState<string | null>(null);
+  const [enrollCode, setEnrollCode] = useState<string | null>(null);
+  const reportStudents: Student[] = useMemo(
+    () =>
+      rosterStudents.map((s) => ({
+        id: s.code,
+        thaiName: s.name,
+        studentId: s.code,
+        group: s.group,
+        registered: false,
+        initials: s.initials,
+        color: s.color,
+      })),
+    [rosterStudents],
+  );
 
   /* ---------- บันทึกกิจกรรม ---------- */
   const [actModal, setActModal] = useState(false);
@@ -921,9 +937,22 @@ export default function ReportsPage() {
             name={st.name}
             group={st.group}
             onClose={() => setDetailCode(null)}
+            onEnroll={(code) => {
+              setDetailCode(null);
+              setEnrollCode(code);
+            }}
           />
         ) : null;
       })()}
+      {/* ลงทะเบียนใบหน้า */}
+      {enrollCode ? (
+        <FaceEnrollModal
+          initialCode={enrollCode}
+          students={reportStudents}
+          onSaved={() => {}}
+          onClose={() => setEnrollCode(null)}
+        />
+      ) : null}
     </AppShell>
   );
 }

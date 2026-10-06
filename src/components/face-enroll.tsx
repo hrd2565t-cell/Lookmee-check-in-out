@@ -75,6 +75,7 @@ export function FaceEnrollModal({
   }, []);
 
   const photoRef = useRef<Blob | null>(null);
+  const [photoPreview, setPhotoPreview] = useState<string | null>(null);
 
   // เก็บรูปหน้าตรง (ท่าแรก) ไว้เทียบตัวตนตอนเช็กสำรอง
   const snapshotFrontPhoto = () => {
@@ -89,7 +90,13 @@ export function FaceEnrollModal({
     ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
     canvas.toBlob(
       (blob) => {
-        if (blob) photoRef.current = blob;
+        if (blob) {
+          photoRef.current = blob;
+          setPhotoPreview((old) => {
+            if (old) URL.revokeObjectURL(old);
+            return URL.createObjectURL(blob);
+          });
+        }
       },
       "image/jpeg",
       0.85,
@@ -232,6 +239,24 @@ export function FaceEnrollModal({
       <p role="status" className="mt-2 text-center text-[13px] text-[#5b6b82]">
         {status}
       </p>
+
+      {/* พรีวิวรูปที่จะบันทึก */}
+      {photoPreview ? (
+        <div className="mt-2 flex items-center gap-3 rounded-lg border border-[#e4eaf3] p-2">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src={photoPreview}
+            alt="รูปหน้าตรงที่จะบันทึก"
+            className="h-20 w-16 shrink-0 rounded-md object-cover"
+          />
+          <p className="text-[12.5px] text-[#5b6b82]">
+            รูปนี้จะถูกบันทึกเป็นรูปอ้างอิง
+            <span className="block font-semibold text-[#16233a]">
+              ถ้าเบลอ/ผิดคน ให้ปิดแล้วเริ่มใหม่
+            </span>
+          </p>
+        </div>
+      ) : null}
 
       <div className="mt-3 flex gap-2">
         <UIButton

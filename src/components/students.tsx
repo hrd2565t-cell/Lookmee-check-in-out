@@ -1007,6 +1007,15 @@ export default function StudentsPage() {
             name={st.thaiName}
             group={st.group}
             onClose={() => setDetailId(null)}
+            onEnroll={(code) => {
+              setDetailId(null);
+              setEnrollCode(code);
+            }}
+            onFaceDeleted={(code) =>
+              setStudentList((list) =>
+                list.map((x) => (x.studentId === code ? { ...x, registered: false } : x)),
+              )
+            }
           />
         ) : null;
       })()}
