@@ -16,6 +16,10 @@ export type Student = {
   registered: boolean;
   initials: string;
   color: string;
+  prefix?: string;
+  firstName?: string;
+  lastName?: string;
+  number?: string;
 };
 
 const half = Math.ceil(SCHOOL_GROUPS.length / 2);
@@ -38,4 +42,8 @@ export const students: Student[] = SCHOOL_STUDENTS.map((s) => ({
   registered: false,
   initials: s.initials,
   color: s.color,
+  prefix: s.title,
+  firstName: s.firstName,
+  lastName: s.lastName,
+  number: s.number,
 }));

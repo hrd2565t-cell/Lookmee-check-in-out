@@ -166,6 +166,7 @@ export default function StudentsPage() {
   const [groupModal, setGroupModal] = useState<{ mode: "add" } | { mode: "edit"; old: string } | null>(null);
   const [groupName, setGroupName] = useState("");
   const [studentModal, setStudentModal] = useState(false);
+  const [editingCode, setEditingCode] = useState<string | null>(null);
   const [addedCount, setAddedCount] = useState(0);
   const [formError, setFormError] = useState("");
   const [detailId, setDetailId] = useState<string | null>(null);
@@ -220,6 +221,10 @@ export default function StudentsPage() {
               registered: r.face_status === "registered",
               initials: initialsFor(thaiName),
               color: colorFor(r.student_code as string),
+              prefix: r.prefix,
+              firstName: r.first_name,
+              lastName: last,
+              number: r.class_no,
             };
           })
           .sort(
@@ -373,9 +378,88 @@ export default function StudentsPage() {
     setForm({ code: "", prefix: PREFIXES[0], first: "", last: "", group: groupList[0] ?? "", number: "" });
     setAddedCount(0);
     setFormError("");
+    setEditingCode(null);
     setStudentModal(true);
   };
+  const openEditStudent = (s: Student) => {
+    setForm({
+      code: s.studentId,
+      prefix: s.prefix ?? PREFIXES[0],
+      first: s.firstName ?? "",
+      last: s.lastName ?? "",
+      group: s.group,
+      number: s.number ?? "",
+    });
+    setAddedCount(0);
+    setFormError("");
+    setEditingCode(s.studentId);
+    setStudentModal(true);
+  };
+  const deleteStudent = async (s: Student) => {
+    if (!window.confirm(`ซ่อน ${s.thaiName} จากรายชื่อ? (ประวัติการเช็กชื่อ/ใบลายังอยู่)`)) return;
+    if (dbLive) {
+      const { error } = await supabase
+        .from("students")
+        .update({ status: "inactive", status_note: "ซ่อนโดยครู" })
+        .eq("student_code", s.studentId);
+      if (error) {
+        setNotice(`ลบไม่สำเร็จ: ${error.message}`);
+        return;
+      }
+    }
+    setStudentList((list) => list.filter((x) => x.studentId !== s.studentId));
+    setNotice(`ซ่อน ${s.thaiName} จากรายชื่อแล้ว`);
+  };
   const saveStudent = async () => {
+    // โหมดแก้ไข: ล็อกเลขประจำตัวไว้
+    if (editingCode) {
+      if (!form.first.trim() || !form.group || !form.number.trim()) {
+        setFormError("กรุณากรอกชื่อ กลุ่ม และเลขที่");
+        return;
+      }
+      if (dbLive) {
+        const gid = await ensureGroupId(form.group);
+        if (!gid) {
+          setFormError("บันทึกไม่สำเร็จ — ตรวจว่าเซสชันล็อกอินยังอยู่ แล้วลองใหม่");
+          return;
+        }
+        const { error } = await supabase
+          .from("students")
+          .update({
+            prefix: form.prefix,
+            first_name: form.first.trim(),
+            last_name: form.last.trim() || null,
+            class_no: form.number.trim(),
+            group_id: gid,
+          })
+          .eq("student_code", editingCode);
+        if (error) {
+          setFormError(`บันทึกไม่สำเร็จ: ${error.message}`);
+          return;
+        }
+      }
+      const thaiName = `${form.prefix}${form.first.trim()}${form.last.trim() ? ` ${form.last.trim()}` : ""}`;
+      setStudentList((list) =>
+        list.map((x) =>
+          x.studentId === editingCode
+            ? {
+                ...x,
+                thaiName,
+                group: form.group,
+                initials: initialsFor(`${form.first.trim()} ${form.last.trim()}`.trim()),
+                prefix: form.prefix,
+                firstName: form.first.trim(),
+                lastName: form.last.trim(),
+                number: form.number.trim(),
+              }
+            : x,
+        ),
+      );
+      setStudentModal(false);
+      setEditingCode(null);
+      setNotice(`แก้ไข ${thaiName} แล้ว`);
+      return;
+    }
     const code = form.code.trim();
     if (!/^\d+$/.test(code)) {
       setFormError("เลขประจำตัวต้องเป็นตัวเลข");
@@ -421,6 +505,10 @@ export default function StudentsPage() {
         registered: false,
         initials: initialsFor(`${form.first.trim()} ${form.last.trim()}`.trim()),
         color: colorFor(code),
+        prefix: form.prefix,
+        firstName: form.first.trim(),
+        lastName: form.last.trim(),
+        number: form.number.trim(),
       },
     ]);
     // โหมดกรอกรวด: ไม่ปิดฟอร์ม ล้างเฉพาะช่องที่เปลี่ยนทุกครั้ง
@@ -552,6 +640,10 @@ export default function StudentsPage() {
           registered: false,
           initials: initialsFor(`${r.first} ${r.last}`.trim()),
           color: colorFor(r.code),
+          prefix: r.prefix,
+          firstName: r.first,
+          lastName: r.last,
+          number: r.number,
         };
       }),
     ]);
@@ -732,19 +824,39 @@ export default function StudentsPage() {
                       <FaceStatus registered={s.registered} />
                     </td>
                     <td className="whitespace-nowrap py-2 text-right">
-                      {s.registered ? (
-                        <UIButton variant="blue" onClick={() => setEnrollCode(s.studentId)} className="h-9 px-3.5 text-[13.5px]">
-                          แก้ไขสแกนหน้า
-                        </UIButton>
-                      ) : (
-                        <UIButton
-                          variant="green"
-                          onClick={() => setEnrollCode(s.studentId)}
-                          className="h-9 bg-[#ef8c1a] px-3.5 text-[13.5px] hover:bg-[#d67a10] focus-visible:ring-[#ef8c1a]/40 active:bg-[#b8660c]"
+                      <span className="inline-flex items-center gap-0.5">
+                        <button
+                          type="button"
+                          aria-label={`แก้ไข ${s.thaiName}`}
+                          title="แก้ไขข้อมูล"
+                          onClick={() => openEditStudent(s)}
+                          className="rounded p-1.5 text-[#2474c6] hover:bg-[#e8f1fb]"
                         >
-                          เริ่มสแกนหน้า
-                        </UIButton>
-                      )}
+                          <PencilIcon />
+                        </button>
+                        <button
+                          type="button"
+                          aria-label={`ซ่อน ${s.thaiName} จากรายชื่อ`}
+                          title="ซ่อนจากรายชื่อ"
+                          onClick={() => void deleteStudent(s)}
+                          className="rounded p-1.5 text-[#c62828] hover:bg-[#fdecec]"
+                        >
+                          <TrashIcon />
+                        </button>
+                        {s.registered ? (
+                          <UIButton variant="blue" onClick={() => setEnrollCode(s.studentId)} className="ml-1 h-9 px-3.5 text-[13.5px]">
+                            แก้ไขสแกนหน้า
+                          </UIButton>
+                        ) : (
+                          <UIButton
+                            variant="green"
+                            onClick={() => setEnrollCode(s.studentId)}
+                            className="ml-1 h-9 bg-[#ef8c1a] px-3.5 text-[13.5px] hover:bg-[#d67a10] focus-visible:ring-[#ef8c1a]/40 active:bg-[#b8660c]"
+                          >
+                            เริ่มสแกนหน้า
+                          </UIButton>
+                        )}
+                      </span>
                     </td>
                   </tr>
                 ))}
@@ -826,11 +938,11 @@ export default function StudentsPage() {
 
       {/* add student modal */}
       {studentModal ? (
-        <Modal title={`เพิ่มนักเรียนใหม่${addedCount > 0 ? ` (เพิ่มแล้ว ${addedCount} คน)` : ""}`} onClose={() => { setStudentModal(false); setNotice(""); }}>
+        <Modal title={editingCode ? `แก้ไขนักเรียน ${editingCode}` : `เพิ่มนักเรียนใหม่${addedCount > 0 ? ` (เพิ่มแล้ว ${addedCount} คน)` : ""}`} onClose={() => { setStudentModal(false); setNotice(""); }}>
           <div className="grid grid-cols-2 gap-2">
             <label className="col-span-1 block text-[14px] font-medium text-[#16233a]">
-              เลขประจำตัว
-              <input value={form.code} onChange={(e) => setForm({ ...form, code: e.target.value })} placeholder="47xxx" className={cn(inputCls, "mt-1")} />
+              เลขประจำตัว{editingCode ? " (ล็อกไว้)" : ""}
+              <input value={form.code} onChange={(e) => setForm({ ...form, code: e.target.value })} placeholder="47xxx" disabled={!!editingCode} className={cn(inputCls, "mt-1 disabled:bg-[#f1f5fa] disabled:text-[#8a97ab]")} />
             </label>
             <label className="col-span-1 block text-[14px] font-medium text-[#16233a]">
               เลขที่
@@ -880,7 +992,7 @@ export default function StudentsPage() {
               เสร็จสิ้น
             </UIButton>
             <UIButton variant="green" onClick={() => void saveStudent()} className="h-10">
-              บันทึก + คนต่อไป
+              {editingCode ? "บันทึกการแก้ไข" : "บันทึก + คนต่อไป"}
             </UIButton>
           </div>
         </Modal>
