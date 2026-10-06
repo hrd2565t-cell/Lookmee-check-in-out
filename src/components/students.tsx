@@ -228,7 +228,9 @@ export default function StudentsPage() {
               a.studentId.localeCompare(b.studentId),
           );
         if (!cancelled) {
-          setGroupIds(Object.fromEntries(idToName.entries()));
+          setGroupIds(
+            Object.fromEntries([...idToName.entries()].map(([id, name]) => [name, id])),
+          );
           setGroupList(names);
           setStudentList(mapped);
           setDbLive(true);
