@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Inter, Noto_Sans_Thai } from "next/font/google";
 import "./globals.css";
 
@@ -16,9 +16,23 @@ const notoThai = Noto_Sans_Thai({
 export const metadata: Metadata = {
   title: "LOOKMEE Check In-Out | Student Attendance System",
   description: "ระบบเช็กชื่อนักเรียนด้วยใบหน้า - LOOKMEE Check In-Out",
-  icons: {
-    icon: "/logo.jpg",
+  manifest: "/manifest.webmanifest",
+  appleWebApp: {
+    capable: true,
+    title: "LOOKMEE",
+    statusBarStyle: "default",
   },
+  icons: {
+    icon: [
+      { url: "/logo.jpg" },
+      { url: "/icons/icon-192.png", sizes: "192x192", type: "image/png" },
+    ],
+    apple: [{ url: "/icons/apple-touch-icon.png" }],
+  },
+};
+
+export const viewport: Viewport = {
+  themeColor: "#16233a",
 };
 
 export default function RootLayout({

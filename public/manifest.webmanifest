@@ -1,0 +1,28 @@
+{
+  "name": "LOOKMEE Check In-Out",
+  "short_name": "LOOKMEE",
+  "description": "ระบบเช็กชื่อนักเรียนด้วยใบหน้า",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#eaf1f8",
+  "theme_color": "#16233a",
+  "lang": "th",
+  "icons": [
+    {
+      "src": "/icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "/icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    },
+    {
+      "src": "/icons/maskable-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ]
+}

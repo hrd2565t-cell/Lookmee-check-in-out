@@ -11,14 +11,17 @@ import {
   type ScanEntry,
 } from "@/data/scanner";
 import {
-  checkIn,
-  ensureTodaySession,
   fetchRecordsByDate,
   nowTime,
   todayStr,
   type DayRecord,
 } from "@/lib/attendance";
-import { fetchPeriods, findCurrentPeriod, isLate } from "@/lib/timetable";
+import {
+  flushQueue,
+  pendingCount,
+  saveCheckin,
+  type SaveResult,
+} from "@/lib/offline-queue";
 import {
   closeCamera,
   descriptorFromVideo,
@@ -213,6 +216,12 @@ export default function ScannerPage() {
   const [groupSel, setGroupSel] = useState("");
   const activeGroup = groups.includes(groupSel) ? groupSel : (groups[0] ?? "");
   const [notice, setNotice] = useState("");
+  const [online, setOnline] = useState(
+    typeof window === "undefined" ? true : window.navigator.onLine,
+  );
+  const [pending, setPending] = useState(() =>
+    typeof window === "undefined" ? 0 : pendingCount(),
+  );
   const [dayRecords, setDayRecords] = useState<DayRecord[]>([]);
   const [dayLive, setDayLive] = useState(false);
 
@@ -223,6 +232,20 @@ export default function ScannerPage() {
       setDayLive(true);
     }
   };
+
+  const syncNow = async () => {
+    const r = await flushQueue();
+    setPending(r.remaining);
+    if (r.synced > 0) {
+      setNotice(`ซิงก์คิวขึ้น server แล้ว ${r.synced} แถว`);
+      await reloadDayRecords();
+    } else if (r.remaining > 0) {
+      setNotice(`ยังค้าง ${r.remaining} แถว — ตรวจเน็ตแล้วกดซิงก์ใหม่`);
+    } else {
+      setNotice("ไม่มีคิวค้างซิงก์");
+    }
+  };
+
   useEffect(() => {
     let cancelled = false;
     (async () => {
@@ -234,6 +257,37 @@ export default function ScannerPage() {
     })();
     return () => {
       cancelled = true;
+    };
+  }, []);
+
+  // ออนไลน์/ออฟไลน์ + ซิงก์อัตโนมัติ (เน็ตกลับ + ทุก 30 วิ)
+  useEffect(() => {
+    const onOnline = () => {
+      setOnline(true);
+      void (async () => {
+        const r = await flushQueue();
+        setPending(r.remaining);
+        if (r.synced > 0) {
+          setNotice(`เน็ตกลับแล้ว — ซิงก์ ${r.synced} แถว`);
+          await reloadDayRecords();
+        }
+      })();
+    };
+    const onOffline = () => setOnline(false);
+    window.addEventListener("online", onOnline);
+    window.addEventListener("offline", onOffline);
+    const timer = setInterval(() => {
+      void (async () => {
+        if (!window.navigator.onLine) return;
+        const r = await flushQueue();
+        setPending((prev) => (prev === r.remaining ? prev : r.remaining));
+        if (r.synced > 0) await reloadDayRecords();
+      })();
+    }, 30_000);
+    return () => {
+      window.removeEventListener("online", onOnline);
+      window.removeEventListener("offline", onOffline);
+      clearInterval(timer);
     };
   }, []);
   const [mode, setMode] = useState<"face" | "manual">("face");
@@ -274,30 +328,28 @@ export default function ScannerPage() {
   const confirmManual = async () => {
     if (!manualFound) return;
     setManualMsg("กำลังบันทึก...");
-    const sessionId = await ensureTodaySession(manualFound.group);
-    if (!sessionId) {
-      setManualMsg("บันทึกไม่ได้ — ต่อ DB ไม่ติด");
-      return;
-    }
-    const periods = (await fetchPeriods(manualFound.group)) ?? [];
-    const period = findCurrentPeriod(periods);
-    const late = period ? isLate(period) : false;
-    const res = await checkIn(sessionId, manualFound.code, 0, {
-      status: late ? "late" : "present",
-      periodNo: period?.periodNo ?? null,
+    const out = await saveCheckin({
+      group: manualFound.group,
+      code: manualFound.code,
+      confidence: 0,
       method: "manual",
     });
-    if (res === "saved") {
+    setPending(out.queued);
+    if (out.result === "saved") {
       setManualMsg(
-        `ครูยืนยันตัวตน ${manualFound.name} แล้ว${period ? ` (คาบที่ ${period.periodNo}${late ? " · สาย" : ""})` : ""}`,
+        `ครูยืนยันตัวตน ${manualFound.name} แล้ว${out.periodNo !== null ? ` (คาบที่ ${out.periodNo}${out.late ? " · สาย" : ""})` : ""}`,
       );
       await reloadDayRecords();
       setManualFound(null);
       setManualCode("");
-    } else if (res === "duplicate") {
+    } else if (out.result === "duplicate") {
       setManualMsg(`${manualFound.name} เช็กชื่อวันนี้ไปแล้ว`);
+    } else if (out.result === "queued") {
+      setManualMsg(`เน็ตหลุด — เก็บ ${manualFound.name} เข้าคิวแล้ว (ค้าง ${out.queued})`);
+      setManualFound(null);
+      setManualCode("");
     } else {
-      setManualMsg("บันทึกไม่ได้ — ต่อ DB ไม่ติด");
+      setManualMsg("บันทึกไม่ได้ — ลองอีกครั้ง");
     }
   };
   const [camStatus, setCamStatus] = useState("กำลังเตรียมกล้อง...");
@@ -312,27 +364,28 @@ export default function ScannerPage() {
   });
 
   const saveMatch = async (m: CurrentMatch) => {
-    const sessionId = await ensureTodaySession(m.group);
-    if (!sessionId || !m.code) {
-      setNotice("บันทึกไม่ได้ — ต่อ DB ไม่ติด");
+    if (!m.code) {
+      setNotice("บันทึกไม่ได้ — ไม่พบรหัสนักเรียน");
       return;
     }
-    // เทียบเวลากับตารางคาบของห้อง → ตัดสินสาย + เก็บเลขคาบ
-    const periods = (await fetchPeriods(m.group)) ?? [];
-    const period = findCurrentPeriod(periods);
-    const late = period ? isLate(period) : false;
-    const res = await checkIn(sessionId, m.code, m.confidence, {
-      status: late ? "late" : "present",
-      periodNo: period?.periodNo ?? null,
+    const out = await saveCheckin({
+      group: m.group,
+      code: m.code,
+      confidence: m.confidence,
+      method: "face",
     });
-    const periodLabel = period ? ` (คาบที่ ${period.periodNo}${late ? " · สาย" : ""})` : "";
-    if (res === "saved") {
-      setNotice(`บันทึกเช็กชื่อ ${m.thaiName} แล้ว${periodLabel}`);
+    setPending(out.queued);
+    const periodLabel =
+      out.periodNo !== null ? ` (คาบที่ ${out.periodNo}${out.late ? " · สาย" : ""})` : "";
+    const label: Record<SaveResult, string> = {
+      saved: `บันทึกเช็กชื่อ ${m.thaiName} แล้ว${periodLabel}`,
+      duplicate: `${m.thaiName} เช็กชื่อวันนี้ไปแล้ว`,
+      queued: `เน็ตหลุด — เก็บ ${m.thaiName} เข้าคิวแล้ว (ค้าง ${out.queued})`,
+      failed: "บันทึกไม่ได้ — ลองอีกครั้ง",
+    };
+    setNotice(label[out.result]);
+    if (out.result === "saved" || out.result === "duplicate") {
       await reloadDayRecords();
-    } else if (res === "duplicate") {
-      setNotice(`${m.thaiName} เช็กชื่อวันนี้ไปแล้ว`);
-    } else {
-      setNotice("บันทึกไม่ได้ — ต่อ DB ไม่ติด");
     }
   };
   const saveMatchRef = useRef(saveMatch);
@@ -472,6 +525,31 @@ export default function ScannerPage() {
             </span>
             <span>ทะเบียนใบหน้า {enrolledCount} คน</span>
           </p>
+          {!online || pending > 0 ? (
+            <div
+              role="status"
+              className={
+                !online
+                  ? "mt-2 flex items-center justify-between gap-2 rounded-lg bg-[#fdecec] px-3 py-2 text-[13px] font-semibold text-[#c62828]"
+                  : "mt-2 flex items-center justify-between gap-2 rounded-lg bg-[#fef6ec] px-3 py-2 text-[13px] font-semibold text-[#e65100]"
+              }
+            >
+              <span>
+                {!online
+                  ? "ออฟไลน์ — ผลสแกนจะเก็บเข้าคิวอัตโนมัติ"
+                  : `ค้างซิงก์ ${pending} แถว`}
+              </span>
+              {online && pending > 0 ? (
+                <button
+                  type="button"
+                  onClick={() => void syncNow()}
+                  className="shrink-0 rounded-md bg-[#e65100] px-3 py-1 text-[12.5px] font-bold text-white hover:brightness-110"
+                >
+                  ซิงก์ตอนนี้
+                </button>
+              ) : null}
+            </div>
+          ) : null}
           <div className="mt-2 overflow-hidden rounded-lg">
             <ScannerViewport match={match} videoRef={videoRef} camOn={camOn} />
             <MatchResult match={match} />
