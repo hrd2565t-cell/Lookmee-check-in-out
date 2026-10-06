@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import { Inter, Noto_Sans_Thai } from "next/font/google";
+import { SwRegister } from "@/components/sw-register";
 import "./globals.css";
 
 const inter = Inter({
@@ -45,6 +46,7 @@ export default function RootLayout({
       <body
         className={`${inter.variable} ${notoThai.variable} min-h-full font-sans`}
       >
+        <SwRegister />
         {children}
       </body>
     </html>
