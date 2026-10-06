@@ -113,6 +113,26 @@ export function ChevronDownIcon({ className = "h-4 w-4" }: IconProps) {
   );
 }
 
+export function EyeIcon({ className = "h-4 w-4" }: IconProps) {
+  return (
+    <Base className={className}>
+      <path d="M2.5 12S5.5 5.5 12 5.5 21.5 12 21.5 12 18.5 18.5 12 18.5 2.5 12 2.5 12Z" />
+      <circle cx="12" cy="12" r="3" />
+    </Base>
+  );
+}
+
+export function EyeOffIcon({ className = "h-4 w-4" }: IconProps) {
+  return (
+    <Base className={className}>
+      <path d="M4 4l16 16" />
+      <path d="M10.6 6c.5-.1.9-.1 1.4-.1 6.5 0 9.5 6.1 9.5 6.1a17.6 17.6 0 0 1-3.2 3.7" />
+      <path d="M6.6 6.9C4 8.7 2.5 12 2.5 12s3 6.5 9.5 6.5c1.4 0 2.7-.3 3.8-.8" />
+      <path d="M9.9 9.9a3 3 0 0 0 4.2 4.2" />
+    </Base>
+  );
+}
+
 export function PencilIcon({ className = "h-4 w-4" }: IconProps) {
   return (
     <Base className={className}>

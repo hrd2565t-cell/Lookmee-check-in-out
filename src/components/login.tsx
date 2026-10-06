@@ -4,12 +4,14 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Card, UIButton } from "@/components/ui";
 import { BrandMark } from "@/components/logo";
+import { EyeIcon, EyeOffIcon } from "@/components/icons";
 import { isSupabaseConfigured, supabase } from "@/lib/supabase/client";
 
 export function LoginForm() {
   const router = useRouter();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
 
@@ -64,14 +66,25 @@ export function LoginForm() {
       </label>
       <label className="block text-[14px] font-medium text-[#16233a]">
         รหัสผ่าน
-        <input
-          type="password"
-          autoComplete="current-password"
-          value={password}
-          onChange={(e) => setPassword(e.target.value)}
-          placeholder="••••••••"
-          className="mt-1 h-11 w-full rounded-lg border border-[#d8e0ec] bg-white px-3 text-[15px] placeholder:text-[#8a97ab] focus:border-[#2474c6] focus:outline-none"
-        />
+        <span className="relative mt-1 block">
+          <input
+            type={showPassword ? "text" : "password"}
+            autoComplete="current-password"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            placeholder="••••••••"
+            className="h-11 w-full rounded-lg border border-[#d8e0ec] bg-white px-3 pr-11 text-[15px] placeholder:text-[#8a97ab] focus:border-[#2474c6] focus:outline-none"
+          />
+          <button
+            type="button"
+            aria-label={showPassword ? "ซ่อนรหัสผ่าน" : "แสดงรหัสผ่าน"}
+            aria-pressed={showPassword}
+            onClick={() => setShowPassword((v) => !v)}
+            className="absolute right-1.5 top-1/2 -translate-y-1/2 rounded-md p-2 text-[#5b6b82] hover:bg-[#f1f5fa]"
+          >
+            {showPassword ? <EyeOffIcon /> : <EyeIcon />}
+          </button>
+        </span>
       </label>
       {error ? (
         <p role="alert" className="rounded-lg bg-[#fdecec] px-3 py-2 text-[13.5px] font-semibold text-[#c62828]">
