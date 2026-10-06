@@ -134,15 +134,20 @@ export async function createLeave(input: {
   }
 }
 
-/** อนุมัติ/ปฏิเสธใบลา */
+/** อนุมัติ/ปฏิเสธใบลา (ผูกครูผู้ตัดสิน) */
 export async function decideLeave(id: string, status: "approved" | "rejected"): Promise<boolean> {
   // รายการ local- อยู่ใน state ของ component อยู่แล้ว
   if (id.startsWith("local-")) return true;
   if (!isSupabaseConfigured) return false;
   try {
+    const { data: auth } = await supabase.auth.getUser();
     const { error } = await supabase
       .from("leave_requests")
-      .update({ status, decided_at: new Date().toISOString() })
+      .update({
+        status,
+        decided_by: auth.user?.id ?? null,
+        decided_at: new Date().toISOString(),
+      })
       .eq("id", id);
     return !error;
   } catch {

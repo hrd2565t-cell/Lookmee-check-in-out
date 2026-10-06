@@ -9,6 +9,7 @@ import {
 import { cn } from "@/lib/cn";
 import { BrandMark, FullLogo } from "@/components/logo";
 import { NotificationsButton } from "@/components/notifications";
+import { UserMenu } from "@/components/user-menu";
 
 export type NavKey = "dashboard" | "scanner" | "students" | "reports" | "timetable";
 
@@ -131,12 +132,7 @@ export function TopBar() {
       </div>
       <div className="ml-auto flex items-center gap-3">
         <NotificationsButton />
-        <span className="hidden items-center gap-2 sm:flex">
-          <span className="inline-flex h-8 w-8 items-center justify-center rounded-full bg-[#dbe7f5] text-[13px] font-bold text-[#1a5da3]">
-            ครู
-          </span>
-          <span className="text-[14px] font-semibold">ครูลูกหมี</span>
-        </span>
+        <UserMenu />
       </div>
     </header>
   );
