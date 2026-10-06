@@ -166,6 +166,8 @@ export default function StudentsPage() {
   const [groupModal, setGroupModal] = useState<{ mode: "add" } | { mode: "edit"; old: string } | null>(null);
   const [groupName, setGroupName] = useState("");
   const [studentModal, setStudentModal] = useState(false);
+  const [addedCount, setAddedCount] = useState(0);
+  const [formError, setFormError] = useState("");
   const [detailId, setDetailId] = useState<string | null>(null);
   const [enrollCode, setEnrollCode] = useState<string | null>(null);
   const [form, setForm] = useState({ code: "", prefix: PREFIXES[0], first: "", last: "", group: "", number: "" });
@@ -367,26 +369,28 @@ export default function StudentsPage() {
 
   const openAddStudent = () => {
     setForm({ code: "", prefix: PREFIXES[0], first: "", last: "", group: groupList[0] ?? "", number: "" });
+    setAddedCount(0);
+    setFormError("");
     setStudentModal(true);
   };
   const saveStudent = async () => {
     const code = form.code.trim();
     if (!/^\d+$/.test(code)) {
-      setNotice("เลขประจำตัวต้องเป็นตัวเลข");
+      setFormError("เลขประจำตัวต้องเป็นตัวเลข");
       return;
     }
     if (studentList.some((s) => s.studentId === code)) {
-      setNotice(`เลขประจำตัว ${code} ซ้ำ`);
+      setFormError(`เลขประจำตัว ${code} ซ้ำ`);
       return;
     }
     if (!form.first.trim() || !form.group || !form.number.trim()) {
-      setNotice("กรุณากรอกชื่อ กลุ่ม และเลขที่");
+      setFormError("กรุณากรอกชื่อ กลุ่ม และเลขที่");
       return;
     }
     if (dbLive) {
       const gid = await ensureGroupId(form.group);
       if (!gid) {
-        setNotice("เพิ่มใน DB ไม่สำเร็จ — ตรวจสอบ RLS/policies");
+        setFormError("เพิ่มใน DB ไม่สำเร็จ — ตรวจสอบ RLS/policies");
         return;
       }
       const { error } = await supabase.from("students").insert({
@@ -400,7 +404,7 @@ export default function StudentsPage() {
         face_status: "unregistered",
       });
       if (error) {
-        setNotice(`เพิ่มใน DB ไม่สำเร็จ: ${error.message}`);
+        setFormError(`เพิ่มใน DB ไม่สำเร็จ: ${error.message}`);
         return;
       }
     }
@@ -417,8 +421,10 @@ export default function StudentsPage() {
         color: colorFor(code),
       },
     ]);
-    setStudentModal(false);
-    setNotice("");
+    // โหมดกรอกรวด: ไม่ปิดฟอร์ม ล้างเฉพาะช่องที่เปลี่ยนทุกครั้ง
+    setAddedCount((n) => n + 1);
+    setForm((f) => ({ ...f, code: "", first: "", last: "", number: "" }));
+    setFormError("");
   };
 
   /* ---------- นำเข้าหลายคน: เทมเพลตล็อกหัว + ตรวจเข้ม + พรีวิว ---------- */
@@ -818,7 +824,7 @@ export default function StudentsPage() {
 
       {/* add student modal */}
       {studentModal ? (
-        <Modal title="เพิ่มนักเรียนใหม่" onClose={() => { setStudentModal(false); setNotice(""); }}>
+        <Modal title={`เพิ่มนักเรียนใหม่${addedCount > 0 ? ` (เพิ่มแล้ว ${addedCount} คน)` : ""}`} onClose={() => { setStudentModal(false); setNotice(""); }}>
           <div className="grid grid-cols-2 gap-2">
             <label className="col-span-1 block text-[14px] font-medium text-[#16233a]">
               เลขประจำตัว
@@ -853,16 +859,26 @@ export default function StudentsPage() {
               <input value={form.last} onChange={(e) => setForm({ ...form, last: e.target.value })} placeholder="(ว่างได้)" className={cn(inputCls, "mt-1")} />
             </label>
           </div>
+          {formError ? (
+            <p role="alert" className="mt-2 rounded-lg bg-[#fdecec] px-3 py-2 text-[13.5px] font-semibold text-[#c62828]">
+              {formError}
+            </p>
+          ) : null}
+          {addedCount > 0 && !formError ? (
+            <p role="status" className="mt-2 rounded-lg bg-[#e6f4ea] px-3 py-2 text-[13.5px] font-semibold text-[#166c2e]">
+              บันทึกแล้ว {addedCount} คน — กรอกคนต่อไปได้เลย
+            </p>
+          ) : null}
           <div className="mt-3 flex justify-end gap-2">
             <UIButton
               variant="blue"
               onClick={() => { setStudentModal(false); setNotice(""); }}
               className="h-10 bg-[#5b6b82] hover:bg-[#465364] focus-visible:ring-[#5b6b82]/40"
             >
-              ยกเลิก
+              เสร็จสิ้น
             </UIButton>
-            <UIButton variant="green" onClick={saveStudent} className="h-10">
-              บันทึก
+            <UIButton variant="green" onClick={() => void saveStudent()} className="h-10">
+              บันทึก + คนต่อไป
             </UIButton>
           </div>
         </Modal>
