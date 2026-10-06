@@ -390,7 +390,7 @@ export default function StudentsPage() {
     if (dbLive) {
       const gid = await ensureGroupId(form.group);
       if (!gid) {
-        setFormError("เพิ่มใน DB ไม่สำเร็จ — ตรวจสอบ RLS/policies");
+        setFormError("เพิ่มใน DB ไม่สำเร็จ — ตรวจว่าเซสชันล็อกอินยังอยู่ แล้วลองใหม่");
         return;
       }
       const { error } = await supabase.from("students").insert({
@@ -866,7 +866,7 @@ export default function StudentsPage() {
           ) : null}
           {addedCount > 0 && !formError ? (
             <p role="status" className="mt-2 rounded-lg bg-[#e6f4ea] px-3 py-2 text-[13.5px] font-semibold text-[#166c2e]">
-              บันทึกแล้ว {addedCount} คน — กรอกคนต่อไปได้เลย
+              บันทึกแล้ว {addedCount} คน{dbLive ? "" : " (เฉพาะในหน้านี้ — ล็อกอินเพื่อบันทึกลง DB)"} — กรอกคนต่อไปได้เลย
             </p>
           ) : null}
           <div className="mt-3 flex justify-end gap-2">
