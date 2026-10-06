@@ -26,7 +26,8 @@ import {
   closeCamera,
   descriptorFromVideo,
   ensureFaceModels,
-  findBestMatch,
+  findTopMatches,
+  isAmbiguous,
   openCamera,
   type EnrolledFace,
 } from "@/lib/face";
@@ -353,11 +354,48 @@ export default function ScannerPage() {
     }
   };
   const [camStatus, setCamStatus] = useState("กำลังเตรียมกล้อง...");
+  const confirmCandidate = async (code: string, label: string) => {
+    const st = studentsRef.current.find((s) => s.code === code);
+    if (!st) return;
+    setNotice("กำลังบันทึก...");
+    const out = await saveCheckin({
+      group: st.group,
+      code: st.code,
+      confidence: 0,
+      method: "manual",
+    });
+    setPending(out.queued);
+    if (out.result === "saved") {
+      setNotice(`ครูยืนยันมือ (${label}): ${st.name} แล้ว`);
+      setCandidates(null);
+      await reloadDayRecords();
+    } else if (out.result === "duplicate") {
+      setNotice(`${st.name} เช็กชื่อวันนี้ไปแล้ว`);
+    } else if (out.result === "queued") {
+      setNotice(`เน็ตหลุด — เก็บ ${st.name} เข้าคิวแล้ว`);
+    } else {
+      setNotice("บันทึกไม่ได้ — ลองอีกครั้ง");
+    }
+  };
   const [camOn, setCamOn] = useState(false);
   const [enrolledCount, setEnrolledCount] = useState(0);
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const enrolledRef = useRef<EnrolledFace[]>([]);
+  const twinRef = useRef(new Map<string, boolean>());
+  const photoRef = useRef(new Map<string, string | null>());
   const cooldownRef = useRef(new Map<string, number>());
+  const [candidates, setCandidates] = useState<{
+    reason: "ambiguous" | "twin";
+    list: Array<{
+      code: string;
+      name: string;
+      group: string;
+      photo: string | null;
+      initials: string;
+      color: string;
+      distance: number;
+    }>;
+  } | null>(null);
   const studentsRef = useRef(students);
   useEffect(() => {
     studentsRef.current = students;
@@ -404,14 +442,16 @@ export default function ScannerPage() {
           setCamStatus("ต้องเปิดผ่าน HTTPS หรือ localhost กล้องถึงจะทำงาน");
           return;
         }
-        // ทะเบียนใบหน้าจาก DB
+        // ทะเบียนใบหน้าจาก DB (+ธงแฝด + รูป)
         if (isSupabaseConfigured) {
           const { data } = await supabase
             .from("students")
-            .select("student_code,face_data")
+            .select("student_code,face_data,photo_url,twin_flag")
             .eq("face_status", "registered");
           const list: EnrolledFace[] = [];
-          for (const r of (data ?? []) as Array<{ student_code: string | null; face_data: string | null }>) {
+          const twins = new Map<string, boolean>();
+          const photos = new Map<string, string | null>();
+          for (const r of (data ?? []) as Array<{ student_code: string | null; face_data: string | null; photo_url: string | null; twin_flag: boolean | null }>) {
             if (!r.student_code || !r.face_data) continue;
             try {
               const d = JSON.parse(r.face_data) as number[];
@@ -419,8 +459,12 @@ export default function ScannerPage() {
             } catch {
               /* ข้ามแถวเสีย */
             }
+            twins.set(r.student_code, r.twin_flag === true);
+            photos.set(r.student_code, r.photo_url);
           }
           enrolledRef.current = list;
+          twinRef.current = twins;
+          photoRef.current = photos;
           if (!cancelled) setEnrolledCount(list.length);
         }
         if (cancelled) return;
@@ -436,8 +480,50 @@ export default function ScannerPage() {
             if (cancelled || enrolledRef.current.length === 0) return;
             const desc = await descriptorFromVideo(video);
             if (!desc) return;
-            const hit = findBestMatch(desc, enrolledRef.current);
-            if (!hit) return;
+            const top = findTopMatches(desc, enrolledRef.current, 0.55, 2);
+            if (top.length === 0) return;
+            const hit = top[0] as { code: string; distance: number };
+
+            const toCandidate = (code: string, distance: number) => {
+              const st = studentsRef.current.find((s) => s.code === code);
+              if (!st) return null;
+              return {
+                code: st.code,
+                name: st.name,
+                group: st.group,
+                photo: photoRef.current.get(st.code) ?? null,
+                initials: st.initials,
+                color: st.color,
+                distance,
+              };
+            };
+
+            // ปักธงแฝด/หน้าเหมือน → บังคับยืนยันมือเสมอ
+            if (twinRef.current.get(hit.code) === true) {
+              const one = toCandidate(hit.code, hit.distance);
+              if (!one) return;
+              const lastTwin = cooldownRef.current.get(`twin:${hit.code}`) ?? 0;
+              if (Date.now() - lastTwin < 30_000) return;
+              cooldownRef.current.set(`twin:${hit.code}`, Date.now());
+              setCandidates({ reason: "twin", list: [one] });
+              setNotice(`${one.name} ถูกปักธงแฝด — ให้ครูเทียบรูปแล้วยืนยันมือ`);
+              return;
+            }
+            // คะแนนอันดับ 1-2 ใกล้กัน → ระบบไม่แน่ใจ ส่งให้ครูตัดสิน
+            if (isAmbiguous(top)) {
+              const list = top
+                .map((t) => toCandidate(t.code, t.distance))
+                .filter((x): x is NonNullable<typeof x> => x !== null);
+              if (list.length === 0) return;
+              const key = `panel:${list.map((x) => x.code).join("+")}`;
+              const lastPanel = cooldownRef.current.get(key) ?? 0;
+              if (Date.now() - lastPanel < 30_000) return;
+              cooldownRef.current.set(key, Date.now());
+              setCandidates({ reason: "ambiguous", list });
+              setNotice("ใบหน้าใกล้เคียงกันมากกว่า 1 คน — ให้ครูเทียบแล้วยืนยัน");
+              return;
+            }
+
             const last = cooldownRef.current.get(hit.code) ?? 0;
             if (Date.now() - last < 30_000) return;
             cooldownRef.current.set(hit.code, Date.now());
@@ -554,6 +640,58 @@ export default function ScannerPage() {
             <ScannerViewport match={match} videoRef={videoRef} camOn={camOn} />
             <MatchResult match={match} />
           </div>
+          {candidates ? (
+            <Card className="mt-3 border-[#f0c020] p-4">
+              <div className="flex items-center justify-between gap-2">
+                <p className="text-[14px] font-bold text-[#16233a]">
+                  {candidates.reason === "twin"
+                    ? "ปักธงแฝด — ต้องยืนยันมือ"
+                    : "หน้าใกล้เคียงกัน — ให้ครูตัดสิน"}
+                </p>
+                <button
+                  type="button"
+                  onClick={() => setCandidates(null)}
+                  className="text-[12.5px] font-semibold text-[#5b6b82] hover:underline"
+                >
+                  ปิด
+                </button>
+              </div>
+              <ul className="mt-2 space-y-2">
+                {candidates.list.map((c) => (
+                  <li key={c.code} className="flex items-center gap-3 rounded-lg bg-[#f8fafc] p-2">
+                    {c.photo ? (
+                      /* eslint-disable-next-line @next/next/no-img-element */
+                      <img
+                        src={c.photo}
+                        alt={`รูปลงทะเบียนของ ${c.name}`}
+                        className="h-16 w-14 shrink-0 rounded-md border border-[#e4eaf3] object-cover"
+                      />
+                    ) : (
+                      <Avatar initials={c.initials} color={c.color} size="sm" />
+                    )}
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-[14px] font-bold text-[#16233a]">{c.name}</p>
+                      <p className="text-[12.5px] text-[#5b6b82]">
+                        {c.code} · {c.group}
+                      </p>
+                    </div>
+                    <UIButton
+                      variant="green"
+                      onClick={() =>
+                        void confirmCandidate(
+                          c.code,
+                          candidates.reason === "twin" ? "ปักธงแฝด" : "หน้าใกล้เคียง",
+                        )
+                      }
+                      className="h-9 shrink-0 px-3 text-[13px]"
+                    >
+                      ยืนยันคนนี้
+                    </UIButton>
+                  </li>
+                ))}
+              </ul>
+            </Card>
+          ) : null}
           {mode === "manual" ? (
             <Card className="mt-3 p-4">
               <p className="text-[14px] font-bold text-[#16233a]">

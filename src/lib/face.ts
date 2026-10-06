@@ -52,7 +52,18 @@ export function findBestMatch(
   enrolled: EnrolledFace[],
   threshold = 0.55,
 ): { code: string; distance: number } | null {
-  let best: { code: string; distance: number } | null = null;
+  const top = findTopMatches(desc, enrolled, threshold, 1);
+  return top[0] ?? null;
+}
+
+/** คืนผู้ใกล้สุด N อันดับแรก (เรียงใกล้→ไกล) — ใช้จับเคสกำกวม */
+export function findTopMatches(
+  desc: Float32Array | number[],
+  enrolled: EnrolledFace[],
+  threshold = 0.55,
+  limit = 2,
+): Array<{ code: string; distance: number }> {
+  const scored: Array<{ code: string; distance: number }> = [];
   for (const e of enrolled) {
     if (e.descriptor.length !== desc.length) continue;
     let sum = 0;
@@ -61,11 +72,19 @@ export function findBestMatch(
       sum += diff * diff;
     }
     const dist = Math.sqrt(sum);
-    if (dist <= threshold && (!best || dist < best.distance)) {
-      best = { code: e.code, distance: dist };
-    }
+    if (dist <= threshold) scored.push({ code: e.code, distance: dist });
   }
-  return best;
+  return scored.sort((a, b) => a.distance - b.distance).slice(0, limit);
+}
+
+/** เกณฑ์กำกวม: อันดับ 1 กับ 2 ห่างกันน้อยกว่านี้ = ระบบไม่แน่ใจ */
+export const AMBIGUITY_MARGIN = 0.05;
+
+export function isAmbiguous(
+  top: Array<{ code: string; distance: number }>,
+  margin = AMBIGUITY_MARGIN,
+): boolean {
+  return top.length >= 2 && (top[1]?.distance ?? 99) - (top[0]?.distance ?? 0) < margin;
 }
 
 /** เปิดกล้อง (กล้องหลังก่อน, ไม่ได้ค่อยกล้องหน้า) */

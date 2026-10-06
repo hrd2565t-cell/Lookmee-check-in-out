@@ -59,6 +59,7 @@ export function StudentDetail({
   const [leaves, setLeaves] = useState<LeaveItem[] | null>(null);
   const [facePhoto, setFacePhoto] = useState<string | null | undefined>(undefined);
   const [faceBusy, setFaceBusy] = useState(false);
+  const [twinFlag, setTwinFlag] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -73,17 +74,30 @@ export function StudentDetail({
       }
       const { data } = await supabase
         .from("students")
-        .select("photo_url,face_status")
+        .select("photo_url,face_status,twin_flag")
         .eq("student_code", code)
         .single();
       if (cancelled) return;
-      const row = data as { photo_url: string | null; face_status: string } | null;
+      const row = data as { photo_url: string | null; face_status: string; twin_flag: boolean | null } | null;
       setFacePhoto(row?.face_status === "registered" ? (row.photo_url ?? null) : null);
+      setTwinFlag(row?.twin_flag === true);
     })();
     return () => {
       cancelled = true;
     };
   }, [code]);
+
+  const toggleTwin = async () => {
+    const next = !twinFlag;
+    setTwinFlag(next);
+    if (isSupabaseConfigured) {
+      const { error } = await supabase
+        .from("students")
+        .update({ twin_flag: next })
+        .eq("student_code", code);
+      if (error) setTwinFlag(!next);
+    }
+  };
 
   const deleteFace = async () => {
     if (!window.confirm(`ลบข้อมูลใบหน้าของ ${name}? (ต้องลงทะเบียนใหม่ก่อนสแกน)`)) return;
@@ -141,6 +155,19 @@ export function StudentDetail({
                   ลงทะเบียนใหม่
                 </button>
               ) : null}
+              <button
+                type="button"
+                onClick={() => void toggleTwin()}
+                aria-pressed={twinFlag}
+                title="ปักธงแล้ว scanner จะบังคับยืนยันมือทุกครั้ง"
+                className={
+                  twinFlag
+                    ? "rounded-md bg-[#6a1b9a] px-2.5 py-1 text-[12.5px] font-bold text-white"
+                    : "rounded-md border border-[#d8e0ec] bg-white px-2.5 py-1 text-[12.5px] font-bold text-[#5b6b82] hover:bg-[#f1f5fa]"
+                }
+              >
+                {twinFlag ? "★ ปักธงแฝดแล้ว" : "☆ ปักธงแฝด"}
+              </button>
               <button
                 type="button"
                 onClick={() => void deleteFace()}
