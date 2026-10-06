@@ -16,25 +16,25 @@ DROP POLICY IF EXISTS "mvp_face_photos_update" ON storage.objects;
 DROP POLICY IF EXISTS "mvp_face_photos_delete" ON storage.objects;
 
 CREATE POLICY "auth_all_users" ON users
-  TO authenticated FOR ALL USING (true) WITH CHECK (true);
+  FOR ALL TO authenticated USING (true) WITH CHECK (true);
 CREATE POLICY "auth_all_groups" ON class_groups
-  TO authenticated FOR ALL USING (true) WITH CHECK (true);
+  FOR ALL TO authenticated USING (true) WITH CHECK (true);
 CREATE POLICY "auth_all_students" ON students
-  TO authenticated FOR ALL USING (true) WITH CHECK (true);
+  FOR ALL TO authenticated USING (true) WITH CHECK (true);
 CREATE POLICY "auth_all_sessions" ON attendance_sessions
-  TO authenticated FOR ALL USING (true) WITH CHECK (true);
+  FOR ALL TO authenticated USING (true) WITH CHECK (true);
 CREATE POLICY "auth_all_records" ON attendance_records
-  TO authenticated FOR ALL USING (true) WITH CHECK (true);
+  FOR ALL TO authenticated USING (true) WITH CHECK (true);
 CREATE POLICY "auth_all_periods" ON class_periods
-  TO authenticated FOR ALL USING (true) WITH CHECK (true);
+  FOR ALL TO authenticated USING (true) WITH CHECK (true);
 CREATE POLICY "auth_all_leave" ON leave_requests
-  TO authenticated FOR ALL USING (true) WITH CHECK (true);
+  FOR ALL TO authenticated USING (true) WITH CHECK (true);
 
 CREATE POLICY "auth_face_photos_read" ON storage.objects
-  TO authenticated FOR SELECT USING (bucket_id = 'face-photos');
+  FOR SELECT TO authenticated USING (bucket_id = 'face-photos');
 CREATE POLICY "auth_face_photos_write" ON storage.objects
-  TO authenticated FOR INSERT WITH CHECK (bucket_id = 'face-photos');
+  FOR INSERT TO authenticated WITH CHECK (bucket_id = 'face-photos');
 CREATE POLICY "auth_face_photos_update" ON storage.objects
-  TO authenticated FOR UPDATE USING (bucket_id = 'face-photos') WITH CHECK (bucket_id = 'face-photos');
+  FOR UPDATE TO authenticated USING (bucket_id = 'face-photos') WITH CHECK (bucket_id = 'face-photos');
 CREATE POLICY "auth_face_photos_delete" ON storage.objects
-  TO authenticated FOR DELETE USING (bucket_id = 'face-photos');
+  FOR DELETE TO authenticated USING (bucket_id = 'face-photos');
