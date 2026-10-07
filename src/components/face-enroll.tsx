@@ -27,11 +27,13 @@ export function FaceEnrollModal({
   initialCode,
   students,
   onSaved,
+  onCleared,
   onClose,
 }: {
   initialCode: string;
   students: Student[];
   onSaved: (code: string) => void;
+  onCleared?: (code: string) => void;
   onClose: () => void;
 }) {
   const [code, setCode] = useState(initialCode);
@@ -78,6 +80,36 @@ export function FaceEnrollModal({
         .eq("student_code", found.studentId);
       if (error) setExisting({ ...existing, twin: !next });
     }
+  };
+
+  // ล้างข้อมูลใบหน้า (กรณีสแกนผิดคน) — คงธงแฝดไว้ ครูแก้เองได้ถ้าผิด
+  const [clearing, setClearing] = useState(false);
+  const clearFace = async () => {
+    if (!found) return;
+    if (!window.confirm(`ล้างข้อมูลใบหน้าของ ${found.thaiName}? (ต้องลงทะเบียนใหม่ก่อนสแกน)`)) return;
+    setClearing(true);
+    if (isSupabaseConfigured) {
+      await supabase.storage.from("face-photos").remove([`${found.studentId}.jpg`]);
+      const { error } = await supabase
+        .from("students")
+        .update({ face_data: null, photo_url: null, face_status: "unregistered" })
+        .eq("student_code", found.studentId);
+      if (error) {
+        setStatus(`ล้างไม่สำเร็จ: ${error.message}`);
+        setClearing(false);
+        return;
+      }
+    }
+    setShots([]);
+    photoRef.current = null;
+    setPhotoPreview((old) => {
+      if (old) URL.revokeObjectURL(old);
+      return null;
+    });
+    setExisting({ photo: null, twin: existing?.twin === true });
+    setClearing(false);
+    setStatus("ล้างข้อมูลแล้ว — ถ่าย 3 ท่าใหม่ได้เลย");
+    onCleared?.(found.studentId);
   };
 
   useEffect(() => {
@@ -254,6 +286,14 @@ export function FaceEnrollModal({
               }
             >
               {existing?.twin ? "★ ปักธงแฝดแล้ว" : "☆ ปักธงแฝด"}
+            </button>
+            <button
+              type="button"
+              onClick={() => void clearFace()}
+              disabled={clearing}
+              className="mt-1 block text-[12.5px] font-semibold text-[#c62828] hover:underline disabled:opacity-40"
+            >
+              {clearing ? "กำลังล้าง..." : "ล้างข้อมูลใบหน้านี้ (สแกนผิดคน)"}
             </button>
           </div>
         </div>

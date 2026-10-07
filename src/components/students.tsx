@@ -1095,6 +1095,11 @@ export default function StudentsPage() {
               s.map((x) => (x.studentId === code ? { ...x, registered: true } : x)),
             )
           }
+          onCleared={(code) =>
+            setStudentList((s) =>
+              s.map((x) => (x.studentId === code ? { ...x, registered: false } : x)),
+            )
+          }
           onClose={() => setEnrollCode(null)}
         />
       ) : null}
