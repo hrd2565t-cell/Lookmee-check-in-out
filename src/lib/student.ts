@@ -71,9 +71,9 @@ export async function lookupStudent(code: string): Promise<StudentIdentity | nul
   }
 }
 
-export async function fetchMyHistory(code: string): Promise<MyHistory | null> {
+export async function fetchMyHistory(code: string, month?: string): Promise<MyHistory | null> {
   try {
-    const { data, error } = await supabase.rpc("my_history", { p_code: code });
+    const { data, error } = await supabase.rpc("my_history", month ? { p_code: code, p_month: month } : { p_code: code });
     if (error || !data) return null;
     return data as MyHistory;
   } catch {

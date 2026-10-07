@@ -58,6 +58,31 @@ const fmtDate = (iso: string) => {
   const [y, m, d] = iso.split("-");
   return y && m && d ? `${d}/${m}/${y}` : iso;
 };
+
+const THAI_MONTHS = [
+  "มกราคม", "กุมภาพันธ์", "มีนาคม", "เมษายน", "พฤษภาคม", "มิถุนายน",
+  "กรกฎาคม", "สิงหาคม", "กันยายน", "ตุลาคม", "พฤศจิกายน", "ธันวาคม",
+];
+
+/** 6 เดือนย้อนหลัง (รวมเดือนปัจจุบัน) */
+function monthOptions(): Array<{ value: string; label: string }> {
+  const out: Array<{ value: string; label: string }> = [];
+  const d = new Date();
+  for (let i = 0; i < 6; i++) {
+    const y = d.getFullYear();
+    const m = d.getMonth();
+    const value = `${y}-${String(m + 1).padStart(2, "0")}`;
+    out.push({ value, label: `${THAI_MONTHS[m]} ${y + 543}` });
+    d.setMonth(d.getMonth() - 1);
+  }
+  return out;
+}
+
+const monthLabel = (value: string) => {
+  const [y, m] = value.split("-").map(Number);
+  if (!y || !m) return value;
+  return `${THAI_MONTHS[m - 1]} ${y + 543}`;
+};
 const fmtTime = (iso: string | null) =>
   iso
     ? new Date(iso).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" })
@@ -68,6 +93,8 @@ export default function StudentHistoryPage() {
   const [identity, setIdentity] = useState<StudentIdentity | null>(null);
   const [history, setHistory] = useState<MyHistory | null>(null);
   const [filter, setFilter] = useState<FilterKey>("all");
+  const months = useMemo(() => monthOptions(), []);
+  const [month, setMonth] = useState(months[0]?.value ?? "");
 
   useEffect(() => {
     const code = getStudentCode();
@@ -77,7 +104,7 @@ export default function StudentHistoryPage() {
     }
     let cancelled = false;
     (async () => {
-      const [id, h] = await Promise.all([lookupStudent(code), fetchMyHistory(code)]);
+      const [id, h] = await Promise.all([lookupStudent(code), fetchMyHistory(code, month || undefined)]);
       if (cancelled) return;
       if (!id) {
         router.replace("/login");
@@ -89,7 +116,7 @@ export default function StudentHistoryPage() {
     return () => {
       cancelled = true;
     };
-  }, [router]);
+  }, [router, month]);
 
   const rows: DetailRow[] = useMemo(() => {
     if (!history) return [];
@@ -181,13 +208,29 @@ export default function StudentHistoryPage() {
         </div>
       </div>
       <p className="mt-1.5 text-[12px] text-[#8a97ab]">
-        สรุปจากข้อมูล {rows.length} รายการล่าสุด · ลา = ใบลาที่อนุมัติแล้ว
+        สรุปประจำ{month ? monthLabel(month) : ""} จากข้อมูล {rows.length} รายการ · ลา = ใบลาที่อนุมัติแล้ว
       </p>
 
       {/* ตารางรายละเอียด + dropdown */}
       <Card className="mt-3 p-4 sm:p-5">
         <div className="mb-2 flex flex-wrap items-center gap-2">
           <CardTitle className="mr-auto">รายละเอียด ({shown.length})</CardTitle>
+          <label className="relative block w-[150px]">
+            <span className="sr-only">เลือกเดือน</span>
+            <select
+              aria-label="เลือกเดือน"
+              value={month}
+              onChange={(e) => setMonth(e.target.value)}
+              className="h-10 w-full appearance-none rounded-lg border border-[#d8e0ec] bg-white pl-3 pr-9 text-[14px] text-[#16233a] focus:border-[#2474c6] focus:outline-none"
+            >
+              {months.map((m) => (
+                <option key={m.value} value={m.value}>
+                  {m.label}
+                </option>
+              ))}
+            </select>
+            <ChevronDownIcon className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[#8a97ab]" />
+          </label>
           <label className="relative block w-[150px]">
             <span className="sr-only">กรองตามสถานะ</span>
             <select
