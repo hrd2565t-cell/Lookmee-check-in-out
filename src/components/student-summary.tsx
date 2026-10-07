@@ -11,7 +11,6 @@ import {
   ClockIcon,
   ReportIcon,
   ScanIcon,
-  HomeIcon,
 } from "@/components/icons";
 import {
   fetchMyHistory,
@@ -158,8 +157,7 @@ export function StudentSummaryShell({
             </div>
           </div>
           <nav aria-label="เมนูนักเรียน" className="relative flex flex-col gap-1">
-            <Link href="/student">{item(active === "summary", <HomeIcon className="h-5 w-5" />, "แดชบอร์ด", "(Dashboard)")}</Link>
-            <Link href="/student#records">{item(active === "summary", <ScanIcon className="h-5 w-5" />, "ประวัติเข้าเรียน", "(Attendance Status)")}</Link>
+            <Link href="/student">{item(active === "summary", <ScanIcon className="h-5 w-5" />, "ประวัติเข้าเรียน", "(Attendance Status)")}</Link>
             <Link href="/student/scan">{item(active === "scan", <ScanIcon className="h-5 w-5" />, "สแกนเข้าเรียน", "(Face Scan)")}</Link>
             <button type="button" onClick={() => openAction("leave")}>
               {item(false, <ReportIcon className="h-5 w-5" />, "ยื่นใบลา", "(Request Leave)")}
