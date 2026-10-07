@@ -6,6 +6,7 @@ import { ChevronDownIcon, PencilIcon, TrashIcon } from "@/components/icons";
 import { Card, CardTitle, Modal, UIButton } from "@/components/ui";
 import { DAY_NAMES, fetchPeriods, type Period } from "@/lib/timetable";
 import { supabase } from "@/lib/supabase/client";
+import { compareGroupNames } from "@/lib/school-data";
 import { useRoster } from "@/lib/school-data";
 import { cn } from "@/lib/cn";
 
@@ -41,6 +42,50 @@ export default function TimetablePage() {
   const [modal, setModal] = useState<{ mode: "add"; day: number } | { mode: "edit"; id: string } | null>(null);
   const [form, setForm] = useState<FormState>(emptyForm());
   const [notice, setNotice] = useState("");
+  const [view, setView] = useState<"group" | "overview">("group");
+
+  // ภาพรวมรายวัน: วัน + กรองระดับชั้น
+  const jsToday = new Date().getDay(); // 0=อาทิตย์..6=เสาร์
+  const defaultDay = jsToday >= 1 && jsToday <= 6 ? jsToday : 1;
+  const [ovDay, setOvDay] = useState(defaultDay);
+  const [ovLevel, setOvLevel] = useState("all");
+  const levels = useMemo(() => {
+    const set = new Set<string>();
+    groupNames.forEach((g) => set.add(g.includes("/") ? g.split("/")[0] as string : "อื่น ๆ"));
+    return [...set].sort(compareGroupNames);
+  }, [groupNames]);
+  const ovGroups = useMemo(
+    () =>
+      groupNames.filter((g) =>
+        ovLevel === "all" ? true : (g.includes("/") ? g.split("/")[0] : "อื่น ๆ") === ovLevel,
+      ),
+    [groupNames, ovLevel],
+  );
+  const ovPeriodNos = useMemo(() => {
+    const set = new Set<number>();
+    periods.forEach((p) => {
+      if (p.day === ovDay && ovGroups.includes(p.groupName)) set.add(p.periodNo);
+    });
+    return [...set].sort((a, b) => a - b);
+  }, [periods, ovDay, ovGroups]);
+  const ovCell = useMemo(() => {
+    const m = new Map<string, Period>();
+    periods.forEach((p) => {
+      if (p.day === ovDay) m.set(`${p.groupName}|${p.periodNo}`, p);
+    });
+    return m;
+  }, [periods, ovDay]);
+  const isToday = (() => {
+    const d = new Date().getDay();
+    return (d === 0 ? 1 : d) === ovDay;
+  })();
+  const nowMin = new Date().getHours() * 60 + new Date().getMinutes();
+  const cellActive = (p: Period | undefined) => {
+    if (!p || !isToday) return false;
+    const [sh, sm] = p.start.split(":").map(Number);
+    const [eh, em] = p.end.split(":").map(Number);
+    return (sh ?? 0) * 60 + (sm ?? 0) <= nowMin && nowMin <= (eh ?? 0) * 60 + (em ?? 0);
+  };
 
   const reload = async () => {
     const rows = await fetchPeriods();
@@ -210,7 +255,28 @@ export default function TimetablePage() {
 
   return (
     <AppShell active="timetable" title="ตารางคาบเรียน">
-      <div className="flex flex-wrap items-center gap-2">
+      <div className="flex gap-2" role="tablist" aria-label="มุมมองตาราง">
+        {(["group", "overview"] as const).map((v) => (
+          <button
+            key={v}
+            type="button"
+            role="tab"
+            aria-selected={view === v}
+            onClick={() => setView(v)}
+            className={
+              view === v
+                ? "h-10 flex-1 rounded-lg bg-[#16233a] text-[14.5px] font-bold text-white sm:flex-none sm:px-6"
+                : "h-10 flex-1 rounded-lg border border-[#d8e0ec] bg-white text-[14.5px] font-semibold text-[#5b6b82] sm:flex-none sm:px-6"
+            }
+          >
+            {v === "group" ? "รายห้อง" : "ภาพรวม"}
+          </button>
+        ))}
+      </div>
+
+      {view === "group" ? (
+      <>
+      <div className="mt-3 flex flex-wrap items-center gap-2">
         <label className="relative block min-w-[200px] flex-1 sm:max-w-[280px]">
           <span className="sr-only">เลือกกลุ่มเรียน</span>
           <select
@@ -238,7 +304,7 @@ export default function TimetablePage() {
         </p>
       ) : null}
 
-      {/* ตารางรายสัปดาห์ */}
+      {/* ตารางรายสัปดาห์ (รายห้อง) */}
       <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
         {[1, 2, 3, 4, 5, 6].map((day) => {
           const list = ofGroup
@@ -304,6 +370,112 @@ export default function TimetablePage() {
           );
         })}
       </div>
+      </>
+      ) : (
+      <>
+        <div className="mt-3 grid grid-cols-2 gap-2 sm:max-w-[560px]">
+          <label className="relative block">
+            <span className="sr-only">เลือกวัน</span>
+            <select
+              value={ovDay}
+              onChange={(e) => setOvDay(Number(e.target.value))}
+              className="h-11 w-full appearance-none rounded-lg border border-[#d8e0ec] bg-white pl-4 pr-10 text-[15px] font-medium text-[#16233a] focus:border-[#2474c6] focus:outline-none"
+            >
+              {[1, 2, 3, 4, 5, 6].map((d) => (
+                <option key={d} value={d}>วัน{DAY_NAMES[d]}</option>
+              ))}
+            </select>
+            <ChevronDownIcon className="pointer-events-none absolute right-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-[#8a97ab]" />
+          </label>
+          <label className="relative block">
+            <span className="sr-only">กรองระดับชั้น</span>
+            <select
+              value={ovLevel}
+              onChange={(e) => setOvLevel(e.target.value)}
+              className="h-11 w-full appearance-none rounded-lg border border-[#d8e0ec] bg-white pl-4 pr-10 text-[15px] font-medium text-[#16233a] focus:border-[#2474c6] focus:outline-none"
+            >
+              <option value="all">ทุกระดับชั้น</option>
+              {levels.map((l) => (
+                <option key={l} value={l}>{l}</option>
+              ))}
+            </select>
+            <ChevronDownIcon className="pointer-events-none absolute right-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-[#8a97ab]" />
+          </label>
+        </div>
+
+        <Card className="mt-3 overflow-hidden p-0">
+          <div className="slim-scroll overflow-x-auto">
+            <table className="w-full min-w-[640px] border-collapse text-left">
+              <thead>
+                <tr className="bg-[#f1f5fa] text-[13px] font-bold text-[#16233a]">
+                  <th className="sticky left-0 bg-[#f1f5fa] px-3 py-2.5">คาบ</th>
+                  {ovGroups.map((g) => (
+                    <th key={g} className="min-w-[110px] px-3 py-2.5">
+                      <button
+                        type="button"
+                        title={`ไปตั้งค่าห้อง ${g}`}
+                        onClick={() => {
+                          setGroup(g);
+                          setView("group");
+                        }}
+                        className="font-bold text-[#2474c6] hover:underline"
+                      >
+                        {g}
+                      </button>
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {ovPeriodNos.length === 0 ? (
+                  <tr>
+                    <td colSpan={ovGroups.length + 1} className="px-3 py-8 text-center text-[14px] text-[#5b6b82]">
+                      วันนี้ยังไม่มีคาบเรียนในระดับที่เลือก
+                    </td>
+                  </tr>
+                ) : (
+                  ovPeriodNos.map((n) => (
+                    <tr key={n} className="border-t border-[#eef2f7]">
+                      <td className="sticky left-0 bg-white px-3 py-2 text-center">
+                        <span className="inline-flex h-8 w-8 items-center justify-center rounded-md bg-[#e8f1fb] text-[13px] font-bold text-[#1a5da3]">
+                          {n}
+                        </span>
+                      </td>
+                      {ovGroups.map((g) => {
+                        const p = ovCell.get(`${g}|${n}`);
+                        const active = cellActive(p);
+                        return (
+                          <td key={g} className="px-3 py-2 align-top">
+                            {p ? (
+                              <span
+                                className={
+                                  active
+                                    ? "block rounded-md bg-[#e6f4ea] px-2 py-1 ring-1 ring-[#1e8e3e]"
+                                    : "block px-0.5 py-1"
+                                }
+                              >
+                                <span className="block text-[13.5px] font-semibold leading-snug text-[#16233a]">
+                                  {p.subject || "ไม่ระบุวิชา"}
+                                </span>
+                                <span className="block text-[12px] text-[#5b6b82]">
+                                  {p.start}–{p.end}
+                                </span>
+                              </span>
+                            ) : (
+                              <span className="text-[#c9d2de]">—</span>
+                            )}
+                          </td>
+                        );
+                      })}
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
+        </Card>
+      </>
+      )}
       <p className="mt-3 text-[12.5px] text-[#8a97ab]">
         Scanner ใช้ตารางนี้หาคาบปัจจุบันอัตโนมัติ และตัดสิน “สาย” จากเวลาเริ่มคาบ + จำนวนนาทีที่ผ่อนผัน
       </p>
