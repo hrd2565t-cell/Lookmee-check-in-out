@@ -404,7 +404,7 @@ export default function ReportsPage() {
       active="reports"
       title={
         <>
-          รายงานการเข้าเรียน (Reports) / Flow C
+          รายงานการเข้าเรียน (Reports)
           <span className="mt-0.5 block text-[15px] font-medium text-[#16233a]">
             ค้นหาและตรวจสอบข้อมูลกลุ่มและรายบุคคล
           </span>

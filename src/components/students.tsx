@@ -663,7 +663,7 @@ export default function StudentsPage() {
   });
 
   return (
-    <AppShell active="students" title="สวัสดี ครูลูกหมี / Flow A">
+    <AppShell active="students" title="สวัสดี ครูลูกหมี">
       {/* group cards */}
       <div className="grid grid-cols-1 gap-3 sm:gap-4 lg:grid-cols-2">
         <Card className="p-4 sm:p-5">

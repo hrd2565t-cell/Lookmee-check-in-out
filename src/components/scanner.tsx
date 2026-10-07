@@ -579,7 +579,7 @@ export default function ScannerPage() {
   }, [dayLive, dayRecords, activeGroup, recentByGroup, students]);
 
   return (
-    <AppShell active="scanner" title="Daily Scanner / Flow B">
+    <AppShell active="scanner" title="Daily Scanner">
       <div className="grid grid-cols-1 gap-4 xl:grid-cols-[1fr_300px]">
         {/* left: selector + viewport + result */}
         <div className="min-w-0">
