@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { StudentShell } from "@/components/student-shell";
+import { StudentSummaryShell } from "@/components/student-summary";
 import { Card, UIButton } from "@/components/ui";
 import {
   closeCamera,
@@ -108,12 +108,19 @@ export default function StudentScanPage() {
     };
   }, [doCheckin, router]);
 
+  if (!identity) {
+    return (
+      <StudentSummaryShell
+        identity={{ code: "", name: "...", group: "...", hasFace: false, descriptor: null, photo: null }}
+        active="scan"
+      >
+        <p className="py-10 text-center text-[14px] text-[#5b6b82]">กำลังโหลด...</p>
+      </StudentSummaryShell>
+    );
+  }
+
   return (
-    <StudentShell
-      name={identity?.name ?? "..."}
-      group={identity ? `${identity.code} · ${identity.group}` : "..."}
-      active="scan"
-    >
+    <StudentSummaryShell identity={identity} active="scan">
       <Card className="overflow-hidden p-0">
         <div className="relative bg-[#3a4148]">
           <video
@@ -155,6 +162,6 @@ export default function StudentScanPage() {
           </p>
         </div>
       </Card>
-    </StudentShell>
+    </StudentSummaryShell>
   );
 }

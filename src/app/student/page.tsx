@@ -1,11 +1,11 @@
 import type { Metadata } from "next";
-import StudentHistoryPage from "@/components/student-history";
+import StudentSummaryPage from "@/components/student-summary";
 
 export const metadata: Metadata = {
-  title: "ประวัติของฉัน | LOOKMEE Check In-Out",
-  description: "ประวัติการเข้าเรียนของนักเรียน",
+  title: "สรุปประวัติการเข้าเรียน | LOOKMEE Check In-Out",
+  description: "สรุปประวัติการเข้าเรียนและใบลาของนักเรียน",
 };
 
 export default function StudentRoute() {
-  return <StudentHistoryPage />;
+  return <StudentSummaryPage />;
 }

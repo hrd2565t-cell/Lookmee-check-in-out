@@ -9,6 +9,7 @@ export type StudentIdentity = {
   group: string;
   hasFace: boolean;
   descriptor: number[] | null;
+  photo: string | null;
 };
 
 export type MyHistory = {
@@ -54,6 +55,7 @@ export async function lookupStudent(code: string): Promise<StudentIdentity | nul
       group_name: string;
       has_face: boolean;
       descriptor: number[] | null;
+      photo: string | null;
     }>) ?? [];
     const r = rows[0];
     if (!r) return null;
@@ -65,6 +67,7 @@ export async function lookupStudent(code: string): Promise<StudentIdentity | nul
       group: r.group_name,
       hasFace: r.has_face,
       descriptor,
+      photo: r.photo ?? null,
     };
   } catch {
     return null;
@@ -87,6 +90,48 @@ export async function studentCheckin(code: string): Promise<"saved" | "duplicate
     if (error || !data) return "failed";
     const r = (data as { result: string }).result;
     if (r === "saved" || r === "duplicate") return r;
+    return "failed";
+  } catch {
+    return "failed";
+  }
+}
+
+/** นักเรียนยื่นใบลาเอง */
+export async function submitLeaveSelf(input: {
+  code: string;
+  from: string;
+  to: string;
+  type: "sick" | "personal";
+  reason: string;
+}): Promise<"saved" | "bad_dates" | "failed"> {
+  try {
+    const { data, error } = await supabase.rpc("submit_leave", {
+      p_code: input.code,
+      p_from: input.from,
+      p_to: input.to,
+      p_type: input.type,
+      p_reason: input.reason,
+    });
+    if (error || !data) return "failed";
+    const r = (data as { result: string }).result;
+    if (r === "saved") return "saved";
+    if (r === "bad_dates") return "bad_dates";
+    return "failed";
+  } catch {
+    return "failed";
+  }
+}
+
+/** นักเรียนแจ้งขอแก้ไขข้อมูล */
+export async function submitDispute(code: string, message: string): Promise<"saved" | "too_short" | "failed"> {
+  try {
+    const { data, error } = await supabase.rpc("submit_dispute", {
+      p_code: code,
+      p_message: message,
+    });
+    if (error || !data) return "failed";
+    const r = (data as { result: string }).result;
+    if (r === "saved" || r === "too_short") return r;
     return "failed";
   } catch {
     return "failed";

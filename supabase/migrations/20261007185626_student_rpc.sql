@@ -5,9 +5,10 @@
 -- ยอมรับความเสี่ยง: ใครรู้รหัสก็ดูประวัตินั้นได้ (เท่าเทียมดูสมุดเช็กชื่อ)
 -- =====================================================================
 
--- 1) ค้นหาตัวตนก่อนเข้า (คืน descriptor ด้วยไว้แมตช์ใบหน้าบนเครื่อง)
+-- 1) ค้นหาตัวตนก่อนเข้า (คืนรูป + descriptor ไว้แมตช์ใบหน้าบนเครื่อง)
+DROP FUNCTION IF EXISTS public.lookup_student(TEXT);
 CREATE OR REPLACE FUNCTION public.lookup_student(p_code TEXT)
-RETURNS TABLE(code TEXT, name TEXT, group_name TEXT, has_face BOOLEAN, descriptor JSONB)
+RETURNS TABLE(code TEXT, name TEXT, group_name TEXT, has_face BOOLEAN, descriptor JSONB, photo TEXT)
 LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
 BEGIN
   RETURN QUERY
@@ -15,7 +16,8 @@ BEGIN
          (s.prefix || s.first_name || COALESCE(' ' || s.last_name, '')),
          g.name,
          (s.face_status = 'registered'),
-         CASE WHEN s.face_data IS NULL THEN NULL ELSE s.face_data::jsonb END
+         CASE WHEN s.face_data IS NULL THEN NULL ELSE s.face_data::jsonb END,
+         s.photo_url
   FROM students s
   JOIN class_groups g ON g.id = s.group_id
   WHERE s.student_code = p_code AND s.status = 'active';

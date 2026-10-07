@@ -133,6 +133,15 @@ export function EyeOffIcon({ className = "h-4 w-4" }: IconProps) {
   );
 }
 
+export function ClockIcon({ className = "h-4 w-4" }: IconProps) {
+  return (
+    <Base className={className}>
+      <circle cx="12" cy="12" r="8.5" />
+      <path d="M12 7.5V12l3 2" />
+    </Base>
+  );
+}
+
 export function PencilIcon({ className = "h-4 w-4" }: IconProps) {
   return (
     <Base className={className}>
