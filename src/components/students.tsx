@@ -6,6 +6,10 @@ import {
   AlertCircleIcon,
   CheckCircleIcon,
   ChevronDownIcon,
+  PageFirstIcon,
+  PageLastIcon,
+  PageNextIcon,
+  PagePrevIcon,
   PencilIcon,
   SearchIcon,
   TrashIcon,
@@ -163,6 +167,8 @@ export default function StudentsPage() {
   const [query, setQuery] = useState("");
   const [group, setGroup] = useState("all");
   const [status, setStatus] = useState("all");
+  const [page, setPage] = useState(1);
+  const PAGE_SIZE = 10;
   const [groupModal, setGroupModal] = useState<{ mode: "add" } | { mode: "edit"; old: string } | null>(null);
   const [groupName, setGroupName] = useState("");
   const [studentModal, setStudentModal] = useState(false);
@@ -270,10 +276,17 @@ export default function StudentsPage() {
     });
   }, [studentList, query, group, status]);
 
+  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
+  const safePage = Math.min(page, totalPages);
+  const pageRows = filtered.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE);
+  const pagerBtn =
+    "rounded-md p-1.5 text-[#5b6b82] hover:bg-[#eef3f9] disabled:opacity-30 disabled:hover:bg-transparent";
+
   const half = Math.ceil(groupList.length / 2);
 
   const viewGroup = (name: string) => {
     setGroup(name);
+    setPage(1);
     tableRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
   };
 
@@ -753,9 +766,12 @@ export default function StudentsPage() {
           <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-[1fr_180px_140px]">
             <label className="relative block">
               <span className="sr-only">ค้นหานักเรียน</span>
-              <input
-                value={query}
-                onChange={(e) => setQuery(e.target.value)}
+            <input
+              value={query}
+              onChange={(e) => {
+                setQuery(e.target.value);
+                setPage(1);
+              }}
                 placeholder="Search"
                 className="h-10 w-full rounded-lg border border-[#d8e0ec] bg-white pl-3 pr-10 text-[14px] text-[#16233a] placeholder:text-[#8a97ab] focus:border-[#2474c6] focus:outline-none"
               />
@@ -764,7 +780,10 @@ export default function StudentsPage() {
             <FilterSelect
               label="กรองตามกลุ่ม"
               value={group}
-              onChange={setGroup}
+              onChange={(v) => {
+                setGroup(v);
+                setPage(1);
+              }}
               options={[
                 { value: "all", label: "Filters" },
                 ...groupList.map((g) => ({ value: g, label: g })),
@@ -773,7 +792,10 @@ export default function StudentsPage() {
             <FilterSelect
               label="กรองตามสถานะ"
               value={status}
-              onChange={setStatus}
+              onChange={(v) => {
+                setStatus(v);
+                setPage(1);
+              }}
               options={[
                 { value: "all", label: "All" },
                 { value: "registered", label: "ลงทะเบียนแล้ว" },
@@ -798,7 +820,7 @@ export default function StudentsPage() {
                 </tr>
               </thead>
               <tbody>
-                {filtered.map((s) => (
+                {pageRows.map((s) => (
                   <tr key={s.id} className="border-t border-[#eef2f7] align-middle">
                     <td className="py-2 pr-3">
                       <Avatar initials={s.initials} color={s.color} size="sm" />
@@ -868,8 +890,51 @@ export default function StudentsPage() {
             </tr>
           ) : null}
         </tbody>
-      </table>
-    </div>
+          </table>
+        </div>
+
+        {/* pagination */}
+        <div className="mt-2 flex items-center gap-1 border-t border-[#eef2f7] pt-2.5 text-[13.5px] text-[#5b6b82]">
+          <button
+            type="button"
+            aria-label="หน้าแรก"
+            disabled={safePage <= 1}
+            onClick={() => setPage(1)}
+            className={pagerBtn}
+          >
+            <PageFirstIcon />
+          </button>
+          <button
+            type="button"
+            aria-label="ก่อนหน้า"
+            disabled={safePage <= 1}
+            onClick={() => setPage((p) => p - 1)}
+            className={pagerBtn}
+          >
+            <PagePrevIcon />
+          </button>
+          <span className="mx-auto font-medium text-[#16233a]">
+            หน้าที่ {safePage} จาก {totalPages}
+          </span>
+          <button
+            type="button"
+            aria-label="ถัดไป"
+            disabled={safePage >= totalPages}
+            onClick={() => setPage((p) => p + 1)}
+            className={pagerBtn}
+          >
+            <PageNextIcon />
+          </button>
+          <button
+            type="button"
+            aria-label="หน้าสุดท้าย"
+            disabled={safePage >= totalPages}
+            onClick={() => setPage(totalPages)}
+            className={pagerBtn}
+          >
+            <PageLastIcon />
+          </button>
+        </div>
 
           {/* bottom action bar */}
           <div className="mt-3 flex flex-wrap justify-center gap-2 border-t border-[#eef2f7] pt-3">

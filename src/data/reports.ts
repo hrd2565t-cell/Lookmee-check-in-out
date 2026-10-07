@@ -20,4 +20,4 @@ export type DaySummary = {
   total: number;
 };
 
-export const PAGE_SIZE = 6;
+export const PAGE_SIZE = 10;
