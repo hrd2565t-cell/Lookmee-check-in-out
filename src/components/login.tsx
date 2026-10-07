@@ -6,8 +6,13 @@ import { Card, UIButton } from "@/components/ui";
 import { BrandMark } from "@/components/logo";
 import { EyeIcon, EyeOffIcon } from "@/components/icons";
 import { isSupabaseConfigured, supabase } from "@/lib/supabase/client";
+import {
+  lookupStudent,
+  setStudentCode,
+  type StudentIdentity,
+} from "@/lib/student";
 
-export function LoginForm() {
+function TeacherForm() {
   const router = useRouter();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -36,23 +41,8 @@ export function LoginForm() {
     router.refresh();
   };
 
-  if (!isSupabaseConfigured) {
-    return (
-      <p className="rounded-lg bg-[#fef6ec] px-4 py-3 text-center text-[14px] font-semibold text-[#e65100]">
-        ยังไม่เชื่อมต่อ Supabase — ใช้งานโหมด Local ไม่ต้องล็อกอิน
-      </p>
-    );
-  }
-
   return (
     <form onSubmit={(e) => void submit(e)} className="space-y-3">
-      <div className="mb-1 flex flex-col items-center gap-2 text-center">
-        <BrandMark size={64} />
-        <div>
-          <p className="text-[20px] font-bold text-[#16233a]">LOOKMEE Check In-Out</p>
-          <p className="text-[13.5px] text-[#5b6b82]">เข้าสู่ระบบสำหรับครู</p>
-        </div>
-      </div>
       <label className="block text-[14px] font-medium text-[#16233a]">
         อีเมล
         <input
@@ -95,6 +85,121 @@ export function LoginForm() {
         {busy ? "กำลังเข้าสู่ระบบ..." : "เข้าสู่ระบบ"}
       </UIButton>
     </form>
+  );
+}
+
+function StudentForm() {
+  const router = useRouter();
+  const [code, setCode] = useState("");
+  const [found, setFound] = useState<StudentIdentity | null>(null);
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  const search = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError("");
+    setFound(null);
+    if (!code.trim()) {
+      setError("กรุณากรอกรหัสประจำตัว");
+      return;
+    }
+    setBusy(true);
+    const st = await lookupStudent(code.trim());
+    setBusy(false);
+    if (!st) {
+      setError("ไม่พบรหัสนี้ในระบบ — ตรวจอีกครั้งหรือติดต่อครู");
+      return;
+    }
+    setFound(st);
+  };
+
+  const enter = () => {
+    if (!found) return;
+    setStudentCode(found.code);
+    router.push("/student");
+    router.refresh();
+  };
+
+  return (
+    <div className="space-y-3">
+      <form onSubmit={(e) => void search(e)} className="flex gap-2">
+        <label className="min-w-0 flex-1 text-[14px] font-medium text-[#16233a]">
+          <span className="sr-only">รหัสประจำตัวนักเรียน</span>
+          <input
+            value={code}
+            onChange={(e) => {
+              setCode(e.target.value);
+              setFound(null);
+            }}
+            placeholder="รหัสประจำตัว เช่น 47591"
+            inputMode="numeric"
+            className="h-11 w-full rounded-lg border border-[#d8e0ec] bg-white px-3 text-[15px] placeholder:text-[#8a97ab] focus:border-[#2474c6] focus:outline-none"
+          />
+        </label>
+        <UIButton type="submit" disabled={busy} className="h-11 shrink-0 disabled:opacity-50">
+          {busy ? "..." : "ค้นหา"}
+        </UIButton>
+      </form>
+      {error ? (
+        <p role="alert" className="rounded-lg bg-[#fdecec] px-3 py-2 text-[13.5px] font-semibold text-[#c62828]">
+          {error}
+        </p>
+      ) : null}
+      {found ? (
+        <div className="rounded-lg bg-[#e8f1fb] px-4 py-3 text-center">
+          <p className="text-[16px] font-bold text-[#16233a]">{found.name}</p>
+          <p className="text-[13px] text-[#5b6b82]">
+            {found.code} · {found.group}
+          </p>
+          <UIButton onClick={enter} className="mt-2 h-11 w-full">
+            เข้าสู่ระบบ
+          </UIButton>
+        </div>
+      ) : null}
+      <p className="text-center text-[12px] text-[#8a97ab]">
+        ไม่ต้องใช้รหัสผ่าน — เห็นเฉพาะประวัติของตัวเองเท่านั้น
+      </p>
+    </div>
+  );
+}
+
+export function LoginForm() {
+  const [tab, setTab] = useState<"teacher" | "student">("teacher");
+
+  if (!isSupabaseConfigured) {
+    return (
+      <p className="rounded-lg bg-[#fef6ec] px-4 py-3 text-center text-[14px] font-semibold text-[#e65100]">
+        ยังไม่เชื่อมต่อ Supabase — ใช้งานโหมด Local ไม่ต้องล็อกอิน
+      </p>
+    );
+  }
+
+  return (
+    <div>
+      <div className="mb-4 flex flex-col items-center gap-2 text-center">
+        <BrandMark size={64} />
+        <p className="text-[20px] font-bold text-[#16233a]">LOOKMEE Check In-Out</p>
+      </div>
+      <div className="mb-4 grid grid-cols-2 gap-1 rounded-lg bg-[#eef3f9] p-1" role="tablist" aria-label="เลือกประเภทผู้ใช้">
+        {(["teacher", "student"] as const).map((t) => (
+          <button
+            key={t}
+            type="button"
+            role="tab"
+            aria-selected={tab === t}
+            onClick={() => setTab(t)}
+            className={
+              tab === t
+                ? "h-10 rounded-md bg-white text-[14.5px] font-bold text-[#16233a] shadow-sm"
+                : "h-10 rounded-md text-[14.5px] font-semibold text-[#5b6b82]"
+            }
+          >
+            {t === "teacher" ? "ฝั่งครู" : "ฝั่งนักเรียน"}
+          </button>
+        ))}
+      </div>
+      {tab === "teacher" ? <TeacherForm /> : <StudentForm />}
+    </div>
   );
 }
 

@@ -28,12 +28,23 @@ export async function proxy(request: NextRequest) {
   const {
     data: { user },
   } = await supabase.auth.getUser();
-  const isLogin = request.nextUrl.pathname === "/login";
+  const pathname = request.nextUrl.pathname;
+  const isLogin = pathname === "/login";
+  const isStudentArea = pathname === "/student" || pathname.startsWith("/student/");
+  const studentCode = request.cookies.get("lookmee_student")?.value ?? "";
 
+  // นักเรียน (คุกกี้รหัส): อยู่ได้แค่โซน /student
+  if (studentCode && !user) {
+    if (isStudentArea) return response;
+    return NextResponse.redirect(new URL("/student", request.url));
+  }
   if (!user && !isLogin) {
     return NextResponse.redirect(new URL("/login", request.url));
   }
   if (user && isLogin) {
+    return NextResponse.redirect(new URL("/", request.url));
+  }
+  if (user && isStudentArea) {
     return NextResponse.redirect(new URL("/", request.url));
   }
   return response;
