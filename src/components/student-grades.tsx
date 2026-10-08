@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { StudentSummaryShell, openStudentModal } from "@/components/student-summary";
-import { Card, CardTitle, DonutChart, ProgressBar, UIButton } from "@/components/ui";
+import { Card, CardTitle, DonutChart, FilePreviewModal, ProgressBar, UIButton } from "@/components/ui";
 import { ChevronDownIcon, SearchIcon } from "@/components/icons";
 import {
   fetchAssignments,
@@ -52,6 +52,7 @@ export default function StudentGradesPage() {
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState<FilterKey>("all");
   const [scales, setScales] = useState<GradeScale[] | null>(null);
+  const [preview, setPreview] = useState<{ url: string; title: string } | null>(null);
 
   useEffect(() => {
     const code = getStudentCode();
@@ -297,14 +298,13 @@ export default function StudentGradesPage() {
                           <td className="py-2 pr-3 text-[13.5px] font-medium text-[#16233a]">
                         {r.title}
                         {r.attachment ? (
-                          <a
-                            href={r.attachment}
-                            target="_blank"
-                            rel="noopener noreferrer"
+                          <button
+                            type="button"
+                            onClick={() => setPreview({ url: r.attachment as string, title: `ตัวอย่างงาน: ${r.title}` })}
                             className="ml-2 text-[12px] font-bold text-[#2474c6] hover:underline"
                           >
                             ดูตัวอย่าง
-                          </a>
+                          </button>
                         ) : null}
                       </td>
                           <td className="whitespace-nowrap py-2 pr-3 text-[13.5px] text-[#16233a]">{r.subject}</td>
@@ -330,6 +330,9 @@ export default function StudentGradesPage() {
           </div>
         </>
       )}
+      {preview ? (
+        <FilePreviewModal url={preview.url} title={preview.title} onClose={() => setPreview(null)} />
+      ) : null}
     </StudentSummaryShell>
   );
 }

@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { AppShell } from "@/components/layout";
 import { ChevronDownIcon, DownloadIcon, EyeIcon, EyeOffIcon, PencilIcon, SearchIcon, TrashIcon } from "@/components/icons";
-import { Card, Modal, ScoreCell, UIButton } from "@/components/ui";
+import { Card, FilePreviewModal, Modal, ScoreCell, UIButton } from "@/components/ui";
 import {
   addAssignment,
   countSubjectScores,
@@ -49,6 +49,7 @@ export default function GradingPage() {
   const [notice, setNotice] = useState("");
   const [saving, setSaving] = useState(false);
   const [colModal, setColModal] = useState(false);
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [subjectModal, setSubjectModal] = useState(false);
   const [subjectName, setSubjectName] = useState("");
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -854,9 +855,13 @@ export default function GradingPage() {
                 <p className="text-[13.5px] font-bold text-[#16233a]">ไฟล์ตัวอย่างงาน (รูป/PDF ไม่เกิน 5MB)</p>
                 {editAttachment ? (
                   <p className="mt-1 flex items-center gap-2 text-[13px]">
-                    <a href={editAttachment} target="_blank" rel="noopener noreferrer" className="font-semibold text-[#2474c6] hover:underline">
+                    <button
+                      type="button"
+                      onClick={() => setPreviewUrl(editAttachment)}
+                      className="font-semibold text-[#2474c6] hover:underline"
+                    >
                       ดูไฟล์ปัจจุบัน
-                    </a>
+                    </button>
                     <button
                       type="button"
                       onClick={() => void (async () => {
@@ -960,6 +965,9 @@ export default function GradingPage() {
           </div>
           <p className="mt-2 text-[12.5px] text-[#5b6b82]">ค่าว่าง = ล้างคะแนนช่องนั้น · เกินคะแนนเต็มจะถูกข้ามพร้อมแจ้ง</p>
         </Modal>
+      ) : null}
+      {previewUrl ? (
+        <FilePreviewModal url={previewUrl} title="ตัวอย่างงาน" onClose={() => setPreviewUrl(null)} />
       ) : null}
     </AppShell>
   );

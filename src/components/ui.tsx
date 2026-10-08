@@ -195,6 +195,55 @@ export function ScoreCell({
   );
 }
 
+/* ---------- FilePreviewModal (ดูรูป/PDF ในจอเดียว ไม่เปลี่ยนหน้า) ---------- */
+export function FilePreviewModal({
+  url,
+  title,
+  onClose,
+}: {
+  url: string;
+  title: string;
+  onClose: () => void;
+}) {
+  const isPdf =
+    url.split("?")[0]?.toLowerCase().endsWith(".pdf") ?? false;
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+      <button
+        type="button"
+        aria-label="ปิดหน้าต่าง"
+        onClick={onClose}
+        className="absolute inset-0 cursor-default bg-black/60"
+      />
+      <div className="relative max-h-[90vh] w-full max-w-2xl overflow-hidden rounded-xl bg-white shadow-xl">
+        <div className="flex items-center justify-between border-b border-[#eef2f7] px-4 py-2.5">
+          <p className="truncate text-[14.5px] font-bold text-[#16233a]">{title}</p>
+          <button
+            type="button"
+            aria-label="ปิด"
+            onClick={onClose}
+            className="rounded-md px-2 py-1 text-[18px] leading-none text-[#5b6b82] hover:bg-[#f1f5fa]"
+          >
+            ×
+          </button>
+        </div>
+        <div className="slim-scroll max-h-[75vh] overflow-auto bg-[#3a4148] p-3">
+          {isPdf ? (
+            <iframe
+              src={url}
+              title={title}
+              className="h-[70vh] w-full rounded-md bg-white"
+            />
+          ) : (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={url} alt={title} className="mx-auto max-h-[70vh] rounded-md" />
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 /* ---------- Avatar (CSS-only, no image asset) ---------- */
 export function Avatar({
   initials,
