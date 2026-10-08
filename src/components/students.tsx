@@ -558,6 +558,7 @@ export default function StudentsPage() {
   const [importPreview, setImportPreview] = useState<{
     valid: ImportRow[];
     errors: string[];
+    warnings: string[];
   } | null>(null);
   const [importing, setImporting] = useState(false);
 
@@ -574,8 +575,13 @@ export default function StudentsPage() {
       return;
     }
     const seen = new Set(studentList.map((s) => s.studentId));
+    const existingNames = new Map(
+      studentList.map((s) => [s.thaiName, `รหัส ${s.studentId} ห้อง ${s.group}`]),
+    );
+    const fileNames = new Map<string, number>();
     const valid: ImportRow[] = [];
     const errors: string[] = [];
+    const warnings: string[] = [];
     lines.slice(1).forEach((line, i) => {
       const rowNo = i + 2;
       const cols = line.split(",").map((c) => c.trim());
@@ -609,9 +615,21 @@ export default function StudentsPage() {
         return;
       }
       seen.add(code);
+      const thaiName = `${prefix}${first}${last ? ` ${last}` : ""}`;
+      const dupSystem = existingNames.get(thaiName);
+      if (dupSystem) {
+        warnings.push(`แถวที่ ${rowNo}: ชื่อซ้ำกับ ${dupSystem} — ตรวจว่าเป็นคนละคนหรือไม่`);
+      } else {
+        const dupRow = fileNames.get(thaiName);
+        if (dupRow !== undefined) {
+          warnings.push(`แถวที่ ${rowNo}: ชื่อซ้ำกับแถวที่ ${dupRow} ในไฟล์เดียวกัน`);
+        } else {
+          fileNames.set(thaiName, rowNo);
+        }
+      }
       valid.push({ code, prefix, first, last, group: grp, number });
     });
-    setImportPreview({ valid, errors });
+    setImportPreview({ valid, errors, warnings });
   };
 
   const confirmImport = async () => {
@@ -1137,6 +1155,19 @@ export default function StudentsPage() {
                 ))}
                 {importPreview.errors.length > 30 ? (
                   <li>• และอีก {importPreview.errors.length - 30} แถว...</li>
+                ) : null}
+              </ul>
+            </div>
+          ) : null}
+          {importPreview.warnings.length > 0 ? (
+            <div className="mt-2">
+              <p className="text-[13.5px] font-bold text-[#b7791f]">ชื่อซ้ำ — ตรวจก่อนยืนยัน (นำเข้าได้)</p>
+              <ul className="slim-scroll mt-1 max-h-[160px] space-y-1 overflow-y-auto rounded-lg bg-[#fef9ec] p-2.5 text-[13px] text-[#8a5a00]">
+                {importPreview.warnings.slice(0, 30).map((w, i) => (
+                  <li key={i}>• {w}</li>
+                ))}
+                {importPreview.warnings.length > 30 ? (
+                  <li>• และอีก {importPreview.warnings.length - 30} แถว...</li>
                 ) : null}
               </ul>
             </div>
