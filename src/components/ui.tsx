@@ -161,6 +161,40 @@ export function DonutChart({
   );
 }
 
+/* ---------- ScoreCell (ช่องกรอกคะแนนในตาราง, ใช้ร่วมกันได้) ---------- */
+export function ScoreCell({
+  value,
+  max,
+  dirty,
+  disabled,
+  onChange,
+  label,
+}: {
+  value: string;
+  max: number;
+  dirty?: boolean;
+  disabled?: boolean;
+  onChange: (v: string) => void;
+  label: string;
+}) {
+  return (
+    <input
+      aria-label={label}
+      value={value}
+      disabled={disabled}
+      inputMode="decimal"
+      onChange={(e) => onChange(e.target.value.replace(/[^0-9.]/g, ""))}
+      placeholder="-"
+      title={`เต็ม ${max}`}
+      className={
+        dirty
+          ? "h-9 w-14 rounded-md border border-[#e0a800] bg-[#fff8e1] text-center text-[14px] font-semibold text-[#16233a] focus:border-[#e0a800] focus:outline-none"
+          : "h-9 w-14 rounded-md border border-[#e4eaf3] bg-white text-center text-[14px] text-[#16233a] focus:border-[#2474c6] focus:outline-none"
+      }
+    />
+  );
+}
+
 /* ---------- Avatar (CSS-only, no image asset) ---------- */
 export function Avatar({
   initials,

@@ -3,6 +3,7 @@ import {
   CalendarIcon,
   GearIcon,
   HomeIcon,
+  PencilIcon,
   ReportIcon,
   ScanIcon,
   UsersIcon,
@@ -12,7 +13,7 @@ import { BrandMark, FullLogo } from "@/components/logo";
 import { NotificationsButton } from "@/components/notifications";
 import { UserMenu } from "@/components/user-menu";
 
-export type NavKey = "dashboard" | "scanner" | "students" | "reports" | "timetable" | "settings";
+export type NavKey = "dashboard" | "scanner" | "students" | "grading" | "reports" | "timetable" | "settings";
 
 const NAV_ITEMS: Array<{
   key: NavKey;
@@ -35,6 +36,13 @@ const NAV_ITEMS: Array<{
     eng: "(Student Management)",
     href: "/students",
     icon: UsersIcon,
+  },
+  {
+    key: "grading",
+    thai: "กรอกคะแนน",
+    eng: "(Grading)",
+    href: "/grading",
+    icon: PencilIcon,
   },
   {
     key: "reports",
