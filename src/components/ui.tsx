@@ -215,7 +215,7 @@ export function FilePreviewModal({
         onClick={onClose}
         className="absolute inset-0 cursor-default bg-black/60"
       />
-      <div className="relative max-h-[90vh] w-full max-w-2xl overflow-hidden rounded-xl bg-white shadow-xl">
+      <div className="relative max-h-[94vh] w-full max-w-5xl overflow-hidden rounded-xl bg-white shadow-xl">
         <div className="flex items-center justify-between border-b border-[#eef2f7] px-4 py-2.5">
           <p className="truncate text-[14.5px] font-bold text-[#16233a]">{title}</p>
           <button
@@ -227,16 +227,16 @@ export function FilePreviewModal({
             ×
           </button>
         </div>
-        <div className="slim-scroll max-h-[75vh] overflow-auto bg-[#3a4148] p-3">
+        <div className="slim-scroll max-h-[84vh] overflow-auto bg-[#3a4148] p-2 sm:p-3">
           {isPdf ? (
             <iframe
               src={url}
               title={title}
-              className="h-[70vh] w-full rounded-md bg-white"
+              className="h-[78vh] w-full rounded-md bg-white"
             />
           ) : (
             // eslint-disable-next-line @next/next/no-img-element
-            <img src={url} alt={title} className="mx-auto max-h-[70vh] rounded-md" />
+            <img src={url} alt={title} className="mx-auto max-h-[80vh] w-auto max-w-full rounded-md object-contain" />
           )}
         </div>
       </div>
