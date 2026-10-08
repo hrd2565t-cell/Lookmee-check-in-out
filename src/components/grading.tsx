@@ -612,9 +612,9 @@ export default function GradingPage() {
                   <th className="sticky left-0 bg-white py-2 pr-3">ลำดับ</th>
                   <th className="sticky left-[52px] bg-white py-2 pr-3">รหัสประจำตัว</th>
                   <th className="py-2 pr-3">ชื่อ-นามสกุล</th>
-                  {assignments.map((a, i) => (
-                    <th key={a.id} className="px-1.5 py-2 text-center" title={`${a.title} · ส่ง ${a.due}`}>
-                      <span className="block">น.{i + 1}</span>
+                  {assignments.map((a) => (
+                    <th key={a.id} className="max-w-[110px] px-1.5 py-2 text-center" title={`${a.title} · ส่ง ${a.due}`}>
+                      <span className="block truncate">{a.title}</span>
                       <span className="block font-medium text-[#5b6b82]">({a.max})</span>
                       {!a.visible ? (
                         <span className="mx-auto mt-0.5 block text-[10px] font-bold text-[#8a97ab]">ซ่อนอยู่</span>
