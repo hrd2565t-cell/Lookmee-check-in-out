@@ -47,6 +47,8 @@ export default function StudentGradesPage() {
   const [identity, setIdentity] = useState<StudentIdentity | null>(null);
   const [summary, setSummary] = useState<AssignmentSummary | null>(null);
   const [rows, setRows] = useState<AssignmentRow[]>([]);
+  const [subjects, setSubjects] = useState<string[]>([]);
+  const [subject, setSubject] = useState("");
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState<FilterKey>("all");
   const [scales, setScales] = useState<GradeScale[] | null>(null);
@@ -72,6 +74,7 @@ export default function StudentGradesPage() {
       setIdentity(id);
       setSummary(s ?? { total: 0, submitted: 0, missing: 0, pending: 0, earned: 0, max: 0, cats: [] });
       setRows(r ?? []);
+      setSubjects([...new Set((r ?? []).map((x) => x.subject))].sort((a, b) => a.localeCompare(b, "th")));
       const sc = await fetchGradeScales(levelOfGroup(id.group));
       if (!cancelled) setScales(sc);
     })();
@@ -79,6 +82,20 @@ export default function StudentGradesPage() {
       cancelled = true;
     };
   }, [router]);
+
+  const changeSubject = (subj: string) => {
+    setSubject(subj);
+    const code = getStudentCode();
+    if (!code) return;
+    void (async () => {
+      const [s, r] = await Promise.all([
+        fetchAssignmentSummary(code, subj || undefined),
+        fetchAssignments(code, subj || undefined),
+      ]);
+      setSummary(s ?? { total: 0, submitted: 0, missing: 0, pending: 0, earned: 0, max: 0, cats: [] });
+      setRows(r ?? []);
+    })();
+  };
 
   const avgPct =
     summary && summary.max > 0 ? Math.round((summary.earned / summary.max) * 1000) / 10 : 0;
@@ -169,6 +186,11 @@ export default function StudentGradesPage() {
             </div>
           </div>
 
+          {rows.filter((r) => r.st === "upcoming").length > 0 ? (
+            <p className="mt-2 text-[12.5px] text-[#5b6b82]">
+              มีงานรอส่ง {rows.filter((r) => r.st === "upcoming").length} งาน (ยังไม่ถึงกำหนด ไม่นับในสรุป)
+            </p>
+          ) : null}
           <div className="mt-3 grid grid-cols-1 gap-3 lg:grid-cols-[340px_1fr]">
             {/* สรุปตามหมวด */}
             <Card className="p-4">
@@ -211,7 +233,7 @@ export default function StudentGradesPage() {
                   ยื่นใบลา
                 </UIButton>
               </div>
-              <div className="mb-2 grid grid-cols-1 gap-2 sm:grid-cols-[1fr_170px]">
+              <div className="mb-2 grid grid-cols-1 gap-2 sm:grid-cols-[1fr_150px_170px]">
                 <label className="relative block">
                   <span className="sr-only">ค้นหางาน</span>
                   <input
@@ -221,6 +243,21 @@ export default function StudentGradesPage() {
                     className="h-10 w-full rounded-lg border border-[#d8e0ec] bg-white pl-3 pr-10 text-[14px] placeholder:text-[#8a97ab] focus:border-[#2474c6] focus:outline-none"
                   />
                   <SearchIcon className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[#8a97ab]" />
+                </label>
+                <label className="relative block">
+                  <span className="sr-only">เลือกวิชา</span>
+                  <select
+                    aria-label="เลือกวิชา"
+                    value={subject}
+                    onChange={(e) => changeSubject(e.target.value)}
+                    className="h-10 w-full appearance-none rounded-lg border border-[#d8e0ec] bg-white pl-3 pr-9 text-[14px] text-[#16233a] focus:border-[#2474c6] focus:outline-none"
+                  >
+                    <option value="">ทุกวิชา</option>
+                    {subjects.map((s) => (
+                      <option key={s} value={s}>{s === "" ? "(ไม่ระบุวิชา)" : s}</option>
+                    ))}
+                  </select>
+                  <ChevronDownIcon className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[#8a97ab]" />
                 </label>
                 <label className="relative block">
                   <span className="sr-only">กรองสถานะ</span>

@@ -116,10 +116,10 @@ export type AssignmentRow = {
   st: "submitted" | "missing" | "pending" | "upcoming";
 };
 
-/** สรุปงาน/คะแนนของฉัน */
-export async function fetchAssignmentSummary(code: string): Promise<AssignmentSummary | null> {
+/** สรุปงาน/คะแนนของฉัน (กรองวิชาได้, ว่าง = ทุกวิชา) */
+export async function fetchAssignmentSummary(code: string, subject?: string): Promise<AssignmentSummary | null> {
   try {
-    const { data, error } = await supabase.rpc("my_assignment_summary", { p_code: code });
+    const { data, error } = await supabase.rpc("my_assignment_summary", { p_code: code, p_subject: subject ?? null });
     if (error || !data) return null;
     return data as AssignmentSummary;
   } catch {
@@ -127,10 +127,10 @@ export async function fetchAssignmentSummary(code: string): Promise<AssignmentSu
   }
 }
 
-/** ประวัติงานของฉัน */
-export async function fetchAssignments(code: string): Promise<AssignmentRow[] | null> {
+/** ประวัติงานของฉัน (กรองวิชาได้, ว่าง = ทุกวิชา) */
+export async function fetchAssignments(code: string, subject?: string): Promise<AssignmentRow[] | null> {
   try {
-    const { data, error } = await supabase.rpc("my_assignments", { p_code: code });
+    const { data, error } = await supabase.rpc("my_assignments", { p_code: code, p_subject: subject ?? null });
     if (error || !data) return null;
     return data as AssignmentRow[];
   } catch {
