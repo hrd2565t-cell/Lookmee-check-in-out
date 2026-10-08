@@ -294,6 +294,17 @@ export default function StudentsPage() {
   const ensureGroupId = async (name: string): Promise<string | null> => {
     if (groupIds[name]) return groupIds[name] as string;
     if (!dbLive) return null;
+    // มีอยู่แล้วแต่ state ยังไม่มี (เช่น เพิ่งสร้างใน confirmImport) → ดึง id
+    const { data: found } = await supabase
+      .from("class_groups")
+      .select("id")
+      .eq("name", name)
+      .maybeSingle();
+    const foundId = (found as { id: string } | null)?.id ?? null;
+    if (foundId) {
+      setGroupIds((m) => ({ ...m, [name]: foundId }));
+      return foundId;
+    }
     const parts = name.split("/");
     const { data, error } = await supabase
       .from("class_groups")
@@ -559,7 +570,9 @@ export default function StudentsPage() {
     valid: ImportRow[];
     errors: string[];
     warnings: string[];
+    newGroups: string[];
   } | null>(null);
+  const [selectedNew, setSelectedNew] = useState<Set<string>>(new Set());
   const [importing, setImporting] = useState(false);
 
   const importCsv = async (file: File) => {
@@ -579,6 +592,7 @@ export default function StudentsPage() {
       studentList.map((s) => [s.thaiName, `รหัส ${s.studentId} ห้อง ${s.group}`]),
     );
     const fileNames = new Map<string, number>();
+    const newGroupSet = new Set<string>();
     const valid: ImportRow[] = [];
     const errors: string[] = [];
     const warnings: string[] = [];
@@ -607,8 +621,8 @@ export default function StudentsPage() {
         return;
       }
       if (!groupList.includes(grp)) {
-        errors.push(`แถวที่ ${rowNo}: ไม่มีกลุ่ม ${grp} ในระบบ (เพิ่มกลุ่มก่อน)`);
-        return;
+        // กลุ่มใหม่: ไม่บล็อก — เก็บไว้ให้ยืนยันสร้างในพรีวิว
+        newGroupSet.add(grp);
       }
       if (!number) {
         errors.push(`แถวที่ ${rowNo}: เลขที่ว่าง`);
@@ -629,19 +643,50 @@ export default function StudentsPage() {
       }
       valid.push({ code, prefix, first, last, group: grp, number });
     });
-    setImportPreview({ valid, errors, warnings });
+    const newGroups = [...newGroupSet].sort(compareGroupNames);
+    setSelectedNew(new Set(newGroups));
+    setImportPreview({ valid, errors, warnings, newGroups });
   };
 
   const confirmImport = async () => {
     if (!importPreview || importing) return;
     setImporting(true);
-    const { valid } = importPreview;
-    if (dbLive && valid.length > 0) {
-      const rows = [];
-      for (const r of valid) {
+    const { valid, newGroups } = importPreview;
+    // แถวที่อยู่กลุ่มใหม่ซึ่งครูไม่ติ๊ก = ข้าม
+    const skippedGroups = newGroups.filter((g) => !selectedNew.has(g));
+    const skippedNames = new Set(skippedGroups);
+    const rows = valid.filter((r) => !skippedNames.has(r.group));
+    const skippedCount = importPreview.errors.length + (valid.length - rows.length);
+    // สร้างกลุ่มใหม่ที่ติ๊กไว้ก่อน
+    const created = newGroups.filter((g) => selectedNew.has(g));
+    if (created.length > 0) {
+      if (dbLive) {
+        const { error } = await supabase.from("class_groups").insert(
+          created.map((g) => {
+            const parts = g.split("/");
+            return {
+              name: g,
+              level: parts[0] ?? g,
+              room: parts[1] ?? "",
+            };
+          }),
+        );
+        if (error && !/duplicate|already exists|conflict/i.test(error.message)) {
+          setNotice(`สร้างกลุ่มใหม่ไม่สำเร็จ: ${error.message}`);
+          setImporting(false);
+          return;
+        }
+      }
+      setGroupList((list) =>
+        [...list, ...created.filter((g) => !list.includes(g))].sort(compareGroupNames),
+      );
+    }
+    if (dbLive && rows.length > 0) {
+      const dbRows = [];
+      for (const r of rows) {
         const gid = await ensureGroupId(r.group);
         if (!gid) continue;
-        rows.push({
+        dbRows.push({
           student_code: r.code,
           prefix: r.prefix,
           first_name: r.first,
@@ -652,7 +697,7 @@ export default function StudentsPage() {
           face_status: "unregistered",
         });
       }
-      const { error } = await supabase.from("students").insert(rows);
+      const { error } = await supabase.from("students").insert(dbRows);
       if (error) {
         setNotice(`นำเข้า DB ไม่สำเร็จ: ${error.message}`);
         setImporting(false);
@@ -661,7 +706,7 @@ export default function StudentsPage() {
     }
     setStudentList((s) => [
       ...s,
-      ...valid.map((r) => {
+      ...rows.map((r) => {
         const thaiName = `${r.prefix}${r.first}${r.last ? ` ${r.last}` : ""}`;
         return {
           id: r.code,
@@ -679,7 +724,9 @@ export default function StudentsPage() {
       }),
     ]);
     setNotice(
-      `นำเข้า ${valid.length} คน${importPreview.errors.length ? `, ข้าม ${importPreview.errors.length} แถว` : ""}`,
+      `นำเข้า ${rows.length} คน` +
+        (created.length ? ` + สร้างกลุ่มใหม่ ${created.length} กลุ่ม` : "") +
+        (skippedCount ? `, ข้าม ${skippedCount} แถว` : ""),
     );
     setImportPreview(null);
     setImporting(false);
@@ -1132,6 +1179,35 @@ export default function StudentsPage() {
                 {importPreview.errors.length > 30 ? (
                   <li>• และอีก {importPreview.errors.length - 30} แถว...</li>
                 ) : null}
+              </ul>
+            </div>
+          ) : null}
+          {importPreview.newGroups.length > 0 ? (
+            <div className="mt-2">
+              <p className="text-[13.5px] font-bold text-[#1a5da3]">
+                กลุ่มใหม่ที่จะถูกสร้าง ({importPreview.newGroups.length}) — เอาออกได้ถ้าพิมพ์ผิด
+              </p>
+              <ul className="mt-1 space-y-1 rounded-lg border border-[#d8e8fb] bg-[#f2f7fd] p-2.5">
+                {importPreview.newGroups.map((g) => (
+                  <li key={g}>
+                    <label className="flex cursor-pointer items-center gap-2 text-[13.5px] font-semibold text-[#16233a]">
+                      <input
+                        type="checkbox"
+                        checked={selectedNew.has(g)}
+                        onChange={() =>
+                          setSelectedNew((prev) => {
+                            const next = new Set(prev);
+                            if (next.has(g)) next.delete(g);
+                            else next.add(g);
+                            return next;
+                          })
+                        }
+                        className="h-4 w-4 accent-[#2474c6]"
+                      />
+                      {g}
+                    </label>
+                  </li>
+                ))}
               </ul>
             </div>
           ) : null}
