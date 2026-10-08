@@ -27,8 +27,18 @@ export const nowTime = () => {
   return `${String(h).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")} ${ampm}`;
 };
 
+export const randomPin = () => String(Math.floor(1000 + Math.random() * 9000));
+
 /** เปิด (หรือดึง) รอบเช็กชื่อของกลุ่มในวันที่กำหนด — คืน session id */
 export async function ensureSession(groupName: string, date: string): Promise<string | null> {
+  const s = await ensureSessionFull(groupName, date);
+  return s?.id ?? null;
+}
+
+export type SessionFull = { id: string; pin: string | null; status: string };
+
+/** เปิดรอบพร้อม PIN (รอบเก่าที่ไม่มี PIN จะเติมให้) + ผูกครูผู้เปิด */
+export async function ensureSessionFull(groupName: string, date: string): Promise<SessionFull | null> {
   if (!isSupabaseConfigured) return null;
   try {
     const { data: g } = await supabase
@@ -40,20 +50,50 @@ export async function ensureSession(groupName: string, date: string): Promise<st
     if (!groupId) return null;
     const { data: existing } = await supabase
       .from("attendance_sessions")
-      .select("id")
+      .select("id,pin,status")
       .eq("group_id", groupId)
       .eq("session_date", date)
       .maybeSingle();
-    if (existing) return (existing as { id: string }).id;
+    if (existing) {
+      const e = existing as { id: string; pin: string | null; status: string };
+      if (!e.pin) {
+        const pin = randomPin();
+        await supabase.from("attendance_sessions").update({ pin }).eq("id", e.id);
+        return { id: e.id, pin, status: e.status };
+      }
+      return e;
+    }
+    const { data: auth } = await supabase.auth.getUser();
     const { data: created, error } = await supabase
       .from("attendance_sessions")
-      .insert({ group_id: groupId, session_date: date, status: "open", opened_at: new Date().toISOString() })
-      .select("id")
+      .insert({
+        group_id: groupId,
+        session_date: date,
+        status: "open",
+        opened_at: new Date().toISOString(),
+        pin: randomPin(),
+        opened_by: auth.user?.id ?? null,
+      })
+      .select("id,pin,status")
       .single();
     if (error || !created) return null;
-    return (created as { id: string }).id;
+    return created as SessionFull;
   } catch {
     return null;
+  }
+}
+
+/** ปิดรอบ (completed) */
+export async function closeSession(sessionId: string): Promise<boolean> {
+  if (!isSupabaseConfigured) return false;
+  try {
+    const { error } = await supabase
+      .from("attendance_sessions")
+      .update({ status: "completed", closed_at: new Date().toISOString() })
+      .eq("id", sessionId);
+    return !error;
+  } catch {
+    return false;
   }
 }
 

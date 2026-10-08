@@ -11,10 +11,13 @@ import {
   type ScanEntry,
 } from "@/data/scanner";
 import {
+  closeSession,
+  ensureSessionFull,
   fetchRecordsByDate,
   nowTime,
   todayStr,
   type DayRecord,
+  type SessionFull,
 } from "@/lib/attendance";
 import {
   flushQueue,
@@ -217,6 +220,53 @@ export default function ScannerPage() {
   const [groupSel, setGroupSel] = useState("");
   const activeGroup = groups.includes(groupSel) ? groupSel : (groups[0] ?? "");
   const [notice, setNotice] = useState("");
+  const [round, setRound] = useState<SessionFull | null>(null);
+
+  // โหลดสถานะรอบวันนี้ของกลุ่มที่เลือก
+  useEffect(() => {
+    if (!activeGroup) return;
+    let cancelled = false;
+    (async () => {
+      const { data } = await supabase
+        .from("attendance_sessions")
+        .select("id,pin,status,class_groups!inner(name)")
+        .eq("session_date", todayStr())
+        .eq("class_groups.name", activeGroup)
+        .maybeSingle();
+      if (!cancelled && data) {
+        const r = data as unknown as { id: string; pin: string | null; status: string };
+        setRound({ id: r.id, pin: r.pin, status: r.status });
+      } else if (!cancelled) {
+        setRound(null);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [activeGroup]);
+
+  const openRound = async () => {
+    setNotice("กำลังเปิดรอบ...");
+    const s = await ensureSessionFull(activeGroup, todayStr());
+    if (!s) {
+      setNotice("เปิดรอบไม่ได้ — ต่อ DB ไม่ติด");
+      return;
+    }
+    setRound(s);
+    setNotice(`เปิดรอบ ${activeGroup} แล้ว — แจ้งรหัส ${s.pin} ให้นักเรียน`);
+  };
+
+  const closeRound = async () => {
+    if (!round) return;
+    if (!window.confirm(`ปิดรอบ ${activeGroup} วันนี้? (บันทึกเพิ่มไม่ได้แล้ว)`)) return;
+    const ok = await closeSession(round.id);
+    if (!ok) {
+      setNotice("ปิดรอบไม่สำเร็จ — ลองอีกครั้ง");
+      return;
+    }
+    setRound({ ...round, status: "completed" });
+    setNotice(`ปิดรอบ ${activeGroup} แล้ว`);
+  };
   const [online, setOnline] = useState(
     typeof window === "undefined" ? true : window.navigator.onLine,
   );
@@ -584,6 +634,46 @@ export default function ScannerPage() {
         {/* left: selector + viewport + result */}
         <div className="min-w-0">
           <GroupSelect groups={groups} value={activeGroup} onChange={setGroupSel} />
+          {/* รอบวันนี้ + รหัสให้นักเรียน */}
+          <Card className="mt-3 flex flex-wrap items-center gap-3 p-4">
+            <div className="min-w-0 flex-1">
+              <p className="text-[14px] font-bold text-[#16233a]">
+                รอบวันนี้ {activeGroup}:{" "}
+                {!round ? (
+                  <span className="text-[#e65100]">ยังไม่เปิด</span>
+                ) : round.status === "completed" ? (
+                  <span className="text-[#5b6b82]">ปิดรอบแล้ว</span>
+                ) : (
+                  <span className="text-[#1e8e3e]">เปิดอยู่</span>
+                )}
+              </p>
+              {round && round.status !== "completed" ? (
+                <p className="mt-1 text-[13px] text-[#5b6b82]">
+                  รหัสให้นักเรียนกรอก:{" "}
+                  <span className="rounded bg-[#16233a] px-2.5 py-1 text-[18px] font-bold tracking-[0.3em] text-white">
+                    {round.pin ?? "----"}
+                  </span>
+                </p>
+              ) : (
+                <p className="mt-1 text-[13px] text-[#5b6b82]">
+                  เปิดรอบก่อน นักเรียนถึงจะเช็กชื่อเองได้
+                </p>
+              )}
+            </div>
+            {!round || round.status === "completed" ? (
+              <UIButton variant="green" onClick={() => void openRound()} className="h-10 shrink-0">
+                เปิดรอบวันนี้
+              </UIButton>
+            ) : (
+              <UIButton
+                variant="blue"
+                onClick={() => void closeRound()}
+                className="h-10 shrink-0 bg-[#5b6b82] hover:bg-[#465364] focus-visible:ring-[#5b6b82]/40"
+              >
+                ปิดรอบ
+              </UIButton>
+            )}
+          </Card>
           <div className="mt-2 flex gap-2" role="tablist" aria-label="โหมดสแกน">
             {(["face", "manual"] as const).map((m) => (
               <button

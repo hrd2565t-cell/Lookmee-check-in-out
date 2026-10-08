@@ -84,15 +84,27 @@ export async function fetchMyHistory(code: string, month?: string): Promise<MyHi
   }
 }
 
-export async function studentCheckin(code: string): Promise<"saved" | "duplicate" | "failed"> {
+export async function studentCheckin(code: string, pin?: string): Promise<"saved" | "duplicate" | "no_session" | "bad_pin" | "failed"> {
   try {
-    const { data, error } = await supabase.rpc("student_checkin", { p_code: code });
+    const { data, error } = await supabase.rpc("student_checkin", { p_code: code, p_pin: pin ?? null });
     if (error || !data) return "failed";
     const r = (data as { result: string }).result;
-    if (r === "saved" || r === "duplicate") return r;
+    if (r === "saved" || r === "duplicate" || r === "no_session" || r === "bad_pin") return r;
     return "failed";
   } catch {
     return "failed";
+  }
+}
+
+/** ตรวจ PIN ประจำรอบก่อนเปิดกล้อง */
+export async function verifyPin(code: string, pin: string): Promise<{ ok: boolean; legacy: boolean }> {
+  try {
+    const { data, error } = await supabase.rpc("verify_pin", { p_code: code, p_pin: pin.trim() });
+    if (error || !data) return { ok: false, legacy: false };
+    const r = data as { ok: boolean; legacy?: boolean };
+    return { ok: r.ok === true, legacy: r.legacy === true };
+  } catch {
+    return { ok: false, legacy: false };
   }
 }
 
