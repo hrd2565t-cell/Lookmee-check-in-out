@@ -246,6 +246,66 @@ export async function deleteAssignment(id: string): Promise<boolean> {
   }
 }
 
+/** เปลี่ยนชื่อวิชาทั้งห้อง (ทุกคอลัมน์ของวิชานั้น) */
+export async function renameSubject(
+  groupName: string,
+  oldSubject: string,
+  newSubject: string,
+): Promise<boolean> {
+  if (!isSupabaseConfigured || !newSubject.trim() || oldSubject === newSubject.trim()) return false;
+  try {
+    const gid = await groupIdOf(groupName);
+    if (!gid) return false;
+    const { error } = await supabase
+      .from("assignments")
+      .update({ subject: newSubject.trim() })
+      .eq("group_id", gid)
+      .eq("subject", oldSubject);
+    return !error;
+  } catch {
+    return false;
+  }
+}
+
+/** ลบวิชาทั้งหมดของห้อง (คอลัมน์ + คะแนนหายตาม cascade) คืนจำนวนคอลัมน์ที่ลบ */
+export async function deleteSubject(groupName: string, subject: string): Promise<number> {
+  if (!isSupabaseConfigured) return 0;
+  try {
+    const gid = await groupIdOf(groupName);
+    if (!gid) return 0;
+    const { data, error } = await supabase
+      .from("assignments")
+      .delete()
+      .eq("group_id", gid)
+      .eq("subject", subject)
+      .select("id");
+    if (error || !data) return 0;
+    return (data as unknown[]).length;
+  } catch {
+    return 0;
+  }
+}
+
+/** นับคะแนนในวิชา (ไว้โชว์ตอนยืนยันลบ) */
+export async function countSubjectScores(groupName: string, subject: string): Promise<number> {
+  if (!isSupabaseConfigured) return 0;
+  try {
+    const gid = await groupIdOf(groupName);
+    if (!gid) return 0;
+    const { data } = await supabase
+      .from("assignments")
+      .select("id,submissions!inner(id)")
+      .eq("group_id", gid)
+      .eq("subject", subject);
+    return ((data ?? []) as Array<{ submissions: unknown[] }>).reduce(
+      (a, r) => a + r.submissions.length,
+      0,
+    );
+  } catch {
+    return 0;
+  }
+}
+
 /** เปิด/ปิดการมองเห็นของคอลัมน์ (ฝั่งนักเรียน) */
 export async function toggleAssignmentVisible(id: string, visible: boolean): Promise<boolean> {
   if (!isSupabaseConfigured) return false;

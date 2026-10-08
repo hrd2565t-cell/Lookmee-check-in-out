@@ -6,11 +6,14 @@ import { ChevronDownIcon, DownloadIcon, EyeIcon, EyeOffIcon, PencilIcon, SearchI
 import { Card, Modal, ScoreCell, UIButton } from "@/components/ui";
 import {
   addAssignment,
+  countSubjectScores,
   createStandardSet,
   deleteAssignment,
+  deleteSubject,
   fetchSheet,
   fetchSubjects,
   removeAssignmentFile,
+  renameSubject,
   saveScores,
   toggleAssignmentVisible,
   updateAssignment,
@@ -46,6 +49,8 @@ export default function GradingPage() {
   const [notice, setNotice] = useState("");
   const [saving, setSaving] = useState(false);
   const [colModal, setColModal] = useState(false);
+  const [subjectModal, setSubjectModal] = useState(false);
+  const [subjectName, setSubjectName] = useState("");
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editAttachment, setEditAttachment] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
@@ -496,6 +501,52 @@ export default function GradingPage() {
     await reloadSheet();
   };
 
+  // จัดการระดับวิชา: แก้ชื่อ / ลบทั้งวิชา
+  const openRenameSubject = () => {
+    setSubjectName(activeSubject);
+    setModalMsg("");
+    setSubjectModal(true);
+  };
+
+  const saveRenameSubject = async () => {
+    const ok = await renameSubject(activeGroup, activeSubject, subjectName);
+    if (!ok) {
+      setModalMsg("บันทึกไม่สำเร็จ — ชื่อว่าง/ซ้ำเดิม");
+      return;
+    }
+    setSubjectModal(false);
+    setNotice(`เปลี่ยนชื่อวิชาเป็น “${subjectName.trim()}” แล้ว`);
+    const subs = await fetchSubjects(activeGroup);
+    if (subs) {
+      setSubjects(subs);
+      setSubject(subjectName.trim());
+    }
+    await reloadSheet();
+  };
+
+  const removeSubject = async () => {
+    const cols = assignments.length;
+    const scores = await countSubjectScores(activeGroup, activeSubject);
+    if (
+      !window.confirm(
+        `ลบวิชา “${activeSubject}” ทั้งหมด (${cols} คอลัมน์, คะแนน ${scores} ช่อง)? กู้ไม่ได้`,
+      )
+    )
+      return;
+    const n = await deleteSubject(activeGroup, activeSubject);
+    if (n === 0) {
+      setNotice("ลบไม่สำเร็จ");
+      return;
+    }
+    setNotice(`ลบวิชา “${activeSubject}” (${n} คอลัมน์) แล้ว`);
+    const subs = await fetchSubjects(activeGroup);
+    if (subs) {
+      setSubjects(subs);
+      setSubject(subs[0] ?? "");
+    }
+    await reloadSheet();
+  };
+
   return (
     <AppShell active="grading" title="บันทึกคะแนนนักเรียน (Student Grading Sheets) / ครูผู้สอน">
       <p className="-mt-3 mb-3 text-[13.5px] text-[#5b6b82]">หน้าแรก / บันทึกคะแนน และประเมินผล</p>
@@ -519,7 +570,31 @@ export default function GradingPage() {
             </span>
           </label>
           <label className="block text-[13.5px] font-medium text-[#16233a]">
-            เลือกวิชา
+            <span className="flex items-center justify-between">
+              เลือกวิชา
+              <span className="flex gap-0.5">
+                <button
+                  type="button"
+                  aria-label={`แก้ไขชื่อวิชา ${activeSubject}`}
+                  title="แก้ไขชื่อวิชา"
+                  onClick={openRenameSubject}
+                  disabled={!activeSubject}
+                  className="rounded p-1 text-[#2474c6] hover:bg-[#e8f1fb] disabled:opacity-30"
+                >
+                  <PencilIcon className="h-3.5 w-3.5" />
+                </button>
+                <button
+                  type="button"
+                  aria-label={`ลบวิชา ${activeSubject} ทั้งหมด`}
+                  title="ลบวิชาทั้งหมด"
+                  onClick={() => void removeSubject()}
+                  disabled={!activeSubject}
+                  className="rounded p-1 text-[#c62828] hover:bg-[#fdecec] disabled:opacity-30"
+                >
+                  <TrashIcon className="h-3.5 w-3.5" />
+                </button>
+              </span>
+            </span>
             <span className="relative mt-1 block">
               <select
                 value={activeSubject}
@@ -527,7 +602,7 @@ export default function GradingPage() {
                 className="h-10 w-full appearance-none rounded-lg border border-[#d8e0ec] bg-white pl-3 pr-9 text-[14px] focus:border-[#2474c6] focus:outline-none"
               >
                 {subjects.map((s) => (
-                  <option key={s} value={s}>{s}</option>
+                  <option key={s} value={s}>{s === "" ? "(ไม่ระบุวิชา)" : s}</option>
                 ))}
               </select>
               <ChevronDownIcon className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[#8a97ab]" />
@@ -717,6 +792,34 @@ export default function GradingPage() {
           </span>
         </div>
       </Card>
+
+      {/* modal แก้ไขชื่อวิชา */}
+      {subjectModal ? (
+        <Modal title={`แก้ไขชื่อวิชา “${activeSubject}”`} onClose={() => setSubjectModal(false)}>
+          <label className="block text-[14px] font-medium text-[#16233a]">
+            ชื่อวิชาใหม่
+            <input
+              value={subjectName}
+              onChange={(e) => setSubjectName(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") void saveRenameSubject();
+              }}
+              placeholder="เช่น ภาษาอังกฤษ"
+              className={cn(inputCls, "mt-1")}
+            />
+          </label>
+          <p className="mt-1.5 text-[12.5px] text-[#5b6b82]">
+            เปลี่ยนทุกคอลัมน์ของวิชานี้ในห้อง {activeGroup} ทีเดียว
+          </p>
+          {modalMsg ? (
+            <p role="alert" className="mt-2 rounded-lg bg-[#fdecec] px-3 py-2 text-[13.5px] font-semibold text-[#c62828]">{modalMsg}</p>
+          ) : null}
+          <div className="mt-3 flex justify-end gap-2">
+            <UIButton variant="blue" onClick={() => setSubjectModal(false)} className="h-10 bg-[#5b6b82] hover:bg-[#465364] focus-visible:ring-[#5b6b82]/40">ยกเลิก</UIButton>
+            <UIButton variant="green" onClick={() => void saveRenameSubject()} className="h-10">บันทึกชื่อวิชา</UIButton>
+          </div>
+        </Modal>
+      ) : null}
 
       {/* modal เพิ่ม/แก้ไขคอลัมน์ */}
       {colModal ? (

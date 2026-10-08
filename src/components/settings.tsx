@@ -2,7 +2,8 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { AppShell } from "@/components/layout";
-import { Card, CardTitle, UIButton } from "@/components/ui";
+import { PencilIcon, TrashIcon } from "@/components/icons";
+import { Card, CardTitle, Modal, UIButton } from "@/components/ui";
 import {
   fetchLimits,
   fetchTerms,
@@ -29,6 +30,7 @@ export default function SettingsPage() {
   const [tStart, setTStart] = useState("");
   const [tEnd, setTEnd] = useState("");
   const [newLevel, setNewLevel] = useState("");
+  const [termModal, setTermModal] = useState<null | { id: string; name: string; start: string; end: string }>(null);
   const [scaleLevel, setScaleLevel] = useState("ม.1");
   const [scales, setScales] = useState<GradeScale[]>([]);
   const [scalesMsg, setScalesMsg] = useState("");
@@ -113,6 +115,40 @@ export default function SettingsPage() {
     await reload();
   };
 
+  const removeTerm = async (id: string, name: string) => {
+    if (!window.confirm(`ลบ${name}? (รอบเช็กชื่อเดิมยังอยู่เพราะอ้างวันที่โดยตรง)`)) return;
+    const { error } = await supabase.from("school_terms").delete().eq("id", id);
+    if (error) {
+      setNotice(`ลบไม่สำเร็จ: ${error.message}`);
+      return;
+    }
+    setNotice(`ลบ${name} แล้ว`);
+    await reload();
+  };
+
+  const saveTermEdit = async () => {
+    if (!termModal) return;
+    if (!termModal.name.trim() || !termModal.start || !termModal.end) {
+      setNotice("กรอกชื่อและช่วงวันให้ครบ");
+      return;
+    }
+    if (termModal.end < termModal.start) {
+      setNotice("วันสิ้นสุดต้องไม่ก่อนวันเริ่ม");
+      return;
+    }
+    const { error } = await supabase
+      .from("school_terms")
+      .update({ name: termModal.name.trim(), starts_on: termModal.start, ends_on: termModal.end })
+      .eq("id", termModal.id);
+    if (error) {
+      setNotice(`บันทึกไม่สำเร็จ: ${error.message}`);
+      return;
+    }
+    setTermModal(null);
+    setNotice("แก้ไขเทอมแล้ว");
+    await reload();
+  };
+
   const saveLimit = async (level: string, maxAbsent: number | null, warnBefore: number) => {
     if (maxAbsent !== null && (!Number.isInteger(maxAbsent) || maxAbsent < 0)) {
       setNotice(`เกณฑ์ ${level}: ใส่จำนวนเต็ม ≥ 0 หรือเว้นว่าง (ไม่จำกัด)`);
@@ -181,6 +217,24 @@ export default function SettingsPage() {
                   <UIButton variant="blue" onClick={() => void setCurrentTerm(t.id)} className="h-8 px-3 text-[13px]">
                     ตั้งเป็นปัจจุบัน
                   </UIButton>
+                ) : null}
+                <button
+                  type="button"
+                  aria-label={`แก้ไข${t.name}`}
+                  onClick={() => setTermModal({ id: t.id, name: t.name, start: t.startsOn, end: t.endsOn })}
+                  className="rounded p-1.5 text-[#2474c6] hover:bg-[#e8f1fb]"
+                >
+                  <PencilIcon />
+                </button>
+                {!t.isCurrent ? (
+                  <button
+                    type="button"
+                    aria-label={`ลบ${t.name}`}
+                    onClick={() => void removeTerm(t.id, t.name)}
+                    className="rounded p-1.5 text-[#c62828] hover:bg-[#fdecec]"
+                  >
+                    <TrashIcon />
+                  </button>
                 ) : null}
               </li>
             ))}
@@ -299,6 +353,47 @@ export default function SettingsPage() {
           </div>
         </Card>
       </div>
+
+      {termModal ? (
+        <Modal title={`แก้ไข${termModal.name}`} onClose={() => setTermModal(null)}>
+          <div className="grid grid-cols-2 gap-2">
+            <label className="col-span-2 block text-[14px] font-medium text-[#16233a]">
+              ชื่อเทอม
+              <input
+                value={termModal.name}
+                onChange={(e) => setTermModal({ ...termModal, name: e.target.value })}
+                className={cn(inputCls, "mt-1")}
+              />
+            </label>
+            <label className="block text-[14px] font-medium text-[#16233a]">
+              เริ่ม
+              <input
+                type="date"
+                value={termModal.start}
+                onChange={(e) => setTermModal({ ...termModal, start: e.target.value })}
+                className={cn(inputCls, "mt-1")}
+              />
+            </label>
+            <label className="block text-[14px] font-medium text-[#16233a]">
+              สิ้นสุด
+              <input
+                type="date"
+                value={termModal.end}
+                onChange={(e) => setTermModal({ ...termModal, end: e.target.value })}
+                className={cn(inputCls, "mt-1")}
+              />
+            </label>
+          </div>
+          <div className="mt-3 flex justify-end gap-2">
+            <UIButton variant="blue" onClick={() => setTermModal(null)} className="h-10 bg-[#5b6b82] hover:bg-[#465364] focus-visible:ring-[#5b6b82]/40">
+              ยกเลิก
+            </UIButton>
+            <UIButton variant="green" onClick={() => void saveTermEdit()} className="h-10">
+              บันทึก
+            </UIButton>
+          </div>
+        </Modal>
+      ) : null}
     </AppShell>
   );
 }
