@@ -21,6 +21,12 @@ import {
   type MyHistory,
   type StudentIdentity,
 } from "@/lib/student";
+import {
+  fetchAbsencesInRange,
+  fetchLimits,
+  fetchTerms,
+  levelOf,
+} from "@/lib/terms";
 import { cn } from "@/lib/cn";
 
 /* ================= shell ฝั่งนักเรียน (sidebar เข้ม) ================= */
@@ -315,6 +321,11 @@ export default function StudentSummaryPage() {
   const [identity, setIdentity] = useState<StudentIdentity | null>(null);
   const [history, setHistory] = useState<MyHistory | null>(null);
   const [month, setMonth] = useState(monthKey(new Date()));
+  const [limitInfo, setLimitInfo] = useState<{
+    max: number | null;
+    absent: number;
+    termName: string;
+  } | null>(null);
 
   const load = async (code: string, ym: string) =>
     fetchMyHistory(code, ym);
@@ -350,6 +361,29 @@ export default function StudentSummaryPage() {
     const h = await load(code, month);
     if (h) setHistory(h);
   };
+
+  // เกณฑ์ขาดของเทอมนี้ (แบนเนอร์ใต้ % bar)
+  useEffect(() => {
+    if (!identity) return;
+    let cancelled = false;
+    (async () => {
+      const [terms, limits] = await Promise.all([fetchTerms(), fetchLimits()]);
+      const term = terms?.find((t) => t.isCurrent) ?? null;
+      const lim = limits?.find((l) => l.level === levelOf(identity.group)) ?? null;
+      if (!term || !lim || lim.maxAbsent === null) {
+        if (!cancelled) setLimitInfo(null);
+        return;
+      }
+      const absent =
+        (await fetchAbsencesInRange(identity.code, term.startsOn, term.endsOn)) ?? 0;
+      if (!cancelled) {
+        setLimitInfo({ max: lim.maxAbsent, absent, termName: term.name });
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [identity]);
 
   const present = att.filter((a) => a.status === "present").length;
   const late = att.filter((a) => a.status === "late").length;
@@ -542,6 +576,19 @@ export default function StudentSummaryPage() {
           </button>
         </div>
       </div>
+
+      {limitInfo ? (
+        limitInfo.absent >= (limitInfo.max ?? Number.MAX_SAFE_INTEGER) ? (
+          <p role="alert" className="mt-3 rounded-xl bg-[#c62828] px-4 py-3 text-center text-[15px] font-bold text-white">
+            ไม่มีสิทธิ์สอบ — ขาด {limitInfo.absent}/{limitInfo.max} ครั้งใน{limitInfo.termName} (ติดต่อครูประจำชั้น)
+          </p>
+        ) : (
+          <p role="status" className="mt-3 rounded-xl border border-[#e4eaf3] bg-white px-4 py-2.5 text-center text-[14px] font-semibold text-[#16233a]">
+            เทอมนี้ขาดได้อีก {(limitInfo.max ?? 0) - limitInfo.absent} ครั้ง
+            <span className="font-normal text-[#5b6b82]"> (ขาดแล้ว {limitInfo.absent}/{limitInfo.max} · {limitInfo.termName})</span>
+          </p>
+        )
+      ) : null}
 
       {/* ปฏิทิน + ตาราง */}
       <div id="records" className="mt-3 grid scroll-mt-4 grid-cols-1 gap-3 lg:grid-cols-[340px_1fr]">

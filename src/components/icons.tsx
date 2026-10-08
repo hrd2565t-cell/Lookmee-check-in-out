@@ -142,6 +142,15 @@ export function ClockIcon({ className = "h-4 w-4" }: IconProps) {
   );
 }
 
+export function GearIcon({ className = "h-5 w-5" }: IconProps) {
+  return (
+    <Base className={className}>
+      <circle cx="12" cy="12" r="3" />
+      <path d="M12 2.8v2.6M12 18.6v2.6M2.8 12h2.6M18.6 12h2.6M5.5 5.5l1.8 1.8M16.7 16.7l1.8 1.8M18.5 5.5l-1.8 1.8M7.3 16.7l-1.8 1.8" />
+    </Base>
+  );
+}
+
 export function PencilIcon({ className = "h-4 w-4" }: IconProps) {
   return (
     <Base className={className}>

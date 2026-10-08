@@ -292,3 +292,50 @@ export async function fetchRecordsByDate(date: string): Promise<DayRecord[] | nu
     return null;
   }
 }
+
+export type AbsentCount = {
+  code: string;
+  name: string;
+  group: string;
+  count: number;
+};
+
+/** ยอดขาดรายคนในช่วงวัน (ฝั่งครูล็อกอิน — ใช้ทำ watchlist) */
+export async function fetchAbsentCounts(from: string, to: string): Promise<AbsentCount[] | null> {
+  if (!isSupabaseConfigured) return null;
+  try {
+    const { data, error } = await supabase
+      .from("attendance_sessions")
+      .select(
+        "class_groups!inner(name),attendance_records!inner(status,students!inner(student_code,prefix,first_name,last_name))",
+      )
+      .gte("session_date", from)
+      .lte("session_date", to)
+      .eq("attendance_records.status", "absent");
+    if (error || !data) return null;
+    const map = new Map<string, AbsentCount>();
+    for (const s of data as unknown as Array<{
+      class_groups: { name: string };
+      attendance_records: Array<{
+        students: { student_code: string | null; prefix: string; first_name: string; last_name: string | null };
+      }>;
+    }>) {
+      for (const r of s.attendance_records) {
+        const st = r.students;
+        if (!st.student_code) continue;
+        const last = st.last_name ?? "";
+        const cur = map.get(st.student_code) ?? {
+          code: st.student_code,
+          name: `${st.prefix}${st.first_name}${last ? ` ${last}` : ""}`,
+          group: s.class_groups.name,
+          count: 0,
+        };
+        cur.count++;
+        map.set(st.student_code, cur);
+      }
+    }
+    return [...map.values()].sort((a, b) => b.count - a.count);
+  } catch {
+    return null;
+  }
+}

@@ -1,6 +1,7 @@
 import Link from "next/link";
 import {
   CalendarIcon,
+  GearIcon,
   HomeIcon,
   ReportIcon,
   ScanIcon,
@@ -11,7 +12,7 @@ import { BrandMark, FullLogo } from "@/components/logo";
 import { NotificationsButton } from "@/components/notifications";
 import { UserMenu } from "@/components/user-menu";
 
-export type NavKey = "dashboard" | "scanner" | "students" | "reports" | "timetable";
+export type NavKey = "dashboard" | "scanner" | "students" | "reports" | "timetable" | "settings";
 
 const NAV_ITEMS: Array<{
   key: NavKey;
@@ -48,6 +49,13 @@ const NAV_ITEMS: Array<{
     eng: "(Timetable)",
     href: "/timetable",
     icon: CalendarIcon,
+  },
+  {
+    key: "settings",
+    thai: "ตั้งค่าระบบ",
+    eng: "(Settings)",
+    href: "/settings",
+    icon: GearIcon,
   },
 ];
 

@@ -15,12 +15,19 @@ import {
   type TodayGroup,
 } from "@/data/dashboard";
 import {
+  fetchAbsentCounts,
   fetchRecordsByDate,
   fetchSessionsByDate,
   todayStr,
+  type AbsentCount,
   type DayRecord,
   type SessionInfo,
 } from "@/lib/attendance";
+import {
+  fetchLimits,
+  fetchTerms,
+  levelOf,
+} from "@/lib/terms";
 import { useRoster } from "@/lib/school-data";
 import { cn } from "@/lib/cn";
 
@@ -143,6 +150,81 @@ function TodayGroups({ items }: { items: TodayGroup[] }) {
                 tone={g.total === 0 ? "gray" : groupTone(g.status)}
               />
             </div>
+          </li>
+        ))}
+      </ul>
+    </Card>
+  );
+}
+
+/* ---------- เฝ้าระวังขาดเรียน (เทอมปัจจุบัน) ---------- */
+function Watchlist() {
+  const [rows, setRows] = useState<
+    Array<AbsentCount & { max: number; warn: boolean; over: boolean; termName: string }>
+  >([]);
+  const [termName, setTermName] = useState("");
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const terms = await fetchTerms();
+      const term = terms?.find((t) => t.isCurrent) ?? null;
+      if (!term || cancelled) return;
+      const [lims, absents] = await Promise.all([
+        fetchLimits(),
+        fetchAbsentCounts(term.startsOn, term.endsOn),
+      ]);
+      if (cancelled || !absents || !lims) return;
+      const limMap = new Map(lims.map((l) => [l.level, l]));
+      const list: Array<AbsentCount & { max: number; warn: boolean; over: boolean; termName: string }> = [];
+      for (const a of absents) {
+        const lim = limMap.get(levelOf(a.group));
+        if (!lim || lim.maxAbsent === null) continue;
+        const remaining = lim.maxAbsent - a.count;
+        if (remaining <= lim.warnBefore) {
+          list.push({
+            ...a,
+            max: lim.maxAbsent,
+            warn: remaining >= 0,
+            over: remaining < 0,
+            termName: term.name,
+          });
+        }
+      }
+      if (!cancelled) {
+        setRows(list.slice(0, 8));
+        setTermName(term.name);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  if (rows.length === 0) return null;
+  return (
+    <Card className="mt-3 border-[#f0c98a] bg-[#fffdf5] p-4 sm:p-5">
+      <CardTitle className="mb-1">
+        เฝ้าระวังขาดเรียน
+        <span className="ml-2 text-[12.5px] font-medium text-[#5b6b82]">{termName}</span>
+      </CardTitle>
+      <ul className="divide-y divide-[#f3e8d3]">
+        {rows.map((r) => (
+          <li key={r.code} className="flex items-center gap-2 py-2">
+            <div className="min-w-0 flex-1">
+              <p className="truncate text-[14px] font-bold text-[#16233a]">
+                {r.name}
+                <span className="ml-2 font-medium text-[#5b6b82]">{r.group}</span>
+              </p>
+            </div>
+            <span
+              className={cn(
+                "shrink-0 rounded-md px-2.5 py-1 text-[12.5px] font-bold text-white",
+                r.over ? "bg-[#c62828]" : "bg-[#ef8c1a]",
+              )}
+            >
+              {r.over ? `เกินเกณฑ์ (ขาด ${r.count}/${r.max})` : `ใกล้ครบ (ขาด ${r.count}/${r.max})`}
+            </span>
           </li>
         ))}
       </ul>
@@ -291,6 +373,8 @@ export default function DashboardPage() {
         <RecentCheckIns items={recentCheckIns} />
         <TodayGroups items={todayGroups} />
       </div>
+
+      <Watchlist />
 
       {/* quick actions */}
       <div className="mt-5">
