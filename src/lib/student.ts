@@ -96,6 +96,47 @@ export async function studentCheckin(code: string, pin?: string): Promise<"saved
   }
 }
 
+export type AssignmentSummary = {
+  total: number;
+  submitted: number;
+  missing: number;
+  pending: number;
+  earned: number;
+  max: number;
+  cats: Array<{ category: string; earned: number; max: number }>;
+};
+
+export type AssignmentRow = {
+  title: string;
+  subject: string;
+  category: string;
+  due: string;
+  max_score: number;
+  score: number | null;
+  st: "submitted" | "missing" | "pending" | "upcoming";
+};
+
+/** สรุปงาน/คะแนนของฉัน */
+export async function fetchAssignmentSummary(code: string): Promise<AssignmentSummary | null> {
+  try {
+    const { data, error } = await supabase.rpc("my_assignment_summary", { p_code: code });
+    if (error || !data) return null;
+    return data as AssignmentSummary;
+  } catch {
+    return null;
+  }
+}
+
+/** ประวัติงานของฉัน */
+export async function fetchAssignments(code: string): Promise<AssignmentRow[] | null> {
+  try {
+    const { data, error } = await supabase.rpc("my_assignments", { p_code: code });
+    if (error || !data) return null;
+    return data as AssignmentRow[];
+  } catch {
+    return null;
+  }
+}
 /** ตรวจ PIN ประจำรอบก่อนเปิดกล้อง */
 export async function verifyPin(code: string, pin: string): Promise<{ ok: boolean; legacy: boolean }> {
   try {

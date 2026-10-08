@@ -11,7 +11,7 @@ import {
   PagePrevIcon,
   SearchIcon,
 } from "@/components/icons";
-import { Avatar, Card, CardTitle, Modal, UIButton } from "@/components/ui";
+import { Avatar, Card, CardTitle, DonutChart, Modal, UIButton } from "@/components/ui";
 import { StudentDetail } from "@/components/student-detail";
 import { FaceEnrollModal } from "@/components/face-enroll";
 import type { Student } from "@/data/students";
@@ -87,31 +87,10 @@ function StatusBadge({ status }: { status: AttendanceStatus }) {
 
 /* ---------- donut (pure SVG, no asset) ---------- */
 function Donut({ pct }: { pct: number }) {
-  const r = 15.5;
-  const c = 2 * Math.PI * r;
   return (
-    <svg viewBox="0 0 40 40" className="h-12 w-12 shrink-0" aria-hidden="true">
-      <circle
-        cx="20"
-        cy="20"
-        r={r}
-        fill="none"
-        stroke="rgba(255,255,255,0.35)"
-        strokeWidth="5"
-      />
-      <circle
-        cx="20"
-        cy="20"
-        r={r}
-        fill="none"
-        stroke="#fff"
-        strokeWidth="5"
-        strokeLinecap="round"
-        strokeDasharray={`${(pct / 100) * c} ${c}`}
-        transform="rotate(-90 20 20)"
-      />
-      <circle cx="20" cy="20" r="7.5" fill="rgba(255,255,255,0.9)" />
-    </svg>
+    <DonutChart pct={pct} size={48} track="rgba(255,255,255,0.35)" bar="#fff">
+      <span className="h-[15px] w-[15px] rounded-full bg-white/90" />
+    </DonutChart>
   );
 }
 

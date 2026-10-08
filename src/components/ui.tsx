@@ -116,6 +116,51 @@ export function Modal({
   );
 }
 
+/* ---------- DonutChart (pure SVG, ใช้ร่วมกันทุกหน้า) ---------- */
+export function DonutChart({
+  pct,
+  size = 48,
+  track = "#e6ebf2",
+  bar = "#1e8e3e",
+  thickness = 5,
+  children,
+}: {
+  pct: number;
+  size?: number;
+  track?: string;
+  bar?: string;
+  thickness?: number;
+  children?: ReactNode;
+}) {
+  const r = 15.5;
+  const c = 2 * Math.PI * r;
+  const clamped = Math.max(0, Math.min(100, pct));
+  return (
+    <span
+      className="relative inline-flex shrink-0 items-center justify-center"
+      style={{ width: size, height: size }}
+      role="img"
+      aria-label={`${Math.round(clamped)} เปอร์เซ็นต์`}
+    >
+      <svg viewBox="0 0 40 40" className="absolute inset-0 h-full w-full" aria-hidden="true">
+        <circle cx="20" cy="20" r={r} fill="none" stroke={track} strokeWidth={thickness} />
+        <circle
+          cx="20"
+          cy="20"
+          r={r}
+          fill="none"
+          stroke={bar}
+          strokeWidth={thickness}
+          strokeLinecap="round"
+          strokeDasharray={`${(clamped / 100) * c} ${c}`}
+          transform="rotate(-90 20 20)"
+        />
+      </svg>
+      <span className="relative flex flex-col items-center leading-none">{children}</span>
+    </span>
+  );
+}
+
 /* ---------- Avatar (CSS-only, no image asset) ---------- */
 export function Avatar({
   initials,
@@ -148,7 +193,7 @@ export function ProgressBar({
 }: {
   value: number;
   max: number;
-  tone?: "green" | "orange" | "gray";
+  tone?: "green" | "orange" | "gray" | "blue" | "purple";
 }) {
   const pct = max > 0 ? Math.min(100, Math.round((value / max) * 100)) : 0;
   const bar =
@@ -156,7 +201,11 @@ export function ProgressBar({
       ? "bg-[#1e9e4b]"
       : tone === "orange"
         ? "bg-[#f0a020]"
-        : "bg-[#c9d2de]";
+        : tone === "blue"
+          ? "bg-[#2474c6]"
+          : tone === "purple"
+            ? "bg-[#7b1fa2]"
+            : "bg-[#c9d2de]";
   return (
     <div
       className="h-[5px] w-full overflow-hidden rounded-full bg-[#e6ebf2]"

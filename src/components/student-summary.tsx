@@ -38,7 +38,7 @@ export function StudentSummaryShell({
   children,
 }: {
   identity: StudentIdentity;
-  active: "summary" | "scan";
+  active: "summary" | "scan" | "grades";
   onDataChange?: () => void;
   children: React.ReactNode;
 }) {
@@ -148,6 +148,7 @@ export function StudentSummaryShell({
         <BrandMark size={32} />
         <Link href="/student" className="min-w-max rounded-md px-3 py-1.5 text-[13.5px] font-semibold text-white/85">ประวัติ</Link>
         <Link href="/student/scan" className="min-w-max rounded-md px-3 py-1.5 text-[13.5px] font-semibold text-white/85">สแกน</Link>
+        <Link href="/student/grades" className="min-w-max rounded-md px-3 py-1.5 text-[13.5px] font-semibold text-white/85">งาน/คะแนน</Link>
         <button type="button" onClick={() => openAction("leave")} className="min-w-max rounded-md px-3 py-1.5 text-[13.5px] font-semibold text-white/85">ยื่นใบลา</button>
         <button type="button" onClick={logout} className="ml-auto min-w-max rounded-md px-3 py-1.5 text-[13.5px] font-semibold text-white/60">ออก</button>
       </div>
@@ -165,6 +166,7 @@ export function StudentSummaryShell({
           <nav aria-label="เมนูนักเรียน" className="relative flex flex-col gap-1">
             <Link href="/student">{item(active === "summary", <ScanIcon className="h-5 w-5" />, "ประวัติเข้าเรียน", "(Attendance Status)")}</Link>
             <Link href="/student/scan">{item(active === "scan", <ScanIcon className="h-5 w-5" />, "สแกนเข้าเรียน", "(Face Scan)")}</Link>
+            <Link href="/student/grades">{item(active === "grades", <ReportIcon className="h-5 w-5" />, "งานและคะแนน", "(Assignments & Scores)")}</Link>
             <button type="button" onClick={() => openAction("leave")}>
               {item(false, <ReportIcon className="h-5 w-5" />, "ยื่นใบลา", "(Request Leave)")}
             </button>
