@@ -10,6 +10,7 @@ import {
   type AbsenceLimit,
   type SchoolTerm,
 } from "@/lib/terms";
+import { fetchGradeScales, saveGradeScales, type GradeScale } from "@/lib/grading";
 import { isSupabaseConfigured, supabase } from "@/lib/supabase/client";
 import { useRoster } from "@/lib/school-data";
 import { cn } from "@/lib/cn";
@@ -28,6 +29,20 @@ export default function SettingsPage() {
   const [tStart, setTStart] = useState("");
   const [tEnd, setTEnd] = useState("");
   const [newLevel, setNewLevel] = useState("");
+  const [scaleLevel, setScaleLevel] = useState("ม.1");
+  const [scales, setScales] = useState<GradeScale[]>([]);
+  const [scalesMsg, setScalesMsg] = useState("");
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const rows = await fetchGradeScales(scaleLevel);
+      if (!cancelled && rows) setScales(rows);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [scaleLevel]);
 
   const reload = async () => {
     const [t, l] = await Promise.all([fetchTerms(), fetchLimits()]);
@@ -220,6 +235,66 @@ export default function SettingsPage() {
             </select>
             <UIButton variant="green" onClick={() => void addLevel()} className="h-10 shrink-0">
               เพิ่ม
+            </UIButton>
+          </div>
+        </Card>
+
+        {/* เกณฑ์ตัดเกรด */}
+        <Card className="h-fit p-4 sm:p-5 lg:col-span-2">
+          <CardTitle className="mb-1">เกณฑ์ตัดเกรดรายระดับชั้น (คะแนนเต็ม 100)</CardTitle>
+          <p className="mb-2 text-[12.5px] text-[#5b6b82]">ฝั่งนักเรียนเห็นเกรดตามเกณฑ์ชั้นตัวเอง</p>
+          <div className="flex flex-wrap items-end gap-2">
+            <label className="block min-w-[140px] text-[13.5px] font-medium text-[#16233a]">
+              ระดับชั้น
+              <select
+                value={scaleLevel}
+                onChange={(e) => setScaleLevel(e.target.value)}
+                className={cn(inputCls, "mt-1")}
+              >
+                {["ม.1", "ม.2", "ม.3", "ม.4", "ม.5", "ม.6"].map((l) => (
+                  <option key={l} value={l}>{l}</option>
+                ))}
+              </select>
+            </label>
+          </div>
+          <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-4">
+            {scales.map((s) => (
+              <label key={s.grade} className="flex items-center gap-2 rounded-lg border border-[#eef2f7] px-2.5 py-2 text-[14px] font-bold text-[#16233a]">
+                <span className="w-8">{s.grade}</span>
+                <span className="font-normal text-[#8a97ab]">≥</span>
+                <input
+                  value={s.min}
+                  onChange={(e) =>
+                    setScales((prev) =>
+                      prev.map((x) =>
+                        x.grade === s.grade ? { ...x, min: Number(e.target.value) || 0 } : x,
+                      ),
+                    )
+                  }
+                  inputMode="decimal"
+                  aria-label={`เกณฑ์ ${s.grade}`}
+                  className="h-9 w-full rounded-md border border-[#d8e0ec] px-2 text-center focus:border-[#2474c6] focus:outline-none"
+                />
+              </label>
+            ))}
+          </div>
+          {scalesMsg ? (
+            <p role="status" className="mt-2 rounded-lg bg-[#e8f1fb] px-3 py-2 text-[13.5px] font-medium text-[#1a5da3]">
+              {scalesMsg}
+            </p>
+          ) : null}
+          <div className="mt-3">
+            <UIButton
+              variant="green"
+              onClick={() =>
+                void (async () => {
+                  const ok = await saveGradeScales(scaleLevel, scales);
+                  setScalesMsg(ok ? `บันทึกเกณฑ์ ${scaleLevel} แล้ว` : "บันทึกไม่สำเร็จ");
+                })()
+              }
+              className="h-10 w-full sm:w-auto sm:px-8"
+            >
+              บันทึกเกณฑ์ {scaleLevel}
             </UIButton>
           </div>
         </Card>

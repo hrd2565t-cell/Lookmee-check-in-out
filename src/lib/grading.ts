@@ -7,6 +7,7 @@ export type SheetAssignment = {
   category: string;
   due: string;
   max: number;
+  visible: boolean;
 };
 
 export type SheetData = {
@@ -50,7 +51,7 @@ export async function fetchSheet(
     if (!gid) return { assignments: [], scores: new Map() };
     let q = supabase
       .from("assignments")
-      .select("id,title,subject,category,due_date,max_score")
+      .select("id,title,subject,category,due_date,max_score,visible")
       .eq("group_id", gid)
       .eq("subject", subject)
       .order("due_date")
@@ -66,6 +67,7 @@ export async function fetchSheet(
         category: string | null;
         due_date: string;
         max_score: number;
+        visible: boolean | null;
       }>
     ).map((a) => ({
       id: a.id,
@@ -74,6 +76,7 @@ export async function fetchSheet(
       category: a.category ?? "",
       due: a.due_date,
       max: Number(a.max_score),
+      visible: a.visible !== false,
     }));
     const scores = new Map<string, number | null>();
     if (assignments.length > 0) {
@@ -164,6 +167,108 @@ export async function deleteAssignment(id: string): Promise<boolean> {
   if (!isSupabaseConfigured) return false;
   try {
     const { error } = await supabase.from("assignments").delete().eq("id", id);
+    return !error;
+  } catch {
+    return false;
+  }
+}
+
+/** เปิด/ปิดการมองเห็นของคอลัมน์ (ฝั่งนักเรียน) */
+export async function toggleAssignmentVisible(id: string, visible: boolean): Promise<boolean> {
+  if (!isSupabaseConfigured) return false;
+  try {
+    const { error } = await supabase.from("assignments").update({ visible }).eq("id", id);
+    return !error;
+  } catch {
+    return false;
+  }
+}
+
+export type StandardSetItem = {
+  title: string;
+  max: number;
+  category: string;
+  due: string;
+};
+/** สร้างชุดมาตรฐาน น.1–น.7 + กลางภาค + ปลายภาค (รวม 100) */
+export async function createStandardSet(
+  groupName: string,
+  subject: string,
+  items: StandardSetItem[],
+): Promise<{ ok: boolean; created: number }> {
+  if (!isSupabaseConfigured || items.length === 0) return { ok: false, created: 0 };
+  try {
+    const gid = await groupIdOf(groupName);
+    if (!gid) return { ok: false, created: 0 };
+    const { error } = await supabase.from("assignments").insert(
+      items.map((it) => ({
+        group_id: gid,
+        subject,
+        title: it.title,
+        max_score: it.max,
+        due_date: it.due,
+        category: it.category,
+        visible: true,
+      })),
+    );
+    if (error) return { ok: false, created: 0 };
+    return { ok: true, created: items.length };
+  } catch {
+    return { ok: false, created: 0 };
+  }
+}
+
+export type GradeScale = { grade: string; min: number };
+
+/** เกณฑ์ตัดเกรดของระดับชั้น (เรียงเกณฑ์สูง→ต่ำ) */
+export async function fetchGradeScales(level: string): Promise<GradeScale[] | null> {
+  if (!isSupabaseConfigured) return null;
+  try {
+    const { data, error } = await supabase
+      .from("grade_scales")
+      .select("grade,min_score")
+      .eq("level", level)
+      .order("min_score", { ascending: false });
+    if (error || !data) return null;
+    return (data as Array<{ grade: string; min_score: number }>).map((r) => ({
+      grade: r.grade,
+      min: Number(r.min_score),
+    }));
+  } catch {
+    return null;
+  }
+}
+
+/** เทียบ % เป็นเกรดตามสเกล (คืน null ถ้าไม่มีสเกล) */
+export function gradeOf(scales: GradeScale[] | null, pct: number): string | null {
+  if (!scales || scales.length === 0) return null;
+  for (const s of scales) {
+    if (pct >= s.min) return s.grade;
+  }
+  return scales[scales.length - 1]?.grade ?? null;
+}
+
+export const GRADE_POINTS: Record<string, number> = {
+  A: 4.0,
+  "B+": 3.5,
+  B: 3.0,
+  "C+": 2.5,
+  C: 2.0,
+  "D+": 1.5,
+  D: 1.0,
+  F: 0,
+};
+
+/** บันทึกเกณฑ์ทั้งแถวของระดับชั้น */
+export async function saveGradeScales(level: string, rows: GradeScale[]): Promise<boolean> {
+  if (!isSupabaseConfigured) return false;
+  try {
+    const { error } = await supabase
+      .from("grade_scales")
+      .upsert(
+        rows.map((r) => ({ level, grade: r.grade, min_score: r.min })),
+        { onConflict: "level,grade" },
+      );
     return !error;
   } catch {
     return false;

@@ -2,14 +2,16 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { AppShell } from "@/components/layout";
-import { ChevronDownIcon, DownloadIcon, SearchIcon, TrashIcon } from "@/components/icons";
+import { ChevronDownIcon, DownloadIcon, EyeIcon, EyeOffIcon, SearchIcon, TrashIcon } from "@/components/icons";
 import { Card, Modal, ScoreCell, UIButton } from "@/components/ui";
 import {
   addAssignment,
+  createStandardSet,
   deleteAssignment,
   fetchSheet,
   fetchSubjects,
   saveScores,
+  toggleAssignmentVisible,
   type SheetAssignment,
 } from "@/lib/grading";
 import { fetchTerms, type SchoolTerm } from "@/lib/terms";
@@ -42,7 +44,12 @@ export default function GradingPage() {
   const [saving, setSaving] = useState(false);
   const [colModal, setColModal] = useState(false);
   const [importModal, setImportModal] = useState(false);
-  const [colForm, setColForm] = useState({ title: "", max: "10", due: "", category: "ใบงาน/การบ้าน" });
+  const [templateModal, setTemplateModal] = useState(false);
+  const [templateSubject, setTemplateSubject] = useState("");
+  const [templateDue, setTemplateDue] = useState(new Date().toISOString().slice(0, 10));
+  const [templateBusy, setTemplateBusy] = useState(false);
+  const [modalMsg, setModalMsg] = useState("");
+  const [colForm, setColForm] = useState({ subject: "", title: "", max: "10", due: "", category: "ใบงาน/การบ้าน" });
 
   const activeSubject = subjects.includes(subject) ? subject : (subjects[0] ?? "");
   const activeTerm = terms.find((t) => t.id === termId) ?? null;
@@ -286,40 +293,125 @@ export default function GradingPage() {
   };
 
   const openAddColumn = () => {
-    setColForm({ title: "", max: "10", due: new Date().toISOString().slice(0, 10), category: "ใบงาน/การบ้าน" });
+    setColForm({ subject: activeSubject, title: "", max: "10", due: new Date().toISOString().slice(0, 10), category: "ใบงาน/การบ้าน" });
+    setModalMsg("");
     setColModal(true);
   };
 
+  const openTemplate = () => {
+    setTemplateSubject(activeSubject || "");
+    setTemplateDue(new Date().toISOString().slice(0, 10));
+    setModalMsg("");
+    setTemplateModal(true);
+  };
+
+  const saveTemplate = async () => {
+    const subject = templateSubject.trim();
+    if (!subject) {
+      setModalMsg("กรอกชื่อวิชาก่อน");
+      return;
+    }
+    if (!templateDue) {
+      setModalMsg("เลือกวันกำหนดส่ง");
+      return;
+    }
+    const existing = new Set(assignments.map((a) => a.title));
+    const items = [
+      ...[1, 2, 3, 4, 5, 6, 7].map((n) => ({
+        title: `น.${n}`,
+        max: 10,
+        category: "ใบงาน/การบ้าน",
+        due: templateDue,
+      })),
+      { title: "กลางภาค", max: 10, category: "สอบกลางภาค", due: templateDue },
+      { title: "ปลายภาค", max: 20, category: "สอบปลายภาค", due: templateDue },
+    ].filter((it) => !existing.has(it.title));
+    if (items.length === 0) {
+      setModalMsg("มีครบทั้ง 9 คอลัมน์แล้ว");
+      return;
+    }
+    setTemplateBusy(true);
+    const r = await createStandardSet(activeGroup, subject, items);
+    setTemplateBusy(false);
+    if (!r.ok) {
+      setModalMsg("สร้างไม่สำเร็จ — ลองอีกครั้ง");
+      return;
+    }
+    setTemplateModal(false);
+    setNotice(`สร้างชุดมาตรฐาน ${r.created} คอลัมน์ (รวม 100 คะแนน) แล้ว`);
+    const subs = await fetchSubjects(activeGroup);
+    if (subs) {
+      setSubjects(subs);
+      if (!subs.includes(subject)) setSubjects([...subs, subject]);
+      setSubject(subject);
+    }
+    await reloadSheet();
+  };
+
+  const toggleVisible = async (a: (typeof assignments)[number]) => {
+    const ok = await toggleAssignmentVisible(a.id, !a.visible);
+    if (!ok) {
+      setNotice("บันทึกไม่สำเร็จ");
+      return;
+    }
+    await reloadSheet();
+  };
+
+  const publishFirstFive = async () => {
+    const first5 = [...assignments].sort((a, b) => a.title.localeCompare(b.title, "th")).slice(0, 5);
+    if (first5.length === 0) return;
+    let failed = 0;
+    for (const a of assignments) {
+      const should = first5.some((f) => f.id === a.id);
+      if ((a.visible && should) || (!a.visible && !should)) continue;
+      const ok = await toggleAssignmentVisible(a.id, should);
+      if (!ok) failed++;
+    }
+    setNotice(
+      failed ? `มีบางคอลัมน์บันทึกไม่สำเร็จ (${failed})` : "เผยแพร่เฉพาะ 5 งานแรกแล้ว ที่เหลือครูเห็นคนเดียว",
+    );
+    await reloadSheet();
+  };
+
   const saveColumn = async () => {
+    const subject = colForm.subject.trim() || activeSubject;
+    if (!subject) {
+      setModalMsg("กรอกชื่อวิชาก่อน (เช่น เทคโนโลยี)");
+      return;
+    }
     if (!colForm.title.trim()) {
-      setNotice("กรอกชื่องาน");
+      setModalMsg("กรอกชื่องาน");
       return;
     }
     const max = Number(colForm.max);
     if (!Number.isFinite(max) || max <= 0) {
-      setNotice("คะแนนเต็มต้องมากกว่า 0");
+      setModalMsg("คะแนนเต็มต้องมากกว่า 0");
       return;
     }
     if (!colForm.due) {
-      setNotice("เลือกวันกำหนดส่ง");
+      setModalMsg("เลือกวันกำหนดส่ง");
       return;
     }
     const ok = await addAssignment({
       groupName: activeGroup,
-      subject: activeSubject,
+      subject,
       title: colForm.title.trim(),
       max,
       due: colForm.due,
       category: colForm.category,
     });
     if (!ok) {
-      setNotice("เพิ่มคอลัมน์ไม่สำเร็จ");
+      setModalMsg("เพิ่มคอลัมน์ไม่สำเร็จ — ตรวจการเชื่อมต่อแล้วลองใหม่");
       return;
     }
     setColModal(false);
     setNotice(`เพิ่มคอลัมน์ “${colForm.title.trim()}” แล้ว`);
     const subs = await fetchSubjects(activeGroup);
-    if (subs) setSubjects(subs);
+    if (subs) {
+      const next = subs.includes(subject) ? subs : [...subs, subject];
+      setSubjects(next);
+      setSubject(subject);
+    }
     await reloadSheet();
   };
 
@@ -425,6 +517,12 @@ export default function GradingPage() {
           <UIButton variant="green" onClick={openAddColumn} className="h-9 px-3 text-[13px]">
             + เพิ่มคอลัมน์งาน
           </UIButton>
+          <UIButton variant="green" onClick={openTemplate} className="h-9 bg-[#166c2e] px-3 text-[13px] hover:bg-[#145c27] focus-visible:ring-[#1e8e3e]/40">
+            สร้างชุดมาตรฐาน
+          </UIButton>
+          <UIButton variant="blue" onClick={() => void publishFirstFive()} className="h-9 bg-[#00897b] px-3 text-[13px] hover:brightness-110 focus-visible:ring-[#00897b]/40">
+            เผยแพร่ 5 งานแรก
+          </UIButton>
           <UIButton variant="blue" onClick={() => void saveAll()} disabled={saving || dirtyCount === 0} className="h-9 px-3 text-[13px] disabled:opacity-40">
             บันทึกคะแนน
           </UIButton>
@@ -448,15 +546,29 @@ export default function GradingPage() {
                     <th key={a.id} className="px-1.5 py-2 text-center" title={`${a.title} · ส่ง ${a.due}`}>
                       <span className="block">น.{i + 1}</span>
                       <span className="block font-medium text-[#5b6b82]">({a.max})</span>
-                      <button
-                        type="button"
-                        aria-label={`ลบคอลัมน์ ${a.title}`}
-                        title={a.title}
-                        onClick={() => void removeColumn(a)}
-                        className="mx-auto mt-0.5 block rounded p-0.5 text-[#c9d2de] hover:bg-[#fdecec] hover:text-[#c62828]"
-                      >
-                        <TrashIcon className="h-3.5 w-3.5" />
-                      </button>
+                      {!a.visible ? (
+                        <span className="mx-auto mt-0.5 block text-[10px] font-bold text-[#8a97ab]">ซ่อนอยู่</span>
+                      ) : null}
+                      <span className="mx-auto mt-0.5 flex items-center justify-center gap-0.5">
+                        <button
+                          type="button"
+                          aria-label={a.visible ? `ซ่อนคอลัมน์ ${a.title} จากนักเรียน` : `เผยแพร่คอลัมน์ ${a.title}`}
+                          title={a.title + (a.visible ? " (นักเรียนเห็น)" : " (ครูเห็นคนเดียว)")}
+                          onClick={() => void toggleVisible(a)}
+                          className="rounded p-0.5 text-[#c9d2de] hover:bg-[#e8f1fb] hover:text-[#2474c6]"
+                        >
+                          {a.visible ? <EyeIcon className="h-3.5 w-3.5" /> : <EyeOffIcon className="h-3.5 w-3.5" />}
+                        </button>
+                        <button
+                          type="button"
+                          aria-label={`ลบคอลัมน์ ${a.title}`}
+                          title={a.title}
+                          onClick={() => void removeColumn(a)}
+                          className="rounded p-0.5 text-[#c9d2de] hover:bg-[#fdecec] hover:text-[#c62828]"
+                        >
+                          <TrashIcon className="h-3.5 w-3.5" />
+                        </button>
+                      </span>
                     </th>
                   ))}
                   <th className="px-2 py-2 text-center">รวม</th>
@@ -531,7 +643,11 @@ export default function GradingPage() {
       {colModal ? (
         <Modal title="เพิ่มคอลัมน์งาน" onClose={() => setColModal(false)}>
           <div className="grid grid-cols-2 gap-2">
-            <label className="col-span-2 block text-[14px] font-medium text-[#16233a]">
+            <label className="col-span-1 block text-[14px] font-medium text-[#16233a]">
+              วิชา
+              <input value={colForm.subject} onChange={(e) => setColForm({ ...colForm, subject: e.target.value })} placeholder="เช่น เทคโนโลยี" className={cn(inputCls, "mt-1")} />
+            </label>
+            <label className="col-span-1 block text-[14px] font-medium text-[#16233a]">
               ชื่องาน
               <input value={colForm.title} onChange={(e) => setColForm({ ...colForm, title: e.target.value })} placeholder="เช่น ใบงานที่ 1" className={cn(inputCls, "mt-1")} />
             </label>
@@ -552,9 +668,44 @@ export default function GradingPage() {
               </select>
             </label>
           </div>
+          {modalMsg ? (
+            <p role="alert" className="mt-2 rounded-lg bg-[#fdecec] px-3 py-2 text-[13.5px] font-semibold text-[#c62828]">{modalMsg}</p>
+          ) : null}
           <div className="mt-3 flex justify-end gap-2">
             <UIButton variant="blue" onClick={() => setColModal(false)} className="h-10 bg-[#5b6b82] hover:bg-[#465364] focus-visible:ring-[#5b6b82]/40">ยกเลิก</UIButton>
             <UIButton variant="green" onClick={() => void saveColumn()} className="h-10">เพิ่มคอลัมน์</UIButton>
+          </div>
+        </Modal>
+      ) : null}
+
+      {/* modal ชุดมาตรฐาน */}
+      {templateModal ? (
+        <Modal title="สร้างชุดมาตรฐาน (รวม 100)" onClose={() => setTemplateModal(false)}>
+          <div className="grid grid-cols-2 gap-2">
+            <label className="col-span-1 block text-[14px] font-medium text-[#16233a]">
+              วิชา
+              <input value={templateSubject} onChange={(e) => setTemplateSubject(e.target.value)} placeholder="เช่น เทคโนโลยี" className={cn(inputCls, "mt-1")} />
+            </label>
+            <label className="col-span-1 block text-[14px] font-medium text-[#16233a]">
+              กำหนดส่ง (ทุกงาน)
+              <input type="date" value={templateDue} onChange={(e) => setTemplateDue(e.target.value)} className={cn(inputCls, "mt-1")} />
+            </label>
+          </div>
+          <ul className="mt-2 divide-y divide-[#eef2f7] rounded-lg border border-[#eef2f7] px-3 text-[13.5px] text-[#16233a]">
+            {[1, 2, 3, 4, 5, 6, 7].map((n) => (
+              <li key={n} className="flex justify-between py-1.5"><span>น.{n}</span><span className="font-bold">10 คะแนน</span></li>
+            ))}
+            <li className="flex justify-between py-1.5"><span>กลางภาค</span><span className="font-bold">10 คะแนน</span></li>
+            <li className="flex justify-between py-1.5"><span>ปลายภาค</span><span className="font-bold">20 คะแนน</span></li>
+          </ul>
+          {modalMsg ? (
+            <p role="alert" className="mt-2 rounded-lg bg-[#fdecec] px-3 py-2 text-[13.5px] font-semibold text-[#c62828]">{modalMsg}</p>
+          ) : null}
+          <div className="mt-3 flex justify-end gap-2">
+            <UIButton variant="blue" onClick={() => setTemplateModal(false)} className="h-10 bg-[#5b6b82] hover:bg-[#465364] focus-visible:ring-[#5b6b82]/40">ยกเลิก</UIButton>
+            <UIButton variant="green" onClick={() => void saveTemplate()} disabled={templateBusy} className="h-10 disabled:opacity-40">
+              {templateBusy ? "กำลังสร้าง..." : "สร้าง 9 คอลัมน์"}
+            </UIButton>
           </div>
         </Modal>
       ) : null}

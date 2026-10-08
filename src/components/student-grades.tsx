@@ -14,6 +14,7 @@ import {
   type AssignmentSummary,
   type StudentIdentity,
 } from "@/lib/student";
+import { fetchGradeScales, gradeOf, GRADE_POINTS, type GradeScale } from "@/lib/grading";
 import { cn } from "@/lib/cn";
 
 const STATUS_STYLE: Record<string, string> = {
@@ -31,17 +32,8 @@ const STATUS_LABEL: Record<string, string> = {
 
 const CAT_TONES = ["green", "blue", "orange", "purple"] as const;
 
-/** เกรดเฉลี่ยแบบไทยจาก % (80+=4.0, 75+=3.5, 70+=3.0, 65+=2.5, 60+=2.0, 55+=1.5, 50+=1.0, else 0) */
-function gpaOf(pct: number): number {
-  if (pct >= 80) return 4.0;
-  if (pct >= 75) return 3.5;
-  if (pct >= 70) return 3.0;
-  if (pct >= 65) return 2.5;
-  if (pct >= 60) return 2.0;
-  if (pct >= 55) return 1.5;
-  if (pct >= 50) return 1.0;
-  return 0;
-}
+/** ระดับชั้นจากชื่อกลุ่ม เช่น "ม.1/1" → "ม.1" */
+const levelOfGroup = (g: string) => (g.includes("/") ? (g.split("/")[0] as string) : g);
 
 const fmtDue = (iso: string) => {
   const [y, m, d] = iso.split("-");
@@ -57,6 +49,7 @@ export default function StudentGradesPage() {
   const [rows, setRows] = useState<AssignmentRow[]>([]);
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState<FilterKey>("all");
+  const [scales, setScales] = useState<GradeScale[] | null>(null);
 
   useEffect(() => {
     const code = getStudentCode();
@@ -79,6 +72,8 @@ export default function StudentGradesPage() {
       setIdentity(id);
       setSummary(s ?? { total: 0, submitted: 0, missing: 0, pending: 0, earned: 0, max: 0, cats: [] });
       setRows(r ?? []);
+      const sc = await fetchGradeScales(levelOfGroup(id.group));
+      if (!cancelled) setScales(sc);
     })();
     return () => {
       cancelled = true;
@@ -87,6 +82,9 @@ export default function StudentGradesPage() {
 
   const avgPct =
     summary && summary.max > 0 ? Math.round((summary.earned / summary.max) * 1000) / 10 : 0;
+  const gradeLetter = gradeOf(scales, avgPct);
+  const gradePoints =
+    gradeLetter !== null ? (GRADE_POINTS[gradeLetter] ?? null) : null;
 
   const shown = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -123,7 +121,13 @@ export default function StudentGradesPage() {
               <p className="mt-1 text-[26px] font-bold leading-none text-[#1e8e3e]">
                 {summary?.earned ?? 0} <span className="text-[15px] font-semibold text-[#5b6b82]">/ {summary?.max ?? 0} คะแนน</span>
               </p>
-              <p className="mt-1 text-[12.5px] text-[#5b6b82]">เกรดเฉลี่ย: {gpaOf(avgPct).toFixed(1)}</p>
+              <p className="mt-1 text-[12.5px] text-[#5b6b82]">
+                {gradeLetter !== null && gradePoints !== null ? (
+                  <>เกรด: {gradeLetter} ({gradePoints.toFixed(1)})</>
+                ) : (
+                  <>เกรดเฉลี่ย: –</>
+                )}
+              </p>
             </Card>
             <Card className="p-4">
               <p className="text-[14px] font-bold text-[#16233a]">
