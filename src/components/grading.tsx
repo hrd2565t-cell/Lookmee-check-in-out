@@ -684,9 +684,9 @@ export default function GradingPage() {
             <table className="w-full min-w-[860px] border-collapse text-left">
               <thead>
                 <tr className="text-[12.5px] font-bold text-[#16233a]">
-                  <th className="sticky left-0 bg-white py-2 pr-3">ลำดับ</th>
-                  <th className="sticky left-[52px] bg-white py-2 pr-3">รหัสประจำตัว</th>
-                  <th className="py-2 pr-3">ชื่อ-นามสกุล</th>
+                  <th className="sticky left-0 w-12 bg-white py-2 pr-3">ลำดับ</th>
+                  <th className="sticky left-12 min-w-[110px] whitespace-nowrap bg-white py-2 pr-3">รหัสประจำตัว</th>
+                  <th className="min-w-[200px] whitespace-nowrap py-2 pr-3">ชื่อ-นามสกุล</th>
                   {assignments.map((a) => (
                     <th key={a.id} className="max-w-[110px] px-1.5 py-2 text-center" title={`${a.title} · ส่ง ${a.due}`}>
                       <span className="block truncate">{a.title}</span>
@@ -734,13 +734,13 @@ export default function GradingPage() {
                   const saved = rowSaved(s.code);
                   return (
                     <tr key={s.code} className="border-t border-[#eef2f7] align-middle">
-                      <td className="sticky left-0 bg-white py-1.5 pr-3 text-[13.5px] text-[#5b6b82]">
+                      <td className="sticky left-0 w-12 bg-white py-1.5 pr-3 text-[13.5px] text-[#5b6b82]">
                         {(safePage - 1) * PAGE_SIZE + ri + 1}
                       </td>
-                      <td className="sticky left-[52px] bg-white whitespace-nowrap py-1.5 pr-3 text-[13.5px] text-[#16233a]">
+                      <td className="sticky left-12 min-w-[110px] whitespace-nowrap bg-white py-1.5 pr-3 text-[13.5px] text-[#16233a]">
                         {s.code}
                       </td>
-                      <td className="whitespace-nowrap py-1.5 pr-3 text-[13.5px] font-medium text-[#16233a]">
+                      <td className="min-w-[200px] whitespace-nowrap py-1.5 pr-3 text-[13.5px] font-medium text-[#16233a]">
                         {s.name}
                       </td>
                       {assignments.map((a) => (
