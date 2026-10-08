@@ -953,32 +953,8 @@ export default function StudentsPage() {
             <PageLastIcon />
           </button>
         </div>
-
-          {/* bottom action bar */}
-          <div className="mt-3 flex flex-wrap justify-center gap-2 border-t border-[#eef2f7] pt-3">
-            <UIButton variant="blue" onClick={openAddStudent} className="h-10 px-5">
-              เพิ่มนักเรียนใหม่
-            </UIButton>
-            <UIButton variant="green" onClick={openAddGroup} className="h-10 px-5">
-              เพิ่มกลุ่มเรียนใหม่
-            </UIButton>
-            <UIButton
-              variant="blue"
-              onClick={() => fileRef.current?.click()}
-              className="h-10 bg-[#5b6b82] px-5 hover:bg-[#465364] focus-visible:ring-[#5b6b82]/40 active:bg-[#3a4552]"
-            >
-              นำเข้าจากไฟล์ (Excel)
-            </UIButton>
-            <button
-              type="button"
-              onClick={downloadTemplate}
-              className="text-[13px] font-semibold text-[#2474c6] hover:underline"
-            >
-              โหลดเทมเพลต
-            </button>
-          </div>
-        </Card>
-      </div>
+      </Card>
+    </div>
 
       {/* add/edit group modal */}
       {groupModal ? (
