@@ -294,7 +294,19 @@ export default function StudentGradesPage() {
                     <tbody>
                       {shown.map((r, i) => (
                         <tr key={`${r.title}-${i}`} className="border-t border-[#eef2f7] align-middle">
-                          <td className="py-2 pr-3 text-[13.5px] font-medium text-[#16233a]">{r.title}</td>
+                          <td className="py-2 pr-3 text-[13.5px] font-medium text-[#16233a]">
+                        {r.title}
+                        {r.attachment ? (
+                          <a
+                            href={r.attachment}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="ml-2 text-[12px] font-bold text-[#2474c6] hover:underline"
+                          >
+                            ดูตัวอย่าง
+                          </a>
+                        ) : null}
+                      </td>
                           <td className="whitespace-nowrap py-2 pr-3 text-[13.5px] text-[#16233a]">{r.subject}</td>
                           <td className="whitespace-nowrap py-2 pr-3 text-[13.5px] text-[#16233a]">{fmtDue(r.due)}</td>
                           <td className="whitespace-nowrap py-2 pr-3">

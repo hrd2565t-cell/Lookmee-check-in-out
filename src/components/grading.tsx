@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { AppShell } from "@/components/layout";
-import { ChevronDownIcon, DownloadIcon, EyeIcon, EyeOffIcon, SearchIcon, TrashIcon } from "@/components/icons";
+import { ChevronDownIcon, DownloadIcon, EyeIcon, EyeOffIcon, PencilIcon, SearchIcon, TrashIcon } from "@/components/icons";
 import { Card, Modal, ScoreCell, UIButton } from "@/components/ui";
 import {
   addAssignment,
@@ -10,8 +10,11 @@ import {
   deleteAssignment,
   fetchSheet,
   fetchSubjects,
+  removeAssignmentFile,
   saveScores,
   toggleAssignmentVisible,
+  updateAssignment,
+  uploadAssignmentFile,
   type SheetAssignment,
 } from "@/lib/grading";
 import { fetchTerms, type SchoolTerm } from "@/lib/terms";
@@ -43,6 +46,9 @@ export default function GradingPage() {
   const [notice, setNotice] = useState("");
   const [saving, setSaving] = useState(false);
   const [colModal, setColModal] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editAttachment, setEditAttachment] = useState<string | null>(null);
+  const [uploading, setUploading] = useState(false);
   const [importModal, setImportModal] = useState(false);
   const [templateModal, setTemplateModal] = useState(false);
   const [templateSubject, setTemplateSubject] = useState("");
@@ -295,6 +301,22 @@ export default function GradingPage() {
   const openAddColumn = () => {
     setColForm({ subject: activeSubject, title: "", max: "10", due: new Date().toISOString().slice(0, 10), category: "ใบงาน/การบ้าน" });
     setModalMsg("");
+    setEditingId(null);
+    setEditAttachment(null);
+    setColModal(true);
+  };
+
+  const openEditColumn = (a: SheetAssignment) => {
+    setColForm({
+      subject: a.subject,
+      title: a.title,
+      max: String(a.max),
+      due: a.due,
+      category: a.category || "ใบงาน/การบ้าน",
+    });
+    setModalMsg("");
+    setEditingId(a.id);
+    setEditAttachment(a.attachment);
     setColModal(true);
   };
 
@@ -392,6 +414,31 @@ export default function GradingPage() {
       setModalMsg("เลือกวันกำหนดส่ง");
       return;
     }
+    // โหมดแก้ไข
+    if (editingId) {
+      const ok = await updateAssignment(editingId, {
+        subject,
+        title: colForm.title.trim(),
+        max,
+        due: colForm.due,
+        category: colForm.category,
+      });
+      if (!ok) {
+        setModalMsg("บันทึกไม่สำเร็จ — ตรวจการเชื่อมต่อแล้วลองใหม่");
+        return;
+      }
+      setColModal(false);
+      setEditingId(null);
+      setNotice(`แก้ไขคอลัมน์ “${colForm.title.trim()}” แล้ว`);
+      const subs = await fetchSubjects(activeGroup);
+      if (subs) {
+        const next = subs.includes(subject) ? subs : [...subs, subject];
+        setSubjects(next);
+        setSubject(subject);
+      }
+      await reloadSheet();
+      return;
+    }
     const ok = await addAssignment({
       groupName: activeGroup,
       subject,
@@ -405,6 +452,7 @@ export default function GradingPage() {
       return;
     }
     setColModal(false);
+    setEditingId(null);
     setNotice(`เพิ่มคอลัมน์ “${colForm.title.trim()}” แล้ว`);
     const subs = await fetchSubjects(activeGroup);
     if (subs) {
@@ -412,6 +460,28 @@ export default function GradingPage() {
       setSubjects(next);
       setSubject(subject);
     }
+    await reloadSheet();
+  };
+
+  const pickFile = async (file: File) => {
+    if (!editingId) return;
+    const okType = file.type.startsWith("image/") || file.type === "application/pdf";
+    if (!okType) {
+      setModalMsg("รับเฉพาะไฟล์รูปภาพหรือ PDF");
+      return;
+    }
+    if (file.size > 5 * 1024 * 1024) {
+      setModalMsg("ไฟล์ใหญ่เกิน 5MB");
+      return;
+    }
+    setUploading(true);
+    const url = await uploadAssignmentFile(editingId, file);
+    setUploading(false);
+    if (!url) {
+      setModalMsg("อัปโหลดไม่สำเร็จ — ลองอีกครั้ง");
+      return;
+    }
+    setEditAttachment(url);
     await reloadSheet();
   };
 
@@ -552,6 +622,15 @@ export default function GradingPage() {
                       <span className="mx-auto mt-0.5 flex items-center justify-center gap-0.5">
                         <button
                           type="button"
+                          aria-label={`แก้ไขคอลัมน์ ${a.title}`}
+                          title={`แก้ไข ${a.title}`}
+                          onClick={() => openEditColumn(a)}
+                          className="rounded p-0.5 text-[#c9d2de] hover:bg-[#e8f1fb] hover:text-[#2474c6]"
+                        >
+                          <PencilIcon className="h-3.5 w-3.5" />
+                        </button>
+                        <button
+                          type="button"
                           aria-label={a.visible ? `ซ่อนคอลัมน์ ${a.title} จากนักเรียน` : `เผยแพร่คอลัมน์ ${a.title}`}
                           title={a.title + (a.visible ? " (นักเรียนเห็น)" : " (ครูเห็นคนเดียว)")}
                           onClick={() => void toggleVisible(a)}
@@ -639,9 +718,9 @@ export default function GradingPage() {
         </div>
       </Card>
 
-      {/* modal เพิ่มคอลัมน์ */}
+      {/* modal เพิ่ม/แก้ไขคอลัมน์ */}
       {colModal ? (
-        <Modal title="เพิ่มคอลัมน์งาน" onClose={() => setColModal(false)}>
+        <Modal title={editingId ? "แก้ไขคอลัมน์งาน" : "เพิ่มคอลัมน์งาน"} onClose={() => { setColModal(false); setEditingId(null); }}>
           <div className="grid grid-cols-2 gap-2">
             <label className="col-span-1 block text-[14px] font-medium text-[#16233a]">
               วิชา
@@ -667,13 +746,55 @@ export default function GradingPage() {
                 ))}
               </select>
             </label>
+            {editingId ? (
+              <div className="col-span-2 rounded-lg border border-[#eef2f7] p-2.5">
+                <p className="text-[13.5px] font-bold text-[#16233a]">ไฟล์ตัวอย่างงาน (รูป/PDF ไม่เกิน 5MB)</p>
+                {editAttachment ? (
+                  <p className="mt-1 flex items-center gap-2 text-[13px]">
+                    <a href={editAttachment} target="_blank" rel="noopener noreferrer" className="font-semibold text-[#2474c6] hover:underline">
+                      ดูไฟล์ปัจจุบัน
+                    </a>
+                    <button
+                      type="button"
+                      onClick={() => void (async () => {
+                        await removeAssignmentFile(editingId, editAttachment);
+                        setEditAttachment(null);
+                        await reloadSheet();
+                      })()}
+                      className="font-semibold text-[#c62828] hover:underline"
+                    >
+                      ลบไฟล์
+                    </button>
+                  </p>
+                ) : (
+                  <label className="mt-1.5 flex h-10 cursor-pointer items-center justify-center rounded-md border border-dashed border-[#b9c6d8] px-4 text-[13.5px] font-semibold text-[#2474c6] hover:bg-[#f1f5fa]">
+                    เลือกไฟล์
+                    <input
+                      type="file"
+                      accept="image/*,.pdf"
+                      className="hidden"
+                      onChange={(e) => {
+                        const f = e.target.files?.[0];
+                        if (f) void pickFile(f);
+                        e.target.value = "";
+                      }}
+                    />
+                  </label>
+                )}
+                {uploading ? <p className="mt-1 text-[12.5px] text-[#5b6b82]">กำลังอัปโหลด...</p> : null}
+              </div>
+            ) : (
+              <p className="col-span-2 text-[12.5px] text-[#8a97ab]">
+                บันทึกคอลัมน์ก่อน แล้วกดดินสอเพื่อแนบไฟล์ตัวอย่าง
+              </p>
+            )}
           </div>
           {modalMsg ? (
             <p role="alert" className="mt-2 rounded-lg bg-[#fdecec] px-3 py-2 text-[13.5px] font-semibold text-[#c62828]">{modalMsg}</p>
           ) : null}
           <div className="mt-3 flex justify-end gap-2">
-            <UIButton variant="blue" onClick={() => setColModal(false)} className="h-10 bg-[#5b6b82] hover:bg-[#465364] focus-visible:ring-[#5b6b82]/40">ยกเลิก</UIButton>
-            <UIButton variant="green" onClick={() => void saveColumn()} className="h-10">เพิ่มคอลัมน์</UIButton>
+            <UIButton variant="blue" onClick={() => { setColModal(false); setEditingId(null); }} className="h-10 bg-[#5b6b82] hover:bg-[#465364] focus-visible:ring-[#5b6b82]/40">ยกเลิก</UIButton>
+            <UIButton variant="green" onClick={() => void saveColumn()} className="h-10">{editingId ? "บันทึกการแก้ไข" : "เพิ่มคอลัมน์"}</UIButton>
           </div>
         </Modal>
       ) : null}

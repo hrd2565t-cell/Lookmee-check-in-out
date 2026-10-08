@@ -114,6 +114,7 @@ export type AssignmentRow = {
   max_score: number;
   score: number | null;
   st: "submitted" | "missing" | "pending" | "upcoming";
+  attachment: string | null;
 };
 
 /** สรุปงาน/คะแนนของฉัน (กรองวิชาได้, ว่าง = ทุกวิชา) */

@@ -8,6 +8,7 @@ export type SheetAssignment = {
   due: string;
   max: number;
   visible: boolean;
+  attachment: string | null;
 };
 
 export type SheetData = {
@@ -51,7 +52,7 @@ export async function fetchSheet(
     if (!gid) return { assignments: [], scores: new Map() };
     let q = supabase
       .from("assignments")
-      .select("id,title,subject,category,due_date,max_score,visible")
+      .select("id,title,subject,category,due_date,max_score,visible,attachment_url")
       .eq("group_id", gid)
       .eq("subject", subject)
       .order("due_date")
@@ -68,6 +69,7 @@ export async function fetchSheet(
         due_date: string;
         max_score: number;
         visible: boolean | null;
+        attachment_url: string | null;
       }>
     ).map((a) => ({
       id: a.id,
@@ -77,6 +79,7 @@ export async function fetchSheet(
       due: a.due_date,
       max: Number(a.max_score),
       visible: a.visible !== false,
+      attachment: a.attachment_url,
     }));
     const scores = new Map<string, number | null>();
     if (assignments.length > 0) {
@@ -162,7 +165,77 @@ export async function addAssignment(input: {
   }
 }
 
-/** ลบคอลัมน์งาน (คะแนนในคอลัมน์หายตามด้วย cascade) */
+/** แก้ไขคอลัมน์งาน (ทุกฟิลด์) */
+export async function updateAssignment(
+  id: string,
+  fields: {
+    subject: string;
+    title: string;
+    max: number;
+    due: string;
+    category: string;
+  },
+): Promise<boolean> {
+  if (!isSupabaseConfigured) return false;
+  try {
+    const { error } = await supabase
+      .from("assignments")
+      .update({
+        subject: fields.subject,
+        title: fields.title,
+        max_score: fields.max,
+        due_date: fields.due,
+        category: fields.category,
+      })
+      .eq("id", id);
+    return !error;
+  } catch {
+    return false;
+  }
+}
+
+/** อัปโหลดไฟล์ตัวอย่างงาน (รูป/PDF ≤ 5MB) คืน public URL */
+export async function uploadAssignmentFile(
+  assignmentId: string,
+  file: File,
+): Promise<string | null> {
+  if (!isSupabaseConfigured) return null;
+  try {
+    const okType =
+      file.type.startsWith("image/") || file.type === "application/pdf";
+    if (!okType || file.size > 5 * 1024 * 1024) return null;
+    const ext = file.name.includes(".")
+      ? file.name.slice(file.name.lastIndexOf("."))
+      : file.type === "application/pdf"
+        ? ".pdf"
+        : ".jpg";
+    const path = `${assignmentId}${ext}`;
+    const { error: upErr } = await supabase.storage
+      .from("assignment-files")
+      .upload(path, file, { upsert: true, contentType: file.type });
+    if (upErr) return null;
+    const { data } = supabase.storage.from("assignment-files").getPublicUrl(path);
+    const url = data.publicUrl;
+    const { error } = await supabase
+      .from("assignments")
+      .update({ attachment_url: url })
+      .eq("id", assignmentId);
+    return error ? null : url;
+  } catch {
+    return null;
+  }
+}
+
+/** ลบไฟล์ตัวอย่าง */
+export async function removeAssignmentFile(assignmentId: string, url: string): Promise<void> {
+  try {
+    const path = url.split("/assignment-files/")[1];
+    if (path) await supabase.storage.from("assignment-files").remove([path.split("?")[0] as string]);
+    await supabase.from("assignments").update({ attachment_url: null }).eq("id", assignmentId);
+  } catch {
+    /* ข้าม */
+  }
+}
 export async function deleteAssignment(id: string): Promise<boolean> {
   if (!isSupabaseConfigured) return false;
   try {
