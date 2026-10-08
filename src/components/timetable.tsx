@@ -20,6 +20,7 @@ type FormState = {
   start: string;
   end: string;
   lateAfter: string;
+  isDouble: boolean;
 };
 
 const emptyForm = (day = 1): FormState => ({
@@ -29,7 +30,15 @@ const emptyForm = (day = 1): FormState => ({
   start: "08:00",
   end: "08:50",
   lateAfter: "15",
+  isDouble: false,
 });
+
+const toMinutes = (hhmm: string) => {
+  const [h, m] = hhmm.split(":").map(Number);
+  return (h ?? 0) * 60 + (m ?? 0);
+};
+const toHHMM = (mins: number) =>
+  `${String(Math.floor(mins / 60)).padStart(2, "0")}:${String(mins % 60).padStart(2, "0")}`;
 
 /* ---------- หน้าตั้งค่าตารางคาบเรียนรายห้อง ---------- */
 export default function TimetablePage() {
@@ -135,6 +144,7 @@ export default function TimetablePage() {
       start: p.start,
       end: p.end,
       lateAfter: String(p.lateAfterMin),
+      isDouble: false,
     });
     setModal({ mode: "edit", id: p.id });
     setNotice("");
@@ -142,21 +152,40 @@ export default function TimetablePage() {
 
   const save = async () => {
     const periodNo = Number(form.periodNo);
+    const wantDouble = modal?.mode === "add" && form.isDouble;
     if (!Number.isInteger(periodNo) || periodNo < 1 || periodNo > 12) {
       setNotice("เลขคาบต้องเป็น 1–12");
       return;
     }
-    if (!form.start || !form.end || form.start >= form.end) {
-      setNotice("เวลาเริ่มต้องมาก่อนเวลาหมดคาบ");
+    if (wantDouble && periodNo >= 12) {
+      setNotice("คาบคู่ต้องเริ่มไม่เกินคาบที่ 11");
       return;
     }
-    const lateAfter = Math.max(0, Number(form.lateAfter) || 0);
-    if (
-      modal?.mode === "add" &&
-      ofGroup.some((p) => p.day === form.day && p.periodNo === periodNo)
-    ) {
-      setNotice(`วัน${DAY_NAMES[form.day] ?? ""} มีคาบที่ ${periodNo} แล้ว`);
+    if (!form.start || !form.end || form.start >= form.end) {
+      setNotice(wantDouble ? "เวลาเริ่มต้องมาก่อนเวลาหมดคาบที่ 2" : "เวลาเริ่มต้องมาก่อนเวลาหมดคาบ");
       return;
+    }
+    // แตกคาบคู่เป็น 2 แถวเท่ากัน
+    const slots = [{ no: periodNo, start: form.start, end: form.end }];
+    if (wantDouble) {
+      const totalMin = toMinutes(form.end) - toMinutes(form.start);
+      if (totalMin < 20) {
+        setNotice("คาบคู่ควรยาวอย่างน้อย 20 นาที");
+        return;
+      }
+      const mid = toHHMM(toMinutes(form.start) + Math.floor(totalMin / 2));
+      slots[0] = { no: periodNo, start: form.start, end: mid };
+      slots.push({ no: periodNo + 1, start: mid, end: form.end });
+    }
+    const lateAfter = Math.max(0, Number(form.lateAfter) || 0);
+    if (modal?.mode === "add") {
+      const clash = slots.find((s) =>
+        ofGroup.some((p) => p.day === form.day && p.periodNo === s.no),
+      );
+      if (clash) {
+        setNotice(`วัน${DAY_NAMES[form.day] ?? ""} มีคาบที่ ${clash.no} แล้ว`);
+        return;
+      }
     }
     if (dbMode) {
       if (modal?.mode === "add") {
@@ -165,21 +194,19 @@ export default function TimetablePage() {
           setNotice("บันทึกไม่สำเร็จ — หากลุ่มไม่เจอ");
           return;
         }
-        const { data, error } = await supabase
-          .from("class_periods")
-          .insert({
+        const { error } = await supabase.from("class_periods").insert(
+          slots.map((s) => ({
             group_id: gid,
             day_of_week: form.day,
-            period_no: periodNo,
+            period_no: s.no,
             subject: form.subject.trim(),
-            start_time: form.start,
-            end_time: form.end,
+            start_time: s.start,
+            end_time: s.end,
             late_after_min: lateAfter,
-          })
-          .select("id")
-          .single();
-        if (error || !data) {
-          setNotice(`บันทึกไม่สำเร็จ: ${error?.message ?? "conflict"}`);
+          })),
+        );
+        if (error) {
+          setNotice(`บันทึกไม่สำเร็จ: ${error.message}`);
           return;
         }
       } else if (modal?.mode === "edit") {
@@ -203,19 +230,20 @@ export default function TimetablePage() {
     } else {
       // โหมด local (ยังไม่ต่อ DB)
       if (modal?.mode === "add") {
+        const base = Date.now();
         setPeriods((ps) => [
           ...ps,
-          {
-            id: `local-${Date.now()}`,
+          ...slots.map((s, i) => ({
+            id: `local-${base}-${i}`,
             groupId: "",
             groupName: activeGroup,
             day: form.day,
-            periodNo,
+            periodNo: s.no,
             subject: form.subject.trim(),
-            start: form.start,
-            end: form.end,
+            start: s.start,
+            end: s.end,
             lateAfterMin: lateAfter,
-          },
+          })),
         ]);
       } else if (modal?.mode === "edit") {
         setPeriods((ps) =>
@@ -530,7 +558,7 @@ export default function TimetablePage() {
               />
             </label>
             <label className="col-span-1 block text-[14px] font-medium text-[#16233a]">
-              หมดคาบ
+              หมดคาบ{modal?.mode === "add" && form.isDouble ? "ที่ 2" : ""}
               <input
                 type="time"
                 value={form.end}
@@ -538,6 +566,19 @@ export default function TimetablePage() {
                 className={cn(inputCls, "mt-1")}
               />
             </label>
+            {modal?.mode === "add" ? (
+              <label className="col-span-1 flex cursor-pointer items-center gap-2 text-[14px] font-medium text-[#16233a]">
+                <input
+                  type="checkbox"
+                  checked={form.isDouble}
+                  onChange={(e) => setForm({ ...form, isDouble: e.target.checked })}
+                  className="h-4 w-4 accent-[#1e8e3e]"
+                />
+                กิน 2 คาบติดกัน
+              </label>
+            ) : (
+              <span className="col-span-1" />
+            )}
             <label className="col-span-2 block text-[14px] font-medium text-[#16233a]">
               สายได้ (นาที)
               <input
