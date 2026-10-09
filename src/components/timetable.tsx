@@ -4,9 +4,10 @@ import { useEffect, useMemo, useState } from "react";
 import { AppShell } from "@/components/layout";
 import { ChevronDownIcon, PencilIcon, TrashIcon } from "@/components/icons";
 import { Card, CardTitle, Modal, UIButton } from "@/components/ui";
-import { DAY_NAMES, fetchPeriods, type Period } from "@/lib/timetable";
+import { DAY_NAMES, fetchPeriods, mergePeriods, type Period } from "@/lib/timetable";
 import { supabase } from "@/lib/supabase/client";
 import { compareGroupNames } from "@/lib/school-data";
+import { levelOf } from "@/lib/terms";
 import { useRoster } from "@/lib/school-data";
 import { cn } from "@/lib/cn";
 
@@ -44,8 +45,22 @@ const toHHMM = (mins: number) =>
 export default function TimetablePage() {
   const { groups: rosterGroups } = useRoster();
   const groupNames = useMemo(() => rosterGroups.map((g) => g.name), [rosterGroups]);
-  const [group, setGroup] = useState("");
-  const activeGroup = groupNames.includes(group) ? group : (groupNames[0] ?? "");
+  // เป้าหมายที่ตั้งค่า: ห้องเดียว หรือทั้งชั้น ("l:ม.1" = ทุกห้องในชั้น)
+  const [target, setTarget] = useState("");
+  const targetOpts = useMemo(() => {
+    const levels = new Set<string>();
+    groupNames.forEach((g) => levels.add(levelOf(g)));
+    const sorted = [...levels].sort(compareGroupNames);
+    return [
+      ...sorted.map((l) => ({ value: `l:${l}`, label: `${l} (ทุกห้อง)` })),
+      ...groupNames.map((g) => ({ value: `g:${g}`, label: g })),
+    ];
+  }, [groupNames]);
+  const activeTarget = targetOpts.some((o) => o.value === target)
+    ? target
+    : (targetOpts[0]?.value ?? "");
+  const targetIsLevel = activeTarget.startsWith("l:");
+  const targetName = activeTarget.slice(2);
   const [periods, setPeriods] = useState<Period[]>([]);
   const [dbMode, setDbMode] = useState(false);
   const [modal, setModal] = useState<{ mode: "add"; day: number } | { mode: "edit"; id: string } | null>(null);
@@ -70,20 +85,30 @@ export default function TimetablePage() {
       ),
     [groupNames, ovLevel],
   );
+  // ภาพรวมใช้ตารางประสิทธิผล (ห้องทับชั้น) จึงเห็นแถวชั้นด้วย
+  const ovEffective = useMemo(() => {
+    const m = new Map<string, Period[]>();
+    ovGroups.forEach((g) => m.set(g, mergePeriods(periods, g)));
+    return m;
+  }, [periods, ovGroups]);
   const ovPeriodNos = useMemo(() => {
     const set = new Set<number>();
-    periods.forEach((p) => {
-      if (p.day === ovDay && ovGroups.includes(p.groupName)) set.add(p.periodNo);
+    ovEffective.forEach((list) => {
+      list.forEach((p) => {
+        if (p.day === ovDay) set.add(p.periodNo);
+      });
     });
     return [...set].sort((a, b) => a - b);
-  }, [periods, ovDay, ovGroups]);
+  }, [ovEffective, ovDay]);
   const ovCell = useMemo(() => {
     const m = new Map<string, Period>();
-    periods.forEach((p) => {
-      if (p.day === ovDay) m.set(`${p.groupName}|${p.periodNo}`, p);
+    ovEffective.forEach((list, g) => {
+      list.forEach((p) => {
+        if (p.day === ovDay) m.set(`${g}|${p.periodNo}`, p);
+      });
     });
     return m;
-  }, [periods, ovDay]);
+  }, [ovEffective, ovDay]);
   const isToday = (() => {
     const d = new Date().getDay();
     return (d === 0 ? 1 : d) === ovDay;
@@ -117,10 +142,13 @@ export default function TimetablePage() {
     };
   }, []);
 
-  const ofGroup = useMemo(
-    () => periods.filter((p) => p.groupName === activeGroup),
-    [periods, activeGroup],
-  );
+  // แถวของเป้าหมายที่เลือก (ชั้น = แถว level ล้วน, ห้อง = รวม effective แต่โชว์เฉพาะแถวห้อง+แถวชั้นที่ทับ)
+  // หมายเหตุ: มุมรายห้องโชว์แถวห้องของตัวเอง + แถวชั้นที่ยังไม่ถูกทับ (อ่านอย่างเดียว แก้ที่ต้นทาง)
+  const ofTarget = useMemo(() => {
+    if (targetIsLevel) return periods.filter((p) => p.level === targetName);
+    const merged = mergePeriods(periods, targetName);
+    return merged;
+  }, [periods, targetIsLevel, targetName]);
 
   const groupIdOf = async (name: string): Promise<string | null> => {
     const { data } = await supabase
@@ -178,9 +206,12 @@ export default function TimetablePage() {
       slots.push({ no: periodNo + 1, start: mid, end: form.end });
     }
     const lateAfter = Math.max(0, Number(form.lateAfter) || 0);
+    // ชนเฉพาะขอบเขตเดียวกัน (ห้องทับชั้นได้ ไม่ถือว่าชน)
+    const sameScope = (p: Period) =>
+      targetIsLevel ? p.level === targetName : p.level === null && p.groupName === targetName;
     if (modal?.mode === "add") {
       const clash = slots.find((s) =>
-        ofGroup.some((p) => p.day === form.day && p.periodNo === s.no),
+        periods.some((p) => sameScope(p) && p.day === form.day && p.periodNo === s.no),
       );
       if (clash) {
         setNotice(`วัน${DAY_NAMES[form.day] ?? ""} มีคาบที่ ${clash.no} แล้ว`);
@@ -189,14 +220,16 @@ export default function TimetablePage() {
     }
     if (dbMode) {
       if (modal?.mode === "add") {
-        const gid = await groupIdOf(activeGroup);
-        if (!gid) {
+        const payload = targetIsLevel
+          ? { group_id: null as string | null, level: targetName }
+          : { group_id: await groupIdOf(targetName), level: null as string | null };
+        if (!targetIsLevel && !payload.group_id) {
           setNotice("บันทึกไม่สำเร็จ — หากลุ่มไม่เจอ");
           return;
         }
         const { error } = await supabase.from("class_periods").insert(
           slots.map((s) => ({
-            group_id: gid,
+            ...payload,
             day_of_week: form.day,
             period_no: s.no,
             subject: form.subject.trim(),
@@ -235,8 +268,9 @@ export default function TimetablePage() {
           ...ps,
           ...slots.map((s, i) => ({
             id: `local-${base}-${i}`,
-            groupId: "",
-            groupName: activeGroup,
+            groupId: null as string | null,
+            groupName: targetIsLevel ? "" : targetName,
+            level: targetIsLevel ? targetName : null,
             day: form.day,
             periodNo: s.no,
             subject: form.subject.trim(),
@@ -306,15 +340,15 @@ export default function TimetablePage() {
       <>
       <div className="mt-3 flex flex-wrap items-center gap-2">
         <label className="relative block min-w-[200px] flex-1 sm:max-w-[280px]">
-          <span className="sr-only">เลือกกลุ่มเรียน</span>
+          <span className="sr-only">เลือกห้องหรือชั้น</span>
           <select
-            value={activeGroup}
-            onChange={(e) => setGroup(e.target.value)}
+            value={activeTarget}
+            onChange={(e) => setTarget(e.target.value)}
             className="h-11 w-full appearance-none rounded-lg border border-[#d8e0ec] bg-white pl-4 pr-10 text-[15px] font-medium text-[#16233a] focus:border-[#2474c6] focus:outline-none"
           >
-            {groupNames.map((g) => (
-              <option key={g} value={g}>
-                กลุ่มเรียน: {g}
+            {targetOpts.map((o) => (
+              <option key={o.value} value={o.value}>
+                {o.value.startsWith("l:") ? `ชั้น${o.label}` : `ห้อง${o.label}`}
               </option>
             ))}
           </select>
@@ -332,10 +366,10 @@ export default function TimetablePage() {
         </p>
       ) : null}
 
-      {/* ตารางรายสัปดาห์ (รายห้อง) */}
+      {/* ตารางรายสัปดาห์ (ห้องที่เลือก + แถวชั้นที่สืบทอดมา) */}
       <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
         {[1, 2, 3, 4, 5, 6].map((day) => {
-          const list = ofGroup
+          const list = ofTarget
             .filter((p) => p.day === day)
             .sort((a, b) => a.periodNo - b.periodNo);
           return (
@@ -361,7 +395,9 @@ export default function TimetablePage() {
                 </p>
               ) : (
                 <ul className="divide-y divide-[#eef2f7]">
-                  {list.map((p) => (
+                  {list.map((p) => {
+                    const inherited = !targetIsLevel && p.level !== null;
+                    return (
                     <li key={p.id} className="flex items-center gap-2 py-2">
                       <span className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-[#e8f1fb] text-[13px] font-bold text-[#1a5da3]">
                         {p.periodNo}
@@ -369,29 +405,43 @@ export default function TimetablePage() {
                       <div className="min-w-0 flex-1 leading-snug">
                         <p className="truncate text-[14px] font-semibold text-[#16233a]">
                           {p.subject || "ไม่ระบุวิชา"}
+                          {p.level !== null ? (
+                            <span className="ml-1.5 rounded bg-[#e8f1fb] px-1.5 py-px text-[11px] font-bold text-[#1a5da3]">
+                              ชั้น
+                            </span>
+                          ) : null}
                         </p>
                         <p className="text-[12.5px] text-[#5b6b82]">
                           {p.start}–{p.end} · สายได้ {p.lateAfterMin} นาที
                         </p>
                       </div>
-                      <button
-                        type="button"
-                        aria-label={`แก้ไขคาบที่ ${p.periodNo}`}
-                        onClick={() => openEdit(p)}
-                        className="rounded p-1.5 text-[#2474c6] hover:bg-[#e8f1fb]"
-                      >
-                        <PencilIcon />
-                      </button>
-                      <button
-                        type="button"
-                        aria-label={`ลบคาบที่ ${p.periodNo}`}
-                        onClick={() => void remove(p)}
-                        className="rounded p-1.5 text-[#c62828] hover:bg-[#fdecec]"
-                      >
-                        <TrashIcon />
-                      </button>
+                      {inherited ? (
+                        <span title={`มาจากตารางชั้น แก้ที่ ${p.level} (ทุกห้อง)`} className="px-1.5 text-[11.5px] text-[#8a97ab]">
+                          จากชั้น
+                        </span>
+                      ) : (
+                        <>
+                          <button
+                            type="button"
+                            aria-label={`แก้ไขคาบที่ ${p.periodNo}`}
+                            onClick={() => openEdit(p)}
+                            className="rounded p-1.5 text-[#2474c6] hover:bg-[#e8f1fb]"
+                          >
+                            <PencilIcon />
+                          </button>
+                          <button
+                            type="button"
+                            aria-label={`ลบคาบที่ ${p.periodNo}`}
+                            onClick={() => void remove(p)}
+                            className="rounded p-1.5 text-[#c62828] hover:bg-[#fdecec]"
+                          >
+                            <TrashIcon />
+                          </button>
+                        </>
+                      )}
                     </li>
-                  ))}
+                    );
+                  })}
                 </ul>
               )}
             </Card>
@@ -443,7 +493,7 @@ export default function TimetablePage() {
                         type="button"
                         title={`ไปตั้งค่าห้อง ${g}`}
                         onClick={() => {
-                          setGroup(g);
+                          setTarget(`g:${g}`);
                           setView("group");
                         }}
                         className="font-bold text-[#2474c6] hover:underline"
