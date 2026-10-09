@@ -4,18 +4,14 @@ import { useEffect, useMemo, useState } from "react";
 import { AppShell } from "@/components/layout";
 import { ChevronDownIcon, DownloadIcon, EyeIcon, EyeOffIcon, PencilIcon, SearchIcon, TrashIcon } from "@/components/icons";
 import { Card, FilePreviewModal, Modal, ScoreCell, UIButton } from "@/components/ui";
+import { SubjectManager } from "@/components/subject-manager";
 import {
   addAssignment,
-  countSubjectScores,
-  countSubjectAssignments,
-  createSubject,
   createStandardSet,
   deleteAssignment,
-  deleteSubject,
   fetchSheet,
   fetchSubjects,
   removeAssignmentFile,
-  renameSubject,
   saveScores,
   toggleAssignmentVisible,
   updateAssignment,
@@ -56,14 +52,12 @@ export default function GradingPage() {
   const [saving, setSaving] = useState(false);
   const [colModal, setColModal] = useState(false);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
-  const [subjectModal, setSubjectModal] = useState<"add" | "rename" | null>(null);
-  const [subjectName, setSubjectName] = useState("");
+  const [subjectManagerOpen, setSubjectManagerOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editAttachment, setEditAttachment] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
   const [importModal, setImportModal] = useState(false);
   const [templateModal, setTemplateModal] = useState(false);
-  const [templateSubject, setTemplateSubject] = useState("");
   const [templateDue, setTemplateDue] = useState(new Date().toISOString().slice(0, 10));
   const [templateBusy, setTemplateBusy] = useState(false);
   const [modalMsg, setModalMsg] = useState("");
@@ -74,6 +68,7 @@ export default function GradingPage() {
     ? subjects.find((item) => item.id === subjectId) ?? null
     : null;
   const activeSubject = activeSubjectItem?.name ?? "";
+  const canEditActiveSubject = !!activeSubjectItem?.isActive && activeSubjectItem.isAssigned;
   const activeTerm = terms.find((t) => t.id === termId) ?? null;
   const subjectTerm = activeSubjectItem?.termId
     ? terms.find((t) => t.id === activeSubjectItem.termId) ?? null
@@ -86,34 +81,6 @@ export default function GradingPage() {
     if (value) window.localStorage.setItem(key, value);
     else window.localStorage.removeItem(key);
   };
-  const ensureSubjectExists = async (name: string): Promise<ClassSubject | null> => {
-    const normalized = name.trim();
-    if (!normalized || termId === "all") return null;
-    const existing = subjects.find(
-      (item) => item.termId === termId && item.name.toLocaleLowerCase("th") === normalized.toLocaleLowerCase("th"),
-    );
-    if (existing) return existing;
-
-    const result = await createSubject(activeGroup, termId, normalized);
-    if (!result.ok && result.reason !== "duplicate") return null;
-    const rows = await fetchSubjects(activeGroup, termId);
-    if (!rows) {
-      if (!result.ok) return null;
-      setSubjects((current) => [...current.filter((item) => item.id !== result.subject.id), result.subject]);
-      setSubjectsScope(`${activeGroup}|${termId}`);
-      setSubjectLoadError(false);
-      selectSubject(result.subject.id);
-      return result.subject;
-    }
-    setSubjects(rows);
-    setSubjectsScope(`${activeGroup}|${termId}`);
-    const subjectRow = result.ok
-      ? rows.find((item) => item.id === result.subject.id) ?? result.subject
-      : rows.find((item) => item.name.toLocaleLowerCase("th") === normalized.toLocaleLowerCase("th")) ?? null;
-    if (subjectRow) selectSubject(subjectRow.id);
-    return subjectRow;
-  };
-
   const reloadSheet = async (g = activeGroup, s = activeSubject, t = sheetTerm) => {
     if (!g || !s) {
       setAssignments([]);
@@ -397,16 +364,19 @@ export default function GradingPage() {
   };
 
   const openTemplate = () => {
-    setTemplateSubject(activeSubject || "");
     setTemplateDue(new Date().toISOString().slice(0, 10));
     setModalMsg("");
     setTemplateModal(true);
   };
 
   const saveTemplate = async () => {
-    const subject = templateSubject.trim();
+    const subject = activeSubject;
     if (!subject) {
-      setModalMsg("กรอกชื่อวิชาก่อน");
+      setModalMsg("เลือกวิชาก่อน");
+      return;
+    }
+    if (!canEditActiveSubject) {
+      setModalMsg("วิชานี้ไม่ได้เปิดสอนในห้อง/เทอมที่เลือก");
       return;
     }
     if (!templateDue) {
@@ -419,11 +389,6 @@ export default function GradingPage() {
     }
     if (templateDue < activeTerm.startsOn || templateDue > activeTerm.endsOn) {
       setModalMsg("วันกำหนดส่งต้องอยู่ในภาคเรียนที่เลือก");
-      return;
-    }
-    const subjectRow = await ensureSubjectExists(subject);
-    if (!subjectRow) {
-      setModalMsg("เพิ่มวิชาไม่สำเร็จ — ตรวจชื่อวิชาและการเชื่อมต่อ");
       return;
     }
     const existing = new Set(assignments.map((a) => a.title));
@@ -450,12 +415,6 @@ export default function GradingPage() {
     }
     setTemplateModal(false);
     setNotice(`สร้างชุดมาตรฐาน ${r.created} คอลัมน์ (รวม 100 คะแนน) แล้ว`);
-    const subs = await fetchSubjects(activeGroup, termId);
-    if (subs) {
-      setSubjects(subs);
-      setSubjectsScope(`${activeGroup}|${termId}`);
-      selectSubject(subjectRow.id);
-    }
     await reloadSheet(activeGroup, subject, activeTerm);
   };
 
@@ -485,9 +444,13 @@ export default function GradingPage() {
   };
 
   const saveColumn = async () => {
-    const subject = colForm.subject.trim() || activeSubject;
+    const subject = activeSubject;
     if (!subject) {
-      setModalMsg("กรอกชื่อวิชาก่อน (เช่น เทคโนโลยี)");
+      setModalMsg("เลือกวิชาที่เปิดสอนในห้องนี้ก่อน");
+      return;
+    }
+    if (!canEditActiveSubject) {
+      setModalMsg("วิชานี้ไม่ได้เปิดสอนในห้อง/เทอมที่เลือก");
       return;
     }
     if (termId === "all" || !activeTerm) {
@@ -511,11 +474,6 @@ export default function GradingPage() {
       setModalMsg("กำหนดส่งต้องอยู่ในภาคเรียนที่เลือก");
       return;
     }
-    const subjectRow = await ensureSubjectExists(subject);
-    if (!subjectRow) {
-      setModalMsg("เพิ่มหรือเลือกวิชาไม่สำเร็จ — ลองอีกครั้ง");
-      return;
-    }
     // โหมดแก้ไข
     if (editingId) {
       const ok = await updateAssignment(editingId, {
@@ -532,12 +490,6 @@ export default function GradingPage() {
       setColModal(false);
       setEditingId(null);
       setNotice(`แก้ไขคอลัมน์ “${colForm.title.trim()}” แล้ว`);
-      const subs = await fetchSubjects(activeGroup, termId);
-      if (subs) {
-        setSubjects(subs);
-        setSubjectsScope(`${activeGroup}|${termId}`);
-        selectSubject(subjectRow.id);
-      }
       await reloadSheet(activeGroup, subject, activeTerm);
       return;
     }
@@ -556,12 +508,6 @@ export default function GradingPage() {
     setColModal(false);
     setEditingId(null);
     setNotice(`เพิ่มคอลัมน์ “${colForm.title.trim()}” แล้ว`);
-    const subs = await fetchSubjects(activeGroup, termId);
-    if (subs) {
-      setSubjects(subs);
-      setSubjectsScope(`${activeGroup}|${termId}`);
-      selectSubject(subjectRow.id);
-    }
     await reloadSheet(activeGroup, subject, activeTerm);
   };
 
@@ -598,108 +544,16 @@ export default function GradingPage() {
     await reloadSheet();
   };
 
-  const openAddSubject = () => {
-    if (termId === "all") {
-      setNotice("เลือกภาคเรียนก่อนเพิ่มวิชา");
-      return;
-    }
-    setSubjectName("");
-    setModalMsg("");
-    setSubjectModal("add");
-  };
-
-  const openRenameSubject = () => {
-    if (!activeSubjectItem) return;
-    setSubjectName(activeSubjectItem.name);
-    setModalMsg("");
-    setSubjectModal("rename");
-  };
-
-  const saveSubject = async () => {
-    const name = subjectName.trim();
-    if (!name) {
-      setModalMsg("กรุณากรอกชื่อวิชา");
-      return;
-    }
-    if (subjectModal === "add") {
-      if (termId === "all") {
-        setModalMsg("เลือกภาคเรียนก่อนเพิ่มวิชา");
-        return;
-      }
-      const result = await createSubject(activeGroup, termId, name);
-      if (!result.ok) {
-        setModalMsg(result.reason === "duplicate" ? "มีชื่อนี้ในห้องและเทอมนี้แล้ว" : "เพิ่มวิชาไม่สำเร็จ — ตรวจการเชื่อมต่อ");
-        return;
-      }
-      const rows = await fetchSubjects(activeGroup, termId);
-      if (!rows) {
-        setSubjects((current) => [...current.filter((item) => item.id !== result.subject.id), result.subject]);
-        setSubjectsScope(`${activeGroup}|${termId}`);
-        setSubjectLoadError(false);
-        selectSubject(result.subject.id);
-        setSubjectModal(null);
-        setNotice(`เพิ่มวิชา “${name}” แล้ว; รายการวิชาจะโหลดใหม่เมื่อเชื่อมต่อได้`);
-        return;
-      }
-      setSubjects(rows);
-      setSubjectsScope(`${activeGroup}|${termId}`);
-      selectSubject(result.subject.id);
-      setSubjectModal(null);
-      setNotice(`เพิ่มวิชา “${name}” ใน ${activeTerm?.name ?? "ภาคเรียนที่เลือก"} แล้ว`);
-      return;
-    }
-
-    if (!activeSubjectItem) return;
-    const result = await renameSubject(activeSubjectItem.id, name);
-    if (result === "duplicate") {
-      setModalMsg("มีชื่อนี้ในห้องและเทอมนี้แล้ว");
-      return;
-    }
-    if (result !== "saved") {
-      setModalMsg("เปลี่ยนชื่อวิชาไม่สำเร็จ — ลองอีกครั้ง");
-      return;
-    }
+  const refreshSubjects = async () => {
     const rows = await fetchSubjects(activeGroup, termId);
     if (!rows) {
-      setSubjects((current) => current.map((item) => item.id === activeSubjectItem.id ? { ...item, name } : item));
-      setSubjectsScope(`${activeGroup}|${termId}`);
-      setSubjectLoadError(false);
-      selectSubject(activeSubjectItem.id);
-      setSubjectModal(null);
-      setNotice(`เปลี่ยนชื่อวิชาเป็น “${name}” แล้ว`);
+      setSubjectLoadError(true);
       return;
     }
+    setSubjectLoadError(false);
     setSubjects(rows);
     setSubjectsScope(`${activeGroup}|${termId}`);
-    selectSubject(activeSubjectItem.id);
-    setSubjectModal(null);
-    setNotice(`เปลี่ยนชื่อวิชาเป็น “${name}” แล้ว`);
-  };
-
-  const removeSubject = async () => {
-    if (!activeSubjectItem) return;
-    const [columns, scores] = await Promise.all([
-      countSubjectAssignments(activeSubjectItem),
-      countSubjectScores(activeSubjectItem),
-    ]);
-    const termLabel = activeSubjectItem.termName ?? "วิชาที่ยังไม่ผูกภาคเรียน";
-    if (!window.confirm(`ลบวิชา “${activeSubjectItem.name}” (${termLabel}) พร้อมงาน ${columns} คอลัมน์และคะแนน ${scores} ช่องหรือไม่?`)) return;
-    const ok = await deleteSubject(activeSubjectItem.id);
-    if (!ok) {
-      setNotice("ลบวิชาไม่สำเร็จ — ตรวจการเชื่อมต่อแล้วลองอีกครั้ง");
-      return;
-    }
-    const rows = await fetchSubjects(activeGroup, termId);
-    const fallback = subjects.filter((item) => item.id !== activeSubjectItem.id);
-    const next = rows?.[0] ?? fallback[0] ?? null;
-    setSubjects(rows ?? fallback);
-    setSubjectsScope(`${activeGroup}|${termId}`);
-    setSubjectLoadError(false);
-    selectSubject(next?.id ?? "");
-    setAssignments([]);
-    setSavedScores(new Map());
-    setDrafts(new Map());
-    setNotice(rows ? `ลบวิชา “${activeSubjectItem.name}” แล้ว` : `ลบวิชา “${activeSubjectItem.name}” แล้ว แต่โหลดรายการที่เหลือไม่สำเร็จ`);
+    if (!rows.some((row) => row.id === subjectId)) selectSubject(rows[0]?.id ?? "");
   };
 
   return (
@@ -732,38 +586,15 @@ export default function GradingPage() {
           <label className="order-3 block text-[13.5px] font-medium text-[#16233a]">
             <span className="flex items-center justify-between">
               เลือกวิชา
-              <span className="flex gap-0.5">
-                <button
-                  type="button"
-                  aria-label="เพิ่มวิชา"
-                  title={termId === "all" ? "เลือกภาคเรียนก่อนเพิ่มวิชา" : "เพิ่มวิชาในห้องและภาคเรียนนี้"}
-                  onClick={openAddSubject}
-                  disabled={termId === "all"}
-                  className="rounded px-1 text-[12px] font-semibold text-[#1e8e3e] hover:bg-[#e6f4ea] disabled:cursor-not-allowed disabled:opacity-40"
-                >
-                  + เพิ่ม
-                </button>
-                <button
-                  type="button"
-                  aria-label={`แก้ไขชื่อวิชา ${activeSubject}`}
-                  title="แก้ไขชื่อวิชา"
-                  onClick={openRenameSubject}
-                  disabled={!activeSubjectItem}
-                  className="rounded p-1 text-[#2474c6] hover:bg-[#e8f1fb] disabled:opacity-30"
-                >
-                  <PencilIcon className="h-3.5 w-3.5" />
-                </button>
-                <button
-                  type="button"
-                  aria-label={`ลบวิชา ${activeSubject} ทั้งหมด`}
-                  title="ลบวิชาทั้งหมด"
-                  onClick={() => void removeSubject()}
-                  disabled={!activeSubjectItem}
-                  className="rounded p-1 text-[#c62828] hover:bg-[#fdecec] disabled:opacity-30"
-                >
-                  <TrashIcon className="h-3.5 w-3.5" />
-                </button>
-              </span>
+              <button
+                type="button"
+                onClick={() => setSubjectManagerOpen(true)}
+                disabled={termId === "all"}
+                title={termId === "all" ? "เลือกภาคเรียนก่อนจัดการวิชา" : "จัดการทะเบียนและกำหนดวิชาให้ชั้น/ห้อง"}
+                className="min-h-8 rounded px-2 text-[12.5px] font-semibold text-[#2474c6] hover:bg-[#e8f1fb] disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                จัดการวิชา
+              </button>
             </span>
             <span className="relative mt-1 block">
               <select
@@ -775,7 +606,7 @@ export default function GradingPage() {
                   <option value="">{subjectLoadError ? "โหลดวิชาไม่สำเร็จ" : "ยังไม่มีวิชาในเทอมนี้"}</option>
                 ) : subjects.map((item) => (
                   <option key={item.id} value={item.id}>
-                    {item.name}{termId === "all" ? ` · ${item.termName ?? "ไม่ระบุเทอม"}` : ""}
+                    {item.name}{termId === "all" ? ` · ${item.termName ?? "ไม่ระบุเทอม"}` : ""}{!item.isActive ? " (เก็บคลัง)" : !item.isAssigned ? " (ประวัติ)" : ""}
                   </option>
                 ))}
               </select>
@@ -833,13 +664,13 @@ export default function GradingPage() {
           <h2 className="mr-auto text-[16px] font-bold text-[#16233a]">
             คะแนนรายบุคคล {activeGroup} (วิชา{activeSubject || "-"})
           </h2>
-          <UIButton variant="green" onClick={openAddColumn} disabled={!activeSubject || termId === "all"} className="h-9 px-3 text-[13px] disabled:opacity-40">
+          <UIButton variant="green" onClick={openAddColumn} disabled={!canEditActiveSubject || termId === "all"} className="h-9 px-3 text-[13px] disabled:opacity-40">
             + เพิ่มคอลัมน์งาน
           </UIButton>
-          <UIButton variant="green" onClick={openTemplate} disabled={!activeSubject || termId === "all"} className="h-9 bg-[#166c2e] px-3 text-[13px] hover:bg-[#145c27] focus-visible:ring-[#1e8e3e]/40 disabled:opacity-40">
+          <UIButton variant="green" onClick={openTemplate} disabled={!canEditActiveSubject || termId === "all"} className="h-9 bg-[#166c2e] px-3 text-[13px] hover:bg-[#145c27] focus-visible:ring-[#1e8e3e]/40 disabled:opacity-40">
             สร้างชุดมาตรฐาน
           </UIButton>
-          <UIButton variant="blue" onClick={() => void publishFirstFive()} disabled={!activeSubject || termId === "all"} className="h-9 bg-[#00897b] px-3 text-[13px] hover:brightness-110 focus-visible:ring-[#00897b]/40 disabled:opacity-40">
+          <UIButton variant="blue" onClick={() => void publishFirstFive()} disabled={!canEditActiveSubject || termId === "all"} className="h-9 bg-[#00897b] px-3 text-[13px] hover:brightness-110 focus-visible:ring-[#00897b]/40 disabled:opacity-40">
             เผยแพร่ 5 งานแรก
           </UIButton>
           <UIButton variant="blue" onClick={() => void saveAll()} disabled={saving || dirtyCount === 0} className="h-9 px-3 text-[13px] disabled:opacity-40">
@@ -857,8 +688,8 @@ export default function GradingPage() {
           <div className="py-8 text-center">
             <p className="text-[14px] font-semibold text-[#16233a]">ห้องนี้ยังไม่มีวิชาในภาคเรียนที่เลือก</p>
             <p className="mt-1 text-[13px] text-[#5b6b82]">เพิ่มวิชาก่อน แล้วจึงเพิ่มงานและกรอกคะแนนได้</p>
-            <UIButton variant="green" onClick={openAddSubject} disabled={termId === "all"} className="mt-3 h-10 disabled:opacity-40">
-              + เพิ่มวิชา
+            <UIButton variant="green" onClick={() => setSubjectManagerOpen(true)} disabled={termId === "all"} className="mt-3 h-10 disabled:opacity-40">
+              จัดการทะเบียนวิชา
             </UIButton>
           </div>
         ) : assignments.length === 0 ? (
@@ -979,39 +810,15 @@ export default function GradingPage() {
         </div>
       </Card>
 
-      {/* modal แก้ไขชื่อวิชา */}
-      {subjectModal ? (
-        <Modal
-          title={subjectModal === "add" ? `เพิ่มวิชาใน ${activeTerm?.name ?? "ภาคเรียนที่เลือก"}` : `แก้ไขชื่อวิชา “${activeSubject}”`}
-          onClose={() => setSubjectModal(null)}
-        >
-          <label className="block text-[14px] font-medium text-[#16233a]">
-            {subjectModal === "add" ? "ชื่อวิชา" : "ชื่อวิชาใหม่"}
-            <input
-              value={subjectName}
-              onChange={(e) => setSubjectName(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") void saveSubject();
-              }}
-              placeholder="เช่น ภาษาอังกฤษ"
-              className={cn(inputCls, "mt-1")}
-            />
-          </label>
-          <p className="mt-1.5 text-[12.5px] text-[#5b6b82]">
-            {subjectModal === "add"
-              ? `วิชาจะอยู่ในห้อง ${activeGroup} และเทอม ${activeTerm?.name ?? "ที่เลือก"}`
-              : `เปลี่ยนชื่อวิชาเฉพาะห้อง ${activeGroup} และเทอม ${activeSubjectItem?.termName ?? "ที่ไม่ระบุ"}`}
-          </p>
-          {modalMsg ? (
-            <p role="alert" className="mt-2 rounded-lg bg-[#fdecec] px-3 py-2 text-[13.5px] font-semibold text-[#c62828]">{modalMsg}</p>
-          ) : null}
-          <div className="mt-3 flex justify-end gap-2">
-            <UIButton variant="blue" onClick={() => setSubjectModal(null)} className="h-10 bg-[#5b6b82] hover:bg-[#465364] focus-visible:ring-[#5b6b82]/40">ยกเลิก</UIButton>
-            <UIButton variant="green" onClick={() => void saveSubject()} className="h-10">
-              {subjectModal === "add" ? "เพิ่มวิชา" : "บันทึกชื่อวิชา"}
-            </UIButton>
-          </div>
-        </Modal>
+      {subjectManagerOpen && activeTerm ? (
+        <SubjectManager
+          groupName={activeGroup}
+          groupNames={groupNames}
+          termId={activeTerm.id}
+          termName={activeTerm.name}
+          onClose={() => setSubjectManagerOpen(false)}
+          onSaved={() => void refreshSubjects()}
+        />
       ) : null}
 
       {/* modal เพิ่ม/แก้ไขคอลัมน์ */}
@@ -1020,7 +827,7 @@ export default function GradingPage() {
           <div className="grid grid-cols-2 gap-2">
             <label className="col-span-1 block text-[14px] font-medium text-[#16233a]">
               วิชา
-              <input value={colForm.subject} onChange={(e) => setColForm({ ...colForm, subject: e.target.value })} placeholder="เช่น เทคโนโลยี" className={cn(inputCls, "mt-1")} />
+              <input value={activeSubject} readOnly className={cn(inputCls, "mt-1 bg-[#f8fafc]")} />
             </label>
             <label className="col-span-1 block text-[14px] font-medium text-[#16233a]">
               ชื่องาน
@@ -1105,7 +912,7 @@ export default function GradingPage() {
           <div className="grid grid-cols-2 gap-2">
             <label className="col-span-1 block text-[14px] font-medium text-[#16233a]">
               วิชา
-              <input value={templateSubject} onChange={(e) => setTemplateSubject(e.target.value)} placeholder="เช่น เทคโนโลยี" className={cn(inputCls, "mt-1")} />
+              <input value={activeSubject} readOnly className={cn(inputCls, "mt-1 bg-[#f8fafc]")} />
             </label>
             <label className="col-span-1 block text-[14px] font-medium text-[#16233a]">
               กำหนดส่ง (ทุกงาน)
