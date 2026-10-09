@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import ScannerPage from "@/components/scanner";
 
 export const metadata: Metadata = {
-  title: "Daily Scanner | LOOKMEE Check In-Out",
+  title: "เช็กชื่อเข้าเรียน | LOOKMEE Check In-Out",
   description: "สแกนเข้าเรียนรายวันด้วยใบหน้า",
 };
 

@@ -294,7 +294,7 @@ export default function SettingsPage() {
         </Card>
 
         {/* เกณฑ์ตัดเกรด */}
-        <Card className="h-fit p-4 sm:p-5 lg:col-span-2">
+        <Card id="grade-scales" className="h-fit p-4 sm:p-5 lg:col-span-2">
           <CardTitle className="mb-1">เกณฑ์ตัดเกรดรายระดับชั้น (คะแนนเต็ม 100)</CardTitle>
           <p className="mb-2 text-[12.5px] text-[#5b6b82]">ฝั่งนักเรียนเห็นเกรดตามเกณฑ์ชั้นตัวเอง</p>
           <div className="flex flex-wrap items-end gap-2">

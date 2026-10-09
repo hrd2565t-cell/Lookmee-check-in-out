@@ -36,6 +36,7 @@ import {
 } from "@/lib/face";
 import { isSupabaseConfigured, supabase } from "@/lib/supabase/client";
 import { useRoster } from "@/lib/school-data";
+import { useTeacherGroup } from "@/lib/teacher-scope";
 
 /* ---------- Group select (styled native select) ---------- */
 function GroupSelect({
@@ -217,10 +218,18 @@ export default function ScannerPage() {
   const matchFallback = useMemo(() => buildCurrentMatch(students), [students]);
   const [override, setOverride] = useState<CurrentMatch | null>(null);
   const match = override ?? matchFallback;
-  const [groupSel, setGroupSel] = useState("");
-  const activeGroup = groups.includes(groupSel) ? groupSel : (groups[0] ?? "");
+  const { selectedGroup, setSelectedGroup } = useTeacherGroup(groups);
+  const activeGroup = selectedGroup || (groups[0] ?? "");
   const [notice, setNotice] = useState("");
   const [round, setRound] = useState<SessionFull | null>(null);
+
+  useEffect(() => {
+    const url = new URL(window.location.href);
+    const requestedGroup = url.searchParams.get("group");
+    if (!requestedGroup || !groups.includes(requestedGroup)) return;
+    setSelectedGroup(requestedGroup);
+    window.history.replaceState(null, "", url.pathname);
+  }, [groups, setSelectedGroup]);
 
   // โหลดสถานะรอบวันนี้ของกลุ่มที่เลือก
   useEffect(() => {
@@ -589,7 +598,7 @@ export default function ScannerPage() {
               confidence: Math.round((1 - hit.distance) * 100),
             };
             setOverride(m);
-            setGroupSel(st.group);
+            setSelectedGroup(st.group);
             await saveMatchRef.current(m);
           })();
         }, 1200);
@@ -602,7 +611,7 @@ export default function ScannerPage() {
       if (timer) clearInterval(timer);
       closeCamera(video);
     };
-  }, []);
+  }, [setSelectedGroup]);
 
   const onSave = () => {
     setNotice("กำลังบันทึก...");
@@ -629,11 +638,11 @@ export default function ScannerPage() {
   }, [dayLive, dayRecords, activeGroup, recentByGroup, students]);
 
   return (
-    <AppShell active="scanner" title="Daily Scanner">
+    <AppShell active="scanner" title="เช็กชื่อเข้าเรียน">
       <div className="grid grid-cols-1 gap-4 xl:grid-cols-[1fr_300px]">
         {/* left: selector + viewport + result */}
         <div className="min-w-0">
-          <GroupSelect groups={groups} value={activeGroup} onChange={setGroupSel} />
+            <GroupSelect groups={groups} value={activeGroup} onChange={setSelectedGroup} />
           {/* รอบวันนี้ + รหัสให้นักเรียน */}
           <Card className="mt-3 flex flex-wrap items-center gap-3 p-4">
             <div className="min-w-0 flex-1">

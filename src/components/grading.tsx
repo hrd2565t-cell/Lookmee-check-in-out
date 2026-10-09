@@ -22,6 +22,7 @@ import {
 } from "@/lib/grading";
 import { fetchTerms, type SchoolTerm } from "@/lib/terms";
 import { useRoster } from "@/lib/school-data";
+import { useTeacherGroup } from "@/lib/teacher-scope";
 import { cn } from "@/lib/cn";
 
 const inputCls =
@@ -31,9 +32,10 @@ const inputCls =
 export default function GradingPage() {
   const { groups: rosterGroups, students: rosterStudents } = useRoster();
   const groupNames = useMemo(() => rosterGroups.map((g) => g.name), [rosterGroups]);
-  const [group, setGroup] = useState("");
-  const activeGroup = groupNames.includes(group) ? group : (groupNames[0] ?? "");
+  const { selectedGroup, setSelectedGroup } = useTeacherGroup(groupNames);
+  const activeGroup = selectedGroup || (groupNames[0] ?? "");
   const [subjects, setSubjects] = useState<string[]>([]);
+  const [subjectsGroup, setSubjectsGroup] = useState("");
   const [subject, setSubject] = useState("");
   const [terms, setTerms] = useState<SchoolTerm[]>([]);
   const [termId, setTermId] = useState("all");
@@ -63,8 +65,15 @@ export default function GradingPage() {
   const [modalMsg, setModalMsg] = useState("");
   const [colForm, setColForm] = useState({ subject: "", title: "", max: "10", due: "", category: "ใบงาน/การบ้าน" });
 
-  const activeSubject = subjects.includes(subject) ? subject : (subjects[0] ?? "");
+  const activeSubject = subjectsGroup === activeGroup && subjects.includes(subject) ? subject : "";
   const activeTerm = terms.find((t) => t.id === termId) ?? null;
+  const selectSubject = (value: string, groupName = activeGroup) => {
+    setSubject(value);
+    if (typeof window === "undefined" || !groupName) return;
+    const key = `lookmee-teacher-subject:${groupName}`;
+    if (value) window.localStorage.setItem(key, value);
+    else window.localStorage.removeItem(key);
+  };
 
   const reloadSheet = async (g = activeGroup, s = activeSubject, t = activeTerm) => {
     if (!g || !s) {
@@ -91,7 +100,14 @@ export default function GradingPage() {
     (async () => {
       const [subs, ts] = await Promise.all([fetchSubjects(activeGroup), fetchTerms()]);
       if (cancelled) return;
-      setSubjects(subs ?? []);
+      const availableSubjects = subs ?? [];
+      const savedSubject = window.localStorage.getItem(`lookmee-teacher-subject:${activeGroup}`);
+      const initialSubject = savedSubject && availableSubjects.includes(savedSubject)
+        ? savedSubject
+        : (availableSubjects[0] ?? "");
+      setSubjects(availableSubjects);
+      setSubjectsGroup(activeGroup);
+      setSubject(initialSubject);
       if (ts) {
         setTerms(ts);
         const cur = ts.find((t) => t.isCurrent);
@@ -371,7 +387,7 @@ export default function GradingPage() {
     if (subs) {
       setSubjects(subs);
       if (!subs.includes(subject)) setSubjects([...subs, subject]);
-      setSubject(subject);
+      selectSubject(subject);
     }
     await reloadSheet();
   };
@@ -440,7 +456,7 @@ export default function GradingPage() {
       if (subs) {
         const next = subs.includes(subject) ? subs : [...subs, subject];
         setSubjects(next);
-        setSubject(subject);
+        selectSubject(subject);
       }
       await reloadSheet();
       return;
@@ -464,7 +480,7 @@ export default function GradingPage() {
     if (subs) {
       const next = subs.includes(subject) ? subs : [...subs, subject];
       setSubjects(next);
-      setSubject(subject);
+      selectSubject(subject);
     }
     await reloadSheet();
   };
@@ -520,7 +536,7 @@ export default function GradingPage() {
     const subs = await fetchSubjects(activeGroup);
     if (subs) {
       setSubjects(subs);
-      setSubject(subjectName.trim());
+      selectSubject(subjectName.trim());
     }
     await reloadSheet();
   };
@@ -543,14 +559,19 @@ export default function GradingPage() {
     const subs = await fetchSubjects(activeGroup);
     if (subs) {
       setSubjects(subs);
-      setSubject(subs[0] ?? "");
+      selectSubject(subs[0] ?? "");
     }
     await reloadSheet();
   };
 
   return (
-    <AppShell active="grading" title="บันทึกคะแนนนักเรียน (Student Grading Sheets) / ครูผู้สอน">
-      <p className="-mt-3 mb-3 text-[13.5px] text-[#5b6b82]">หน้าแรก / บันทึกคะแนน และประเมินผล</p>
+    <AppShell active="grading" title="งานและคะแนน">
+      <div className="-mt-3 mb-3 flex flex-wrap items-center justify-between gap-2">
+        <p className="text-[13.5px] text-[#5b6b82]">จัดการงานที่มอบหมาย คะแนน และการเผยแพร่ให้นักเรียน</p>
+        <UIButton variant="blue" href="/settings#grade-scales" className="h-9 px-3 text-[13px]">
+          ตั้งเกณฑ์ตัดเกรด
+        </UIButton>
+      </div>
 
       {/* ฟิลเตอร์ */}
       <Card className="p-4">
@@ -560,7 +581,7 @@ export default function GradingPage() {
             <span className="relative mt-1 block">
               <select
                 value={activeGroup}
-                onChange={(e) => setGroup(e.target.value)}
+                onChange={(e) => setSelectedGroup(e.target.value)}
                 className="h-10 w-full appearance-none rounded-lg border border-[#d8e0ec] bg-white pl-3 pr-9 text-[14px] focus:border-[#2474c6] focus:outline-none"
               >
                 {groupNames.map((g) => (
@@ -599,7 +620,7 @@ export default function GradingPage() {
             <span className="relative mt-1 block">
               <select
                 value={activeSubject}
-                onChange={(e) => setSubject(e.target.value)}
+                onChange={(e) => selectSubject(e.target.value)}
                 className="h-10 w-full appearance-none rounded-lg border border-[#d8e0ec] bg-white pl-3 pr-9 text-[14px] focus:border-[#2474c6] focus:outline-none"
               >
                 {subjects.map((s) => (
@@ -676,7 +697,9 @@ export default function GradingPage() {
             ส่งออก (Excel)
           </UIButton>
         </div>
-        {assignments.length === 0 ? (
+        {subjectsGroup !== activeGroup ? (
+          <p className="py-8 text-center text-[14px] text-[#5b6b82]">กำลังโหลดวิชาและคะแนนของห้องนี้...</p>
+        ) : assignments.length === 0 ? (
           <p className="py-8 text-center text-[14px] text-[#5b6b82]">
             ยังไม่มีคอลัมน์งานในวิชานี้ — กด “+ เพิ่มคอลัมน์งาน” เพื่อเริ่ม
           </p>

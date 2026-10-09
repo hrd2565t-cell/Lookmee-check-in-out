@@ -9,6 +9,7 @@ import { supabase } from "@/lib/supabase/client";
 import { compareGroupNames } from "@/lib/school-data";
 import { levelOf } from "@/lib/terms";
 import { useRoster } from "@/lib/school-data";
+import { useTeacherGroup } from "@/lib/teacher-scope";
 import { cn } from "@/lib/cn";
 
 const inputCls =
@@ -45,6 +46,7 @@ const toHHMM = (mins: number) =>
 export default function TimetablePage() {
   const { groups: rosterGroups } = useRoster();
   const groupNames = useMemo(() => rosterGroups.map((g) => g.name), [rosterGroups]);
+  const { selectedGroup, setSelectedGroup } = useTeacherGroup(groupNames);
   // เป้าหมายที่ตั้งค่า: ห้องเดียว หรือทั้งชั้น ("l:ม.1" = ทุกห้องในชั้น)
   const [target, setTarget] = useState("");
   const targetOpts = useMemo(() => {
@@ -56,9 +58,16 @@ export default function TimetablePage() {
       ...groupNames.map((g) => ({ value: `g:${g}`, label: g })),
     ];
   }, [groupNames]);
+  const preferredGroupTarget = selectedGroup ? `g:${selectedGroup}` : "";
   const activeTarget = targetOpts.some((o) => o.value === target)
     ? target
-    : (targetOpts[0]?.value ?? "");
+    : targetOpts.some((o) => o.value === preferredGroupTarget)
+      ? preferredGroupTarget
+      : (targetOpts[0]?.value ?? "");
+  const chooseTarget = (value: string) => {
+    setTarget(value);
+    if (value.startsWith("g:")) setSelectedGroup(value.slice(2));
+  };
   const targetIsLevel = activeTarget.startsWith("l:");
   const targetName = activeTarget.slice(2);
   const [periods, setPeriods] = useState<Period[]>([]);
@@ -316,7 +325,7 @@ export default function TimetablePage() {
   };
 
   return (
-    <AppShell active="timetable" title="ตารางคาบเรียน">
+    <AppShell active="timetable" title="ตารางสอน">
       <div className="flex gap-2" role="tablist" aria-label="มุมมองตาราง">
         {(["group", "overview"] as const).map((v) => (
           <button
@@ -343,7 +352,7 @@ export default function TimetablePage() {
           <span className="sr-only">เลือกห้องหรือชั้น</span>
           <select
             value={activeTarget}
-            onChange={(e) => setTarget(e.target.value)}
+            onChange={(e) => chooseTarget(e.target.value)}
             className="h-11 w-full appearance-none rounded-lg border border-[#d8e0ec] bg-white pl-4 pr-10 text-[15px] font-medium text-[#16233a] focus:border-[#2474c6] focus:outline-none"
           >
             {targetOpts.map((o) => (
@@ -493,7 +502,7 @@ export default function TimetablePage() {
                         type="button"
                         title={`ไปตั้งค่าห้อง ${g}`}
                         onClick={() => {
-                          setTarget(`g:${g}`);
+                          chooseTarget(`g:${g}`);
                           setView("group");
                         }}
                         className="font-bold text-[#2474c6] hover:underline"

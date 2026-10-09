@@ -24,6 +24,7 @@ import {
 } from "@/data/students";
 import { isSupabaseConfigured, supabase } from "@/lib/supabase/client";
 import { compareGroupNames } from "@/lib/school-data";
+import { readTeacherGroup, useTeacherGroup } from "@/lib/teacher-scope";
 import { cn } from "@/lib/cn";
 import { todayStr as attendanceToday } from "@/lib/attendance";
 
@@ -163,10 +164,12 @@ function FilterSelect({
 export default function StudentsPage() {
   const [groupList, setGroupList] = useState<string[]>(initialGroups);
   const [studentList, setStudentList] = useState<Student[]>(initialStudents);
+  const { selectedGroup: sharedGroup, setSelectedGroup: setSharedGroup } = useTeacherGroup(groupList);
+  const [managementTab, setManagementTab] = useState<"students" | "groups">("students");
   const [groupIds, setGroupIds] = useState<Record<string, string>>({});
   const [dbLive, setDbLive] = useState(false);
   const [query, setQuery] = useState("");
-  const [group, setGroup] = useState("all");
+  const group = sharedGroup || "all";
   const [status, setStatus] = useState("all");
   const [page, setPage] = useState(1);
   const PAGE_SIZE = 10;
@@ -288,9 +291,9 @@ export default function StudentsPage() {
   const half = Math.ceil(groupList.length / 2);
 
   const viewGroup = (name: string) => {
-    setGroup(name);
+    setSharedGroup(name);
+    setManagementTab("students");
     setPage(1);
-    tableRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
   };
 
   // หา/สร้าง group_id ใน DB (คืน null ถ้าต่อ DB ไม่ได้)
@@ -340,7 +343,9 @@ export default function StudentsPage() {
     }
     setGroupList((g) => g.filter((x) => x !== name));
     setStudentList((s) => s.filter((x) => x.group !== name));
-    if (group === name) setGroup("all");
+    if (group === name) {
+      setSharedGroup("");
+    }
   };
 
   const openAddGroup = () => {
@@ -395,19 +400,44 @@ export default function StudentsPage() {
       }
       setGroupList((g) => g.map((x) => (x === old ? name : x)).sort(compareGroupNames));
       setStudentList((s) => s.map((x) => (x.group === old ? { ...x, group: name } : x)));
-      if (group === old) setGroup(name);
+      if (group === old) {
+        setSharedGroup(name);
+      }
     }
     setGroupModal(null);
     setNotice("");
   };
 
   const openAddStudent = () => {
-    setForm({ code: "", prefix: PREFIXES[0], first: "", last: "", group: groupList[0] ?? "", number: "" });
+    const preferredGroup = sharedGroup || readTeacherGroup();
+    const initialGroup = groupList.includes(preferredGroup) ? preferredGroup : (groupList[0] ?? "");
+    setForm({ code: "", prefix: PREFIXES[0], first: "", last: "", group: initialGroup, number: "" });
     setAddedCount(0);
     setFormError("");
     setEditingCode(null);
     setStudentModal(true);
   };
+  useEffect(() => {
+    const url = new URL(window.location.href);
+    const action = url.searchParams.get("action");
+    if (action === "add-student") {
+      // This effect consumes a one-time external navigation command.
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      openAddStudent();
+    } else if (action === "add-group") {
+      // The query parameter is an external navigation request to open this tab.
+      setManagementTab("groups");
+      openAddGroup();
+    } else if (action === "unregistered") {
+      setStatus("unregistered");
+    } else {
+      return;
+    }
+    window.history.replaceState(null, "", url.pathname);
+    // Run once on entry from a dashboard quick action.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const openEditStudent = (s: Student) => {
     setForm({
       code: s.studentId,
@@ -779,7 +809,31 @@ export default function StudentsPage() {
   });
 
   return (
-    <AppShell active="students" title="สวัสดี ครูลูกหมี">
+    <AppShell active="students" title="นักเรียนและกลุ่มเรียน">
+      <div role="tablist" aria-label="จัดการนักเรียนและกลุ่มเรียน" className="mb-3 grid grid-cols-2 gap-2 rounded-xl border border-[#e4eaf3] bg-white p-1.5">
+        {[
+          { key: "students" as const, label: `นักเรียน (${studentList.length})` },
+          { key: "groups" as const, label: `กลุ่มเรียน (${groupList.length})` },
+        ].map((tab) => {
+          const selected = managementTab === tab.key;
+          return (
+            <button
+              key={tab.key}
+              type="button"
+              role="tab"
+              aria-selected={selected}
+              aria-controls={`${tab.key}-panel`}
+              onClick={() => setManagementTab(tab.key)}
+              className={cn("min-h-10 rounded-lg px-3 text-[14px] font-semibold transition-colors", selected ? "bg-[#e6f4ea] text-[#166c2e]" : "text-[#5b6b82] hover:bg-[#f1f5fa]")}
+            >
+              {tab.label}
+            </button>
+          );
+        })}
+      </div>
+
+      {managementTab === "groups" ? (
+      <section id="groups-panel" role="tabpanel" aria-label="จัดการกลุ่มเรียน">
       {/* group cards */}
       <div className="grid grid-cols-1 gap-3 sm:gap-4 lg:grid-cols-2">
         <Card className="p-4 sm:p-5">
@@ -814,9 +868,12 @@ export default function StudentsPage() {
           </ul>
         </Card>
       </div>
+      </section>
+      ) : null}
 
       {/* student table card */}
-      <div ref={tableRef} className="scroll-mt-4">
+      {managementTab === "students" ? (
+      <div id="students-panel" role="tabpanel" aria-label="จัดการนักเรียน" ref={tableRef} className="scroll-mt-4">
         <Card className="mt-3 p-4 sm:mt-4 sm:p-5">
           <div className="flex flex-wrap items-center gap-2">
             <CardTitle className="mr-auto">จัดการนักเรียน</CardTitle>
@@ -832,9 +889,6 @@ export default function StudentsPage() {
             </span>
             <UIButton variant="blue" onClick={openAddStudent} className="h-9 px-3.5 text-[13.5px]">
               เพิ่มนักเรียนใหม่
-            </UIButton>
-            <UIButton variant="green" onClick={openAddGroup} className="h-9 px-3.5 text-[13.5px]">
-              เพิ่มกลุ่มเรียนใหม่
             </UIButton>
             <UIButton variant="green" onClick={() => fileRef.current?.click()} className="h-9 px-3.5 text-[13.5px]">
               นำเข้าจากไฟล์ใหม่
@@ -884,11 +938,11 @@ export default function StudentsPage() {
               label="กรองตามกลุ่ม"
               value={group}
               onChange={(v) => {
-                setGroup(v);
+                setSharedGroup(v === "all" ? "" : v);
                 setPage(1);
               }}
               options={[
-                { value: "all", label: "Filters" },
+                { value: "all", label: "ทุกห้อง" },
                 ...groupList.map((g) => ({ value: g, label: g })),
               ]}
             />
@@ -1056,7 +1110,8 @@ export default function StudentsPage() {
           </button>
         </div>
       </Card>
-    </div>
+      </div>
+      ) : null}
 
       {/* add/edit group modal */}
       {groupModal ? (

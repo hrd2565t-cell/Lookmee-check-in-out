@@ -27,6 +27,7 @@ import {
   type SessionInfo,
 } from "@/lib/attendance";
 import { useRoster } from "@/lib/school-data";
+import { useTeacherGroup } from "@/lib/teacher-scope";
 import { ensureSession, fillAbsentForLeave, markActivity, todayStr as dbToday } from "@/lib/attendance";
 import {
   createLeave,
@@ -37,6 +38,7 @@ import {
   type LeaveType,
 } from "@/lib/leaves";
 import { cn } from "@/lib/cn";
+import { fetchPendingDisputes, resolveDispute, type StudentDispute } from "@/lib/disputes";
 
 /* ---------- CSV export (เปิดใน Excel ได้, รองรับภาษาไทย) ---------- */
 function downloadCsv(filename: string, rows: ReportRow[]) {
@@ -129,8 +131,8 @@ export default function ReportsPage() {
     () => rosterGroups.map((g) => g.name),
     [rosterGroups],
   );
-  const [groupSel, setGroupSel] = useState("");
-  const group = reportGroups.includes(groupSel) ? groupSel : (reportGroups[0] ?? "");
+  const { selectedGroup, setSelectedGroup } = useTeacherGroup(reportGroups);
+  const group = selectedGroup || (reportGroups[0] ?? "");
   const [date, setDate] = useState(dbToday());
   const [daySessions, setDaySessions] = useState<SessionInfo[]>([]);
   const [dayRecords, setDayRecords] = useState<DayRecord[]>([]);
@@ -175,6 +177,8 @@ export default function ReportsPage() {
   const [dbLeaves, setDbLeaves] = useState(false);
   const [leaveModal, setLeaveModal] = useState(false);
   const [leaveNotice, setLeaveNotice] = useState("");
+  const [studentDisputes, setStudentDisputes] = useState<StudentDispute[] | null>(null);
+  const [disputeNotice, setDisputeNotice] = useState("");
   const todayStr = new Date().toISOString().slice(0, 10);
   const [fGroup, setFGroup] = useState("");
   const [fStudent, setFStudent] = useState("");
@@ -271,6 +275,20 @@ export default function ReportsPage() {
       }
     });
   }, []);
+
+  useEffect(() => {
+    fetchPendingDisputes().then((rows) => setStudentDisputes(rows));
+  }, []);
+
+  const onResolveDispute = async (id: string) => {
+    const ok = await resolveDispute(id);
+    if (!ok) {
+      setDisputeNotice("ปิดคำขอไม่สำเร็จ — ลองอีกครั้ง");
+      return;
+    }
+    setStudentDisputes((rows) => rows?.filter((row) => row.id !== id) ?? []);
+    setDisputeNotice("รับทราบและปิดคำขอแล้ว");
+  };
 
   const fmtDate = (iso: string) => {
     const [y, m, d] = iso.split("-");
@@ -398,6 +416,8 @@ export default function ReportsPage() {
 
   const pagerBtn =
     "rounded-md p-1.5 text-[#5b6b82] hover:bg-[#eef3f9] disabled:opacity-30 disabled:hover:bg-transparent";
+  const visibleLeaves = selectedGroup ? leaves.filter((leave) => leave.group === selectedGroup) : leaves;
+  const visibleDisputes = studentDisputes?.filter((request) => !selectedGroup || request.group === selectedGroup) ?? null;
 
   return (
     <AppShell
@@ -422,7 +442,7 @@ export default function ReportsPage() {
               <select
                 value={group}
                 onChange={(e) => {
-                  setGroupSel(e.target.value);
+                  setSelectedGroup(e.target.value);
                   setPage(1);
                 }}
                 className="h-10 w-full appearance-none rounded-lg border border-[#d8e0ec] bg-white pl-3 pr-9 text-[14px] text-[#16233a] focus:border-[#2474c6] focus:outline-none"
@@ -683,10 +703,10 @@ export default function ReportsPage() {
           </Card>
 
           {/* ใบลารออนุมัติ */}
-          <Card className="p-4 sm:p-5">
+          <Card id="pending-leaves" className="p-4 sm:p-5">
             <div className="flex items-center gap-2">
               <CardTitle className="mr-auto">
-                ใบลารออนุมัติ ({leaves.length})
+                ใบลารออนุมัติ ({visibleLeaves.length})
               </CardTitle>
               {dbLeaves ? null : (
                 <span className="rounded-full bg-[#f1f5fa] px-2.5 py-1 text-[12px] font-bold text-[#5b6b82]">
@@ -699,13 +719,13 @@ export default function ReportsPage() {
                 {leaveNotice}
               </p>
             ) : null}
-            {leaves.length === 0 ? (
+            {visibleLeaves.length === 0 ? (
               <p className="py-4 text-center text-[14px] text-[#5b6b82]">
                 ไม่มีใบลารออนุมัติ
               </p>
             ) : (
               <ul className="mt-2 divide-y divide-[#eef2f7]">
-                {leaves.map((l) => (
+                {visibleLeaves.map((l) => (
                   <li key={l.id} className="flex flex-wrap items-center gap-2 py-2.5">
                     <div className="min-w-0 flex-1">
                       <p className="text-[14px] font-bold text-[#16233a]">
@@ -735,6 +755,50 @@ export default function ReportsPage() {
                     >
                       ปฏิเสธ
                     </UIButton>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </Card>
+
+          <Card id="student-disputes" className="p-4 sm:p-5">
+            <div className="flex items-center gap-2">
+              <CardTitle className="mr-auto">
+                คำขอแก้ไขข้อมูลจากนักเรียน ({visibleDisputes?.length ?? 0})
+              </CardTitle>
+            </div>
+            {selectedGroup ? <p className="mt-0.5 text-[12px] text-[#5b6b82]">แสดงคำขอของห้อง {selectedGroup}</p> : null}
+            {disputeNotice ? (
+              <p role="status" className="mt-2 rounded-lg bg-[#e8f1fb] px-3 py-2 text-[13.5px] font-medium text-[#1a5da3]">
+                {disputeNotice}
+              </p>
+            ) : null}
+            {studentDisputes === null ? (
+              <p className="py-4 text-center text-[14px] text-[#5b6b82]">กำลังโหลดคำขอ...</p>
+            ) : visibleDisputes?.length === 0 ? (
+              <p className="py-4 text-center text-[14px] text-[#5b6b82]">ไม่มีคำขอแก้ไขที่รอตรวจ</p>
+            ) : (
+              <ul className="mt-2 divide-y divide-[#eef2f7]">
+                {visibleDisputes?.map((request) => (
+                  <li key={request.id} className="flex flex-wrap items-center gap-2 py-2.5">
+                    <div className="min-w-0 flex-1">
+                      <p className="text-[14px] font-bold text-[#16233a]">
+                        {request.studentName}
+                        <span className="ml-2 font-medium text-[#5b6b82]">{request.group} · {request.studentCode}</span>
+                      </p>
+                      <p className="mt-0.5 whitespace-pre-wrap text-[13.5px] text-[#5b6b82]">{request.message}</p>
+                      <p className="mt-0.5 text-[11.5px] text-[#8a97ab]">
+                        {new Date(request.createdAt).toLocaleString("th-TH", { dateStyle: "medium", timeStyle: "short" })}
+                      </p>
+                    </div>
+                    <div className="flex shrink-0 gap-1.5">
+                      <UIButton variant="blue" onClick={() => setDetailCode(request.studentCode)} className="h-9 px-3 text-[13px]">
+                        ดูประวัติ
+                      </UIButton>
+                      <UIButton variant="green" onClick={() => void onResolveDispute(request.id)} className="h-9 px-3 text-[13px]">
+                        รับทราบ / ปิดคำขอ
+                      </UIButton>
+                    </div>
                   </li>
                 ))}
               </ul>

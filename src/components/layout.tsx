@@ -1,6 +1,7 @@
 import Link from "next/link";
 import {
   CalendarIcon,
+  ChevronDownIcon,
   GearIcon,
   HomeIcon,
   PencilIcon,
@@ -22,39 +23,39 @@ const NAV_ITEMS: Array<{
   href: string;
   icon: (props: { className?: string }) => React.JSX.Element;
 }> = [
-  { key: "dashboard", thai: "Dashboard", eng: "", href: "/", icon: HomeIcon },
+  { key: "dashboard", thai: "หน้าแรก", eng: "", href: "/", icon: HomeIcon },
   {
     key: "scanner",
-    thai: "สแกนเข้าเรียน",
-    eng: "(Daily Scanner)",
+    thai: "เช็กชื่อเข้าเรียน",
+    eng: "(Attendance)",
     href: "/scanner",
     icon: ScanIcon,
   },
   {
     key: "students",
-    thai: "จัดการนักเรียน",
+    thai: "นักเรียนและกลุ่มเรียน",
     eng: "(Student Management)",
     href: "/students",
     icon: UsersIcon,
   },
   {
     key: "grading",
-    thai: "กรอกคะแนน",
-    eng: "(Grading)",
+    thai: "งานและคะแนน",
+    eng: "(Assignments & Scores)",
     href: "/grading",
     icon: PencilIcon,
   },
   {
     key: "reports",
-    thai: "รายงานการเข้าเรียน",
-    eng: "(Reports)",
+    thai: "รายงานและคำขอ",
+    eng: "(Attendance & Requests)",
     href: "/reports",
     icon: ReportIcon,
   },
   {
     key: "timetable",
-    thai: "ตารางคาบเรียน",
-    eng: "(Timetable)",
+    thai: "ตารางสอน",
+    eng: "(Teaching Schedule)",
     href: "/timetable",
     icon: CalendarIcon,
   },
@@ -74,62 +75,107 @@ function NavList({
   active: NavKey;
   orientation?: "vertical" | "horizontal";
 }) {
-  return (
-    <nav
-      aria-label="เมนูหลัก"
-      className={cn(
-        orientation === "vertical"
-          ? "flex flex-col"
-          : "flex flex-row gap-2 overflow-x-auto",
-      )}
-    >
-      {NAV_ITEMS.map((item) => {
-        const isActive = item.key === active;
-        const Icon = item.icon;
-        return (
-          <Link
-            key={item.key}
-            href={item.href}
-            aria-current={isActive ? "page" : undefined}
+  const compactLink = (item: (typeof NAV_ITEMS)[number], label?: string) => {
+    const isActive = item.key === active || (item.key === "scanner" && active === "reports");
+    const Icon = item.icon;
+    return (
+      <Link
+        key={item.key}
+        href={item.href}
+        aria-current={item.key === active ? "page" : isActive ? "location" : undefined}
+        className={cn(
+          "relative flex min-h-12 min-w-0 flex-col items-center justify-center gap-0.5 rounded-lg px-1 py-1 text-center transition-colors",
+          isActive ? "bg-[#e6f4ea] font-semibold text-[#166c2e]" : "text-[#5b6b82] hover:bg-[#f1f5fa]",
+        )}
+      >
+        <Icon className={cn("h-[18px] w-[18px]", isActive ? "text-[#1e8e3e]" : "text-[#5b6b82]")} />
+        <span className="truncate text-[10.5px] leading-tight">{label ?? item.thai}</span>
+      </Link>
+    );
+  };
+
+  if (orientation === "horizontal") {
+    const moreActive = active === "timetable" || active === "settings";
+    return (
+      <nav aria-label="เมนูหลัก" className="grid grid-cols-5 gap-1">
+        {compactLink(NAV_ITEMS[0]!, "หน้าแรก")}
+        {compactLink(NAV_ITEMS[1]!, "เข้าเรียน")}
+        {compactLink(NAV_ITEMS[2]!, "นักเรียน")}
+        {compactLink(NAV_ITEMS[3]!, "งาน/คะแนน")}
+        <details open={moreActive} className="group relative min-w-0">
+          <summary
+            aria-label="เมนูเพิ่มเติม"
             className={cn(
-              "group relative flex items-center gap-2.5 rounded-r-lg px-4 py-2.5 text-left transition-colors",
-              orientation === "horizontal" && "min-w-max rounded-lg",
-              isActive
-                ? "bg-[#e6f4ea] font-semibold text-[#166c2e]"
-                : "text-[#16233a] hover:bg-[#f1f5fa]",
+              "flex min-h-12 cursor-pointer list-none flex-col items-center justify-center gap-0.5 rounded-lg px-1 py-1 text-center transition-colors [&::-webkit-details-marker]:hidden",
+              moreActive ? "bg-[#e6f4ea] font-semibold text-[#166c2e]" : "text-[#5b6b82] hover:bg-[#f1f5fa]",
             )}
           >
-            {/* active left rail */}
-            <span
-              aria-hidden="true"
-              className={cn(
-                "absolute left-0 top-1 bottom-1 w-1 rounded-r-full bg-[#1e9e4b]",
-                isActive ? "opacity-100" : "opacity-0",
-                orientation === "horizontal" && "hidden",
-              )}
-            />
-            <Icon
-              className={cn(
-                "h-5 w-5 shrink-0",
-                isActive ? "text-[#1e8e3e]" : "text-[#5b6b82]",
-              )}
-            />
-            <span className="leading-tight">
-              <span className="block text-[15px]">{item.thai}</span>
-              {item.eng ? (
-                <span
-                  className={cn(
-                    "block text-[12.5px] font-normal",
-                    isActive ? "text-[#166c2e]/80" : "text-[#5b6b82]",
-                  )}
+            <ChevronDownIcon className={cn("h-[18px] w-[18px] transition-transform group-open:rotate-180", moreActive ? "text-[#1e8e3e]" : "text-[#5b6b82]")} />
+            <span className="truncate text-[10.5px] leading-tight">เพิ่มเติม</span>
+          </summary>
+          <div className="absolute right-0 top-full z-50 mt-1 min-w-48 rounded-xl border border-[#e4eaf3] bg-white p-1.5 shadow-lg">
+            {[NAV_ITEMS[5]!, NAV_ITEMS[6]!].map((item) => {
+              const Icon = item.icon;
+              const selected = item.key === active;
+              return (
+                <Link
+                  key={item.key}
+                  href={item.href}
+                  aria-current={selected ? "page" : undefined}
+                  className={cn("flex min-h-11 items-center gap-2 rounded-lg px-3 py-2 text-[13px] font-semibold", selected ? "bg-[#e6f4ea] text-[#166c2e]" : "text-[#16233a] hover:bg-[#f1f5fa]")}
                 >
-                  {item.eng}
-                </span>
-              ) : null}
-            </span>
-          </Link>
-        );
-      })}
+                  <Icon className="h-4 w-4" />
+                  {item.thai}
+                </Link>
+              );
+            })}
+          </div>
+        </details>
+      </nav>
+    );
+  }
+
+  const verticalLink = (item: (typeof NAV_ITEMS)[number], label?: string) => {
+    const isActive = item.key === active;
+    const Icon = item.icon;
+    return (
+      <Link
+        key={item.key}
+        href={item.href}
+        aria-current={item.key === active ? "page" : undefined}
+        className={cn(
+          "group relative flex items-center gap-2.5 rounded-r-lg px-4 py-2.5 text-left transition-colors",
+          isActive ? "bg-[#e6f4ea] font-semibold text-[#166c2e]" : "text-[#16233a] hover:bg-[#f1f5fa]",
+        )}
+      >
+        <span aria-hidden="true" className={cn("absolute bottom-1 left-0 top-1 w-1 rounded-r-full bg-[#1e9e4b]", isActive ? "opacity-100" : "opacity-0")} />
+        <Icon className={cn("h-5 w-5 shrink-0", isActive ? "text-[#1e8e3e]" : "text-[#5b6b82]")} />
+        <span className="leading-tight">
+          <span className="block text-[15px]">{label ?? item.thai}</span>
+          {item.eng ? <span className={cn("block text-[12.5px] font-normal", isActive ? "text-[#166c2e]/80" : "text-[#5b6b82]")}>{item.eng}</span> : null}
+        </span>
+      </Link>
+    );
+  };
+
+  return (
+    <nav aria-label="เมนูหลัก" className="flex flex-col">
+      {verticalLink(NAV_ITEMS[0]!)}
+      <div className="mt-2 border-t border-[#eef2f7] pt-2">
+        <p className="px-4 pb-1 text-[11px] font-bold uppercase tracking-wide text-[#8a97ab]">การเข้าเรียน</p>
+        {verticalLink(NAV_ITEMS[1]!, "เช็กชื่อ")}
+        {verticalLink(NAV_ITEMS[4]!, "รายงานและคำขอ")}
+      </div>
+      <div className="mt-2 border-t border-[#eef2f7] pt-2">
+        <p className="px-4 pb-1 text-[11px] font-bold uppercase tracking-wide text-[#8a97ab]">จัดการข้อมูล</p>
+        {verticalLink(NAV_ITEMS[2]!)}
+        {verticalLink(NAV_ITEMS[3]!, "งานและคะแนน")}
+      </div>
+      <div className="mt-2 border-t border-[#eef2f7] pt-2">
+        <p className="px-4 pb-1 text-[11px] font-bold uppercase tracking-wide text-[#8a97ab]">ตั้งค่าการสอน</p>
+        {verticalLink(NAV_ITEMS[5]!)}
+        {verticalLink(NAV_ITEMS[6]!)}
+      </div>
     </nav>
   );
 }
@@ -185,6 +231,26 @@ export function AppShell({
           <h1 className="mb-4 text-[26px] font-bold leading-tight text-[#16233a] sm:text-[32px]">
             {title}
           </h1>
+          {active === "scanner" || active === "reports" ? (
+            <nav aria-label="เมนูการเข้าเรียน" className="mb-4 flex gap-2 rounded-xl border border-[#e4eaf3] bg-white p-1.5">
+              {[
+                { key: "scanner" as const, label: "เช็กชื่อ", href: "/scanner" },
+                { key: "reports" as const, label: "รายงานและคำขอ", href: "/reports" },
+              ].map((item) => {
+                const selected = active === item.key;
+                return (
+                  <Link
+                    key={item.key}
+                    href={item.href}
+                    aria-current={selected ? "page" : undefined}
+                    className={cn("flex min-h-10 flex-1 items-center justify-center rounded-lg px-3 text-[13.5px] font-semibold transition-colors", selected ? "bg-[#e6f4ea] text-[#166c2e]" : "text-[#5b6b82] hover:bg-[#f1f5fa]")}
+                  >
+                    {item.label}
+                  </Link>
+                );
+              })}
+            </nav>
+          ) : null}
           {children}
         </main>
       </div>
