@@ -27,7 +27,7 @@ import {
   type SessionInfo,
 } from "@/lib/attendance";
 import { useRoster } from "@/lib/school-data";
-import { ensureSession, markActivity, todayStr as dbToday } from "@/lib/attendance";
+import { ensureSession, fillAbsentForLeave, markActivity, todayStr as dbToday } from "@/lib/attendance";
 import {
   createLeave,
   decideLeave,
@@ -192,6 +192,7 @@ export default function ReportsPage() {
         studentId: s.code,
         group: s.group,
         registered: false,
+        isRotc: false,
         initials: s.initials,
         color: s.color,
       })),
@@ -299,6 +300,10 @@ export default function ReportsPage() {
       setLeaveNotice("ช่วงวันที่ไม่ถูกต้อง");
       return;
     }
+    if (fType === "other" && !fReason.trim()) {
+      setLeaveNotice("ลาอื่นๆ กรุณาระบุเหตุผล");
+      return;
+    }
     const base = {
       studentCode: st.code,
       studentName: st.name,
@@ -329,12 +334,28 @@ export default function ReportsPage() {
   };
 
   const onDecide = async (id: string, status: "approved" | "rejected") => {
+    const target = leaves.find((x) => x.id === id) ?? null;
     const ok = await decideLeave(id, status);
     if (!ok) {
       setLeaveNotice("บันทึกผลไม่สำเร็จ");
       return;
     }
     setLeaves((l) => l.filter((x) => x.id !== id));
+    // ปฏิเสธ = ปักขาดย้อนหลังเฉพาะวันที่ยังไม่มีแถว (รออนุมัติไม่นับ)
+    if (status === "rejected" && target && !target.id.startsWith("local-")) {
+      const { filled } = await fillAbsentForLeave(
+        target.group,
+        target.studentCode,
+        target.dateFrom,
+        target.dateTo,
+      );
+      setLeaveNotice(
+        filled > 0
+          ? `ปฏิเสธใบลาแล้ว — ปักขาดให้ ${filled} วัน`
+          : "ปฏิเสธใบลาแล้ว",
+      );
+      setRefreshKey((k) => k + 1);
+    }
   };
   const [draftQuery, setDraftQuery] = useState("");
   const [query, setQuery] = useState("");
@@ -841,6 +862,7 @@ export default function ReportsPage() {
               >
                 <option value="sick">ลาป่วย</option>
                 <option value="personal">ลากิจ</option>
+                <option value="other">ลาอื่นๆ (ระบุเหตุผล)</option>
               </select>
             </label>
             <label className="col-span-2 block text-[14px] font-medium text-[#16233a]">
@@ -878,10 +900,11 @@ export default function ReportsPage() {
               />
             </label>
             <label className="col-span-2 block text-[14px] font-medium text-[#16233a]">
-              เหตุผล
+              เหตุผล {fType === "other" ? "(จำเป็น)" : "(ถ้ามี)"}
               <input
                 value={fReason}
                 onChange={(e) => setFReason(e.target.value)}
+                required={fType === "other"}
                 placeholder="เช่น ป่วยเป็นไข้"
                 className="mt-1 h-10 w-full rounded-lg border border-[#d8e0ec] bg-white px-3 text-[14px] placeholder:text-[#8a97ab] focus:border-[#2474c6] focus:outline-none"
               />

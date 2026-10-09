@@ -14,6 +14,7 @@ export type Student = {
   studentId: string;
   group: string;
   registered: boolean;
+  isRotc: boolean;
   initials: string;
   color: string;
   prefix?: string;
@@ -40,6 +41,7 @@ export const students: Student[] = SCHOOL_STUDENTS.map((s) => ({
   studentId: s.code,
   group: s.group,
   registered: false,
+  isRotc: false,
   initials: s.initials,
   color: s.color,
   prefix: s.title,

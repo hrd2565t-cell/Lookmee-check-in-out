@@ -155,9 +155,9 @@ export async function submitLeaveSelf(input: {
   code: string;
   from: string;
   to: string;
-  type: "sick" | "personal";
+  type: "sick" | "personal" | "other";
   reason: string;
-}): Promise<"saved" | "bad_dates" | "failed"> {
+}): Promise<"saved" | "bad_dates" | "need_reason" | "failed"> {
   try {
     const { data, error } = await supabase.rpc("submit_leave", {
       p_code: input.code,
@@ -168,8 +168,7 @@ export async function submitLeaveSelf(input: {
     });
     if (error || !data) return "failed";
     const r = (data as { result: string }).result;
-    if (r === "saved") return "saved";
-    if (r === "bad_dates") return "bad_dates";
+    if (r === "saved" || r === "bad_dates" || r === "need_reason") return r;
     return "failed";
   } catch {
     return "failed";

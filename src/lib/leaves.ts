@@ -1,6 +1,6 @@
 import { isSupabaseConfigured, supabase } from "./supabase/client";
 
-export type LeaveType = "sick" | "personal";
+export type LeaveType = "sick" | "personal" | "other";
 export type LeaveStatus = "pending" | "approved" | "rejected";
 
 export type LeaveItem = {
@@ -18,6 +18,7 @@ export type LeaveItem = {
 export const LEAVE_TYPE_LABEL: Record<LeaveType, string> = {
   sick: "ลาป่วย",
   personal: "ลากิจ",
+  other: "ลาอื่นๆ",
 };
 
 type DbLeaveRow = {
@@ -47,7 +48,7 @@ function toItem(r: DbLeaveRow): LeaveItem | null {
     group: st.class_groups?.name ?? "-",
     dateFrom: r.date_from,
     dateTo: r.date_to,
-    type: r.type === "personal" ? "personal" : "sick",
+    type: r.type === "sick" || r.type === "personal" || r.type === "other" ? r.type : "sick",
     reason: r.reason ?? "-",
     status: (["pending", "approved", "rejected"] as const).includes(r.status as LeaveStatus)
       ? (r.status as LeaveStatus)

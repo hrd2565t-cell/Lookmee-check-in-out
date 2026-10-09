@@ -333,6 +333,51 @@ export async function fetchRecordsByDate(date: string): Promise<DayRecord[] | nu
   }
 }
 
+/** ปักขาดย้อนหลังช่วงวันที่ลา (เฉพาะวันที่ยังไม่มีแถว — ของเดิมไม่โดนทับ) */
+export async function fillAbsentForLeave(
+  groupName: string,
+  studentCode: string,
+  fromDate: string,
+  toDate: string,
+): Promise<{ filled: number }> {
+  let filled = 0;
+  try {
+    const { data: st } = await supabase
+      .from("students")
+      .select("id")
+      .eq("student_code", studentCode)
+      .eq("status", "active")
+      .single();
+    const studentId = (st as { id: string } | null)?.id;
+    if (!studentId) return { filled };
+    const cur = new Date(`${fromDate}T00:00:00`);
+    const end = new Date(`${toDate}T00:00:00`);
+    let guard = 0;
+    while (cur <= end && guard++ < 60) {
+      const ds = `${cur.getFullYear()}-${String(cur.getMonth() + 1).padStart(2, "0")}-${String(cur.getDate()).padStart(2, "0")}`;
+      if (cur.getDay() === 0) {
+        cur.setDate(cur.getDate() + 1);
+        continue;
+      }
+      const sessionId = await ensureSession(groupName, ds);
+      if (sessionId) {
+        const { error } = await supabase.from("attendance_records").insert({
+          session_id: sessionId,
+          student_id: studentId,
+          check_in_at: null,
+          status: "absent",
+          method: "manual",
+        });
+        if (!error) filled++;
+      }
+      cur.setDate(cur.getDate() + 1);
+    }
+  } catch {
+    /* ข้าม */
+  }
+  return { filled };
+}
+
 export type AbsentCount = {
   code: string;
   name: string;

@@ -594,9 +594,12 @@ export default function TimetablePage() {
               <input
                 value={form.subject}
                 onChange={(e) => setForm({ ...form, subject: e.target.value })}
-                placeholder="เช่น คณิตศาสตร์"
+                placeholder="เช่น คณิตศาสตร์ หรือ ฝึก รด."
                 className={cn(inputCls, "mt-1")}
               />
+              <span className="mt-1 block text-[12px] font-normal text-[#5b6b82]">
+                คาบที่มีคำว่า “รด.” จะยกเว้นนักเรียนติดธง รด. ให้อัตโนมัติ
+              </span>
             </label>
             <label className="col-span-1 block text-[14px] font-medium text-[#16233a]">
               เริ่ม

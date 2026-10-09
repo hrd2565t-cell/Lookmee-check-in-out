@@ -25,6 +25,7 @@ import {
 import { isSupabaseConfigured, supabase } from "@/lib/supabase/client";
 import { compareGroupNames } from "@/lib/school-data";
 import { cn } from "@/lib/cn";
+import { todayStr as attendanceToday } from "@/lib/attendance";
 
 const PALETTE = [
   "bg-[#dbe7f5] text-[#1a5da3]",
@@ -196,7 +197,7 @@ export default function StudentsPage() {
         if (gErr || !gData) return;
         const { data: sData, error: sErr } = await supabase
           .from("students")
-          .select("student_code,prefix,first_name,last_name,class_no,face_status,group_id")
+          .select("student_code,prefix,first_name,last_name,class_no,face_status,group_id,is_rotc")
           .eq("status", "active");
         if (sErr || !sData) return;
         const idToName = new Map<string, string>(
@@ -213,6 +214,7 @@ export default function StudentsPage() {
             class_no: string;
             face_status: string;
             group_id: string;
+            is_rotc: boolean;
           }>
         )
           .filter((r) => r.student_code && idToName.has(r.group_id))
@@ -225,6 +227,7 @@ export default function StudentsPage() {
               studentId: r.student_code as string,
               group: idToName.get(r.group_id) as string,
               registered: r.face_status === "registered",
+              isRotc: r.is_rotc,
               initials: initialsFor(thaiName),
               color: colorFor(r.student_code as string),
               prefix: r.prefix,
@@ -434,6 +437,39 @@ export default function StudentsPage() {
     setStudentList((list) => list.filter((x) => x.studentId !== s.studentId));
     setNotice(`ซ่อน ${s.thaiName} จากรายชื่อแล้ว`);
   };
+  const toggleRotc = async (s: Student) => {
+    const next = !s.isRotc;
+    if (dbLive) {
+      const { error } = await supabase
+        .from("students")
+        .update({ is_rotc: next })
+        .eq("student_code", s.studentId);
+      if (error) {
+        setNotice(`เปลี่ยนธง รด. ไม่สำเร็จ: ${error.message}`);
+        return;
+      }
+      if (next) {
+        const groupId = groupIds[s.group];
+        if (groupId) {
+          const { data: session } = await supabase
+            .from("attendance_sessions")
+            .select("id")
+            .eq("group_id", groupId)
+            .eq("session_date", attendanceToday())
+            .maybeSingle();
+          if (session) {
+            await supabase.rpc("apply_rotc_exemptions", {
+              p_session_id: (session as { id: string }).id,
+            });
+          }
+        }
+      }
+    }
+    setStudentList((list) =>
+      list.map((x) => x.studentId === s.studentId ? { ...x, isRotc: next } : x),
+    );
+    setNotice(`${s.thaiName}: ${next ? "ตั้งธง รด. แล้ว" : "นำธง รด. ออกแล้ว"}`);
+  };
   const saveStudent = async () => {
     // โหมดแก้ไข: ล็อกเลขประจำตัวไว้
     if (editingCode) {
@@ -527,6 +563,7 @@ export default function StudentsPage() {
         studentId: code,
         group: form.group,
         registered: false,
+        isRotc: false,
         initials: initialsFor(`${form.first.trim()} ${form.last.trim()}`.trim()),
         color: colorFor(code),
         prefix: form.prefix,
@@ -714,6 +751,7 @@ export default function StudentsPage() {
           studentId: r.code,
           group: r.group,
           registered: false,
+          isRotc: false,
           initials: initialsFor(`${r.first} ${r.last}`.trim()),
           color: colorFor(r.code),
           prefix: r.prefix,
@@ -869,15 +907,20 @@ export default function StudentsPage() {
             />
           </div>
 
+          <p className="mt-2 text-[12.5px] text-[#5b6b82]">
+            ★ นักเรียนที่ติดธง รด. จะถูกบันทึกเป็นกิจกรรมอัตโนมัติในวันที่ตารางเรียนมีคาบชื่อ “รด.”
+          </p>
+
           {/* table */}
           <div className="slim-scroll -mx-4 mt-2 overflow-x-auto px-4 sm:-mx-5 sm:px-5">
-            <table className="w-full min-w-[760px] border-collapse text-left">
+            <table className="w-full min-w-[860px] border-collapse text-left">
               <thead>
                 <tr className="text-[13.5px] font-bold text-[#16233a]">
                   <th className="py-2 pr-3 font-bold">Photo</th>
                   <th className="py-2 pr-3 font-bold">ชื่อ</th>
                   <th className="py-2 pr-3 font-bold">Student ID</th>
                   <th className="py-2 pr-3 font-bold">Group</th>
+                  <th className="py-2 pr-3 font-bold">รด.</th>
                   <th className="py-2 pr-3 font-bold">Face Scan Status</th>
                   <th className="py-2 font-bold">
                     <span className="sr-only">Actions</span>
@@ -906,6 +949,18 @@ export default function StudentsPage() {
                     </td>
                     <td className="whitespace-nowrap py-2 pr-3 text-[14px] text-[#16233a]">
                       {s.group}
+                    </td>
+                    <td className="py-2 pr-3 text-center">
+                      <button
+                        type="button"
+                        aria-label={`${s.isRotc ? "ยกเลิกธง" : "ตั้งธง"}นักศึกษาวิชาทหาร รด. ${s.thaiName}`}
+                        aria-pressed={s.isRotc}
+                        title={s.isRotc ? "นักศึกษาวิชาทหาร — ยกเว้นอัตโนมัติตามตาราง รด." : "ตั้งเป็นนักศึกษาวิชาทหาร รด."}
+                        onClick={() => void toggleRotc(s)}
+                        className={cn("rounded px-2 py-1 text-xl leading-none transition-colors", s.isRotc ? "text-[#e69500] hover:bg-[#fff4d6]" : "text-[#aab4c2] hover:bg-[#eef3f9] hover:text-[#e69500]")}
+                      >
+                        ★
+                      </button>
                     </td>
                     <td className="whitespace-nowrap py-2 pr-3">
                       <FaceStatus registered={s.registered} />
@@ -949,7 +1004,7 @@ export default function StudentsPage() {
                 ))}
           {filtered.length === 0 ? (
             <tr>
-              <td colSpan={6} className="py-8 text-center text-[14px] text-[#5b6b82]">
+              <td colSpan={7} className="py-8 text-center text-[14px] text-[#5b6b82]">
                 ไม่พบนักเรียนที่ตรงกับเงื่อนไข
               </td>
             </tr>

@@ -21,6 +21,7 @@ import {
   type MyHistory,
   type StudentIdentity,
 } from "@/lib/student";
+import { LEAVE_TYPE_LABEL, type LeaveType } from "@/lib/leaves";
 import {
   fetchAbsencesInRange,
   fetchLimits,
@@ -55,7 +56,7 @@ export function StudentSummaryShell({
   const todayStr = new Date().toISOString().slice(0, 10);
   const [fFrom, setFFrom] = useState(todayStr);
   const [fTo, setFTo] = useState(todayStr);
-  const [fType, setFType] = useState<"sick" | "personal">("sick");
+  const [fType, setFType] = useState<LeaveType>("sick");
   const [fReason, setFReason] = useState("");
   const [formMsg, setFormMsg] = useState("");
   const [formBusy, setFormBusy] = useState(false);
@@ -89,6 +90,10 @@ export function StudentSummaryShell({
       setFormMsg("กรุณาเลือกวันที่");
       return;
     }
+    if (fType === "other" && !fReason.trim()) {
+      setFormMsg("ลาอื่นๆ กรุณาระบุเหตุผล");
+      return;
+    }
     setFormBusy(true);
     const r = await apiLeave({
       code: identity.code,
@@ -103,6 +108,8 @@ export function StudentSummaryShell({
       onDataChange?.();
     } else if (r === "bad_dates") {
       setFormMsg("วันที่ไม่ถูกต้อง (วันสิ้นสุดต้องไม่ก่อนวันเริ่ม)");
+    } else if (r === "need_reason") {
+      setFormMsg("ลาอื่นๆ กรุณาระบุเหตุผล");
     } else {
       setFormMsg("บันทึกไม่สำเร็จ — ลองอีกครั้ง");
     }
@@ -226,14 +233,15 @@ export function StudentSummaryShell({
             </label>
             <label className="col-span-2 block text-[14px] font-medium text-[#16233a]">
               ประเภท
-              <select value={fType} onChange={(e) => setFType(e.target.value as "sick" | "personal")} className="mt-1 h-10 w-full rounded-lg border border-[#d8e0ec] bg-white px-3 text-[14px] focus:border-[#2474c6] focus:outline-none">
+              <select value={fType} onChange={(e) => setFType(e.target.value as LeaveType)} className="mt-1 h-10 w-full rounded-lg border border-[#d8e0ec] bg-white px-3 text-[14px] focus:border-[#2474c6] focus:outline-none">
                 <option value="sick">ลาป่วย</option>
                 <option value="personal">ลากิจ</option>
+                <option value="other">ลาอื่นๆ (ระบุเหตุผล)</option>
               </select>
             </label>
             <label className="col-span-2 block text-[14px] font-medium text-[#16233a]">
-              เหตุผล
-              <input value={fReason} onChange={(e) => setFReason(e.target.value)} placeholder="เช่น ป่วยเป็นไข้" className="mt-1 h-10 w-full rounded-lg border border-[#d8e0ec] bg-white px-3 text-[14px] placeholder:text-[#8a97ab] focus:border-[#2474c6] focus:outline-none" />
+              เหตุผล {fType === "other" ? "(จำเป็น)" : "(ถ้ามี)"}
+              <input value={fReason} onChange={(e) => setFReason(e.target.value)} required={fType === "other"} placeholder={fType === "other" ? "ระบุเหตุผลการลาอื่นๆ" : "เช่น ป่วยเป็นไข้"} className="mt-1 h-10 w-full rounded-lg border border-[#d8e0ec] bg-white px-3 text-[14px] placeholder:text-[#8a97ab] focus:border-[#2474c6] focus:outline-none" />
             </label>
           </div>
           {formMsg ? (
@@ -278,7 +286,7 @@ export function StudentSummaryShell({
         <Modal title="ช่วยเหลือ" onClose={() => setModal(null)}>
           <ul className="space-y-2 text-[14px] text-[#16233a]">
             <li>• เช็กชื่อทุกเช้าที่หน้า <b>สแกนเข้าเรียน</b> ยืนหน้าตรงให้อยู่ในกรอบ</li>
-            <li>• ลาป่วย/ลากิจล่วงหน้าที่ปุ่ม <b>ยื่นใบลาออนไลน์</b> รอครูอนุมัติ</li>
+            <li>• ยื่นใบลาป่วย/ลากิจ/ลาอื่นๆ ที่ปุ่ม <b>ยื่นใบลาออนไลน์</b> รอครูอนุมัติ (ลาอื่นๆ ต้องระบุเหตุผล)</li>
             <li>• ข้อมูลผิด กด <b>แจ้งขอแก้ไขข้อมูล</b> อธิบายมาได้เลย</li>
             <li>• เกณฑ์ผ่าน: มาเรียนสะสม ≥ 80%</li>
             <li>• ติดปัญหาติดต่อครูประจำชั้นโดยตรง</li>
@@ -394,6 +402,7 @@ export default function StudentSummaryPage() {
   const leaveApproved = leaves.filter((l) => l.status === "approved");
   const sickCount = leaveApproved.filter((l) => l.type === "sick").length;
   const personalCount = leaveApproved.filter((l) => l.type === "personal").length;
+  const otherLeaveCount = leaveApproved.filter((l) => l.type === "other").length;
   const total = att.length;
   const attended = present + late + activity;
   const pct = total > 0 ? Math.round((attended / total) * 1000) / 10 : 0;
@@ -471,7 +480,7 @@ export default function StudentSummaryPage() {
         key: `l-${i}`,
         date: l.date_from,
         dateLabel: fmtDate(l.date_from),
-        type: l.type === "sick" ? "ลาป่วย" : "ลากิจ",
+        type: LEAVE_TYPE_LABEL[l.type as LeaveType] ?? "ลาอื่นๆ",
         detail: l.reason ?? "-",
         proof: "-",
         status: l.status === "approved" ? "approved" : l.status === "rejected" ? "rejected" : "pending",
@@ -500,8 +509,9 @@ export default function StudentSummaryPage() {
   const statCards = [
     { label: "มาเรียน", eng: "Present", value: present, unit: "วัน", num: "text-[#1e8e3e]", icon: <CheckCircleIcon className="h-6 w-6 text-[#1e8e3e]" />, sub: null as string | null },
     { label: "ขาดเรียน", eng: "Absent", value: absent, unit: "วัน", num: "text-[#c62828]", icon: <AlertCircleIcon className="h-6 w-6 text-[#c62828]" />, sub: null },
-    { label: "ลาเรียน", eng: "Leave", value: leaveApproved.length, unit: "วัน", num: "text-[#2474c6]", icon: <ReportIcon className="h-6 w-6 text-[#2474c6]" />, sub: `ป่วย ${sickCount} / กิจ ${personalCount}` },
+    { label: "ลาเรียน", eng: "Leave", value: leaveApproved.length, unit: "วัน", num: "text-[#2474c6]", icon: <ReportIcon className="h-6 w-6 text-[#2474c6]" />, sub: `ป่วย ${sickCount} / กิจ ${personalCount} / อื่นๆ ${otherLeaveCount}` },
     { label: "มาสาย", eng: "Late", value: late, unit: "วัน", num: "text-[#e69500]", icon: <ClockIcon className="h-6 w-6 text-[#e69500]" />, sub: null },
+    { label: "กิจกรรม", eng: "Activity", value: activity, unit: "วัน", num: "text-[#00897b]", icon: <ScanIcon className="h-6 w-6 text-[#00897b]" />, sub: null },
     { label: "รวมวันเรียนสะสม", eng: "Total Days", value: total, unit: "วัน", num: "text-[#5b6b82]", icon: null, sub: null },
   ];
 
@@ -533,7 +543,7 @@ export default function StudentSummaryPage() {
             <p className="mt-1.5 text-right text-[12.5px] text-[#5b6b82]">เกณฑ์ขั้นต่ำ 80.0%</p>
           </Card>
 
-          <div className="mt-3 grid grid-cols-2 gap-2.5 sm:grid-cols-3 xl:grid-cols-5">
+          <div className="mt-3 grid grid-cols-2 gap-2.5 sm:grid-cols-3 xl:grid-cols-3 2xl:grid-cols-6">
             {statCards.map((c) => (
               <Card key={c.label} className="flex min-h-[118px] flex-col justify-between p-3.5">
                 <div className="flex items-start justify-between gap-1">
