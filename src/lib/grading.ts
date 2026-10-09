@@ -16,27 +16,176 @@ export type SheetData = {
   scores: Map<string, number | null>; // `${assignmentId}|${studentCode}` -> score
 };
 
+export type ClassSubject = {
+  id: string;
+  groupId: string;
+  termId: string | null;
+  termName: string | null;
+  name: string;
+};
+
 async function groupIdOf(name: string): Promise<string | null> {
   const { data } = await supabase.from("class_groups").select("id").eq("name", name).single();
   return (data as { id: string } | null)?.id ?? null;
 }
 
-/** วิชาที่มีในกลุ่ม (จากงานที่เคยสร้าง) */
-export async function fetchSubjects(groupName: string): Promise<string[] | null> {
+/** ทะเบียนวิชาของห้อง แยกตามเทอม; termId "all" รวมข้อมูล legacy ที่ยังไม่ผูกเทอม */
+export async function fetchSubjects(groupName: string, termId: string): Promise<ClassSubject[] | null> {
   if (!isSupabaseConfigured) return null;
   try {
     const gid = await groupIdOf(groupName);
     if (!gid) return [];
-    const { data, error } = await supabase
-      .from("assignments")
-      .select("subject")
-      .eq("group_id", gid);
+    let query = supabase
+      .from("class_subjects")
+      .select("id,group_id,term_id,name,school_terms(name)")
+      .eq("group_id", gid)
+      .order("name");
+    if (termId !== "all") query = query.eq("term_id", termId);
+    const { data, error } = await query;
     if (error || !data) return null;
-    return [...new Set((data as Array<{ subject: string }>).map((r) => r.subject))].sort((a, b) =>
-      a.localeCompare(b, "th"),
-    );
+    return (data as unknown as Array<{
+      id: string;
+      group_id: string;
+      term_id: string | null;
+      name: string;
+      school_terms: { name: string } | null;
+    }>).map((row) => ({
+      id: row.id,
+      groupId: row.group_id,
+      termId: row.term_id,
+      termName: row.school_terms?.name ?? null,
+      name: row.name,
+    }));
   } catch {
     return null;
+  }
+}
+
+export type SubjectMutationResult =
+  | { ok: true; subject: ClassSubject }
+  | { ok: false; reason: "duplicate" | "failed" };
+
+/** เพิ่มวิชาเปล่าได้ โดยไม่ต้องสร้างคอลัมน์งานก่อน */
+export async function createSubject(
+  groupName: string,
+  termId: string,
+  name: string,
+): Promise<SubjectMutationResult> {
+  if (!isSupabaseConfigured || !name.trim()) return { ok: false, reason: "failed" };
+  try {
+    const gid = await groupIdOf(groupName);
+    if (!gid) return { ok: false, reason: "failed" };
+    const { data, error } = await supabase
+      .from("class_subjects")
+      .insert({ group_id: gid, term_id: termId, name: name.trim() })
+      .select("id,group_id,term_id,name,school_terms(name)")
+      .single();
+    if (error?.code === "23505") return { ok: false, reason: "duplicate" };
+    if (error || !data) return { ok: false, reason: "failed" };
+    const row = data as unknown as {
+      id: string;
+      group_id: string;
+      term_id: string | null;
+      name: string;
+      school_terms: { name: string } | null;
+    };
+    return {
+      ok: true,
+      subject: {
+        id: row.id,
+        groupId: row.group_id,
+        termId: row.term_id,
+        termName: row.school_terms?.name ?? null,
+        name: row.name,
+      },
+    };
+  } catch {
+    return { ok: false, reason: "failed" };
+  }
+}
+
+export async function renameSubject(subjectId: string, name: string): Promise<"saved" | "duplicate" | "failed"> {
+  if (!isSupabaseConfigured || !name.trim()) return "failed";
+  try {
+    const { error } = await supabase
+      .from("class_subjects")
+      .update({ name: name.trim() })
+      .eq("id", subjectId);
+    if (error?.code === "23505") return "duplicate";
+    return error ? "failed" : "saved";
+  } catch {
+    return "failed";
+  }
+}
+
+export async function deleteSubject(subjectId: string): Promise<boolean> {
+  if (!isSupabaseConfigured) return false;
+  try {
+    const { data, error } = await supabase
+      .from("class_subjects")
+      .delete()
+      .eq("id", subjectId)
+      .select("id")
+      .maybeSingle();
+    return !error && !!data;
+  } catch {
+    return false;
+  }
+}
+
+export async function countSubjectAssignments(subject: ClassSubject): Promise<number> {
+  if (!isSupabaseConfigured) return 0;
+  try {
+    let query = supabase
+      .from("assignments")
+      .select("id", { count: "exact", head: true })
+      .eq("group_id", subject.groupId)
+      .eq("subject", subject.name);
+    if (subject.termId) {
+      const { data: term } = await supabase
+        .from("school_terms")
+        .select("starts_on,ends_on")
+        .eq("id", subject.termId)
+        .maybeSingle();
+      if (term) {
+        const dates = term as { starts_on: string; ends_on: string };
+        query = query.gte("due_date", dates.starts_on).lte("due_date", dates.ends_on);
+      }
+    }
+    const { count, error } = await query;
+    return error ? 0 : (count ?? 0);
+  } catch {
+    return 0;
+  }
+}
+
+export async function countSubjectScores(subject: ClassSubject): Promise<number> {
+  if (!isSupabaseConfigured) return 0;
+  try {
+    let query = supabase
+      .from("assignments")
+      .select("id,submissions!inner(id)")
+      .eq("group_id", subject.groupId)
+      .eq("subject", subject.name);
+    if (subject.termId) {
+      const { data: term } = await supabase
+        .from("school_terms")
+        .select("starts_on,ends_on")
+        .eq("id", subject.termId)
+        .maybeSingle();
+      if (term) {
+        const dates = term as { starts_on: string; ends_on: string };
+        query = query.gte("due_date", dates.starts_on).lte("due_date", dates.ends_on);
+      }
+    }
+    const { data, error } = await query;
+    if (error || !data) return 0;
+    return (data as unknown as Array<{ submissions: unknown[] }>).reduce(
+      (sum, row) => sum + row.submissions.length,
+      0,
+    );
+  } catch {
+    return 0;
   }
 }
 
@@ -243,66 +392,6 @@ export async function deleteAssignment(id: string): Promise<boolean> {
     return !error;
   } catch {
     return false;
-  }
-}
-
-/** เปลี่ยนชื่อวิชาทั้งห้อง (ทุกคอลัมน์ของวิชานั้น) */
-export async function renameSubject(
-  groupName: string,
-  oldSubject: string,
-  newSubject: string,
-): Promise<boolean> {
-  if (!isSupabaseConfigured || !newSubject.trim() || oldSubject === newSubject.trim()) return false;
-  try {
-    const gid = await groupIdOf(groupName);
-    if (!gid) return false;
-    const { error } = await supabase
-      .from("assignments")
-      .update({ subject: newSubject.trim() })
-      .eq("group_id", gid)
-      .eq("subject", oldSubject);
-    return !error;
-  } catch {
-    return false;
-  }
-}
-
-/** ลบวิชาทั้งหมดของห้อง (คอลัมน์ + คะแนนหายตาม cascade) คืนจำนวนคอลัมน์ที่ลบ */
-export async function deleteSubject(groupName: string, subject: string): Promise<number> {
-  if (!isSupabaseConfigured) return 0;
-  try {
-    const gid = await groupIdOf(groupName);
-    if (!gid) return 0;
-    const { data, error } = await supabase
-      .from("assignments")
-      .delete()
-      .eq("group_id", gid)
-      .eq("subject", subject)
-      .select("id");
-    if (error || !data) return 0;
-    return (data as unknown[]).length;
-  } catch {
-    return 0;
-  }
-}
-
-/** นับคะแนนในวิชา (ไว้โชว์ตอนยืนยันลบ) */
-export async function countSubjectScores(groupName: string, subject: string): Promise<number> {
-  if (!isSupabaseConfigured) return 0;
-  try {
-    const gid = await groupIdOf(groupName);
-    if (!gid) return 0;
-    const { data } = await supabase
-      .from("assignments")
-      .select("id,submissions!inner(id)")
-      .eq("group_id", gid)
-      .eq("subject", subject);
-    return ((data ?? []) as Array<{ submissions: unknown[] }>).reduce(
-      (a, r) => a + r.submissions.length,
-      0,
-    );
-  } catch {
-    return 0;
   }
 }
 
