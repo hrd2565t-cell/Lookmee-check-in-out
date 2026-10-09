@@ -27,29 +27,31 @@ export function UserMenu() {
 
   if (!email) {
     return (
-      <span className="hidden items-center gap-2 sm:flex">
+      <span className="flex items-center gap-2">
         <span className="inline-flex h-8 w-8 items-center justify-center rounded-full bg-[#dbe7f5] text-[13px] font-bold text-[#1a5da3]">
           ครู
         </span>
-        <span className="text-[14px] font-semibold">ครูลูกหมี</span>
+        <span className="hidden text-[14px] font-semibold sm:block">ครูลูกหมี</span>
       </span>
     );
   }
 
   return (
-    <span className="hidden items-center gap-2 sm:flex">
+    <span className="flex items-center gap-2">
       <span
         title={email}
-        className="max-w-[140px] truncate text-[14px] font-semibold"
+        className="hidden max-w-[140px] truncate text-[14px] font-semibold sm:block"
       >
         {email}
       </span>
       <button
         type="button"
         onClick={() => void logout()}
+        title="ออกจากระบบ"
         className="rounded-md border border-[#d8e0ec] px-2.5 py-1 text-[12.5px] font-semibold text-[#5b6b82] hover:bg-[#f1f5fa]"
       >
-        ออกจากระบบ
+        <span className="sm:hidden">ออก</span>
+        <span className="hidden sm:inline">ออกจากระบบ</span>
       </button>
     </span>
   );
