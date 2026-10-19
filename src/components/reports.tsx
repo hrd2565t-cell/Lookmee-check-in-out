@@ -11,6 +11,7 @@ import {
   PagePrevIcon,
   PencilIcon,
   SearchIcon,
+  TrashIcon,
 } from "@/components/icons";
 import { Avatar, Card, CardTitle, DonutChart, Modal, UIButton } from "@/components/ui";
 import { StudentDetail } from "@/components/student-detail";
@@ -33,6 +34,7 @@ import {
     type SessionInfo,
     type AttendanceStatus,
     updateAttendanceRecord,
+    deleteAttendanceRecord,
   } from "@/lib/attendance";
 import { downloadCsv } from "@/lib/export";
 import { useRoster } from "@/lib/school-data";
@@ -344,6 +346,16 @@ export default function ReportsPage() {
     setRefreshKey((k) => k + 1);
   };
 
+  const deleteRecord = async (recordId: string) => {
+    if (!window.confirm("ลบแถวเช็คชื่อนี้หรือไม่?")) return;
+    const ok = await deleteAttendanceRecord(recordId);
+    if (!ok) {
+      setLeaveNotice("ลบไม่สำเร็จ — ตรวจการเชื่อมต่อ");
+      return;
+    }
+    setRefreshKey((k) => k + 1);
+  };
+
   const openEditLeave = (l: LeaveItem) => {
     if (l.status !== "pending") return;
     setEditLeave(l);
@@ -518,6 +530,10 @@ export default function ReportsPage() {
   const pageRows = rows.slice(
     (safePage - 1) * PAGE_SIZE,
     safePage * PAGE_SIZE,
+  );
+  const recordIdByCode = useMemo(
+    () => new Map(grec.map((d) => [d.studentCode, d.id])),
+    [grec],
   );
 
   const applyFilters = () => {
@@ -828,6 +844,18 @@ export default function ReportsPage() {
                         >
                           <PencilIcon className="h-5 w-5" />
                         </button>
+    <button
+      type="button"
+      aria-label={`ลบแถวเช็คชื่อ ${r.name}`}
+      title="ลบแถวเช็คชื่อนี้"
+      onClick={() => {
+        const recordId = recordIdByCode.get(r.id);
+        if (recordId) void deleteRecord(recordId);
+      }}
+      className="rounded p-1.5 text-[#c62828] hover:bg-[#fdecec]"
+    >
+      <TrashIcon className="h-5 w-5" />
+    </button>
                         <button
                           type="button"
                           aria-label={`ดาวน์โหลดรายงาน ${r.name}`}

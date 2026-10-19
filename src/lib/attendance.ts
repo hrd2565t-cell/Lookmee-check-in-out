@@ -192,6 +192,17 @@ export async function updateAttendanceRecord(
   }
 }
 
+/** ลบแถวเช็คชื่อ (คืนสถานะเป็นไม่มีข้อมูลสำหรับวันที่นั้น) */
+export async function deleteAttendanceRecord(recordId: string): Promise<boolean> {
+  if (!isSupabaseConfigured) return false;
+  try {
+    const { error } = await supabase.from("attendance_records").delete().eq("id", recordId);
+    return !error;
+  } catch {
+    return false;
+  }
+}
+
 /** ประวัติเช็กชื่อรายคน (ล่าสุด 30 แถว) — null ถ้าต่อ DB ไม่ได้ */
 export async function fetchStudentAttendance(studentCode: string): Promise<AttendanceRow[] | null> {
   if (!isSupabaseConfigured) return null;
