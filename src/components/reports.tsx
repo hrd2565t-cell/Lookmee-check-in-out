@@ -42,6 +42,7 @@ import { useTeacherGroup } from "@/lib/teacher-scope";
 import {
   createLeave,
   decideLeave,
+  deleteLeave,
   fetchPendingLeaves,
   LEAVE_TYPE_LABEL,
   type LeaveItem,
@@ -401,6 +402,17 @@ export default function ReportsPage() {
   useEffect(() => {
     fetchPendingDisputes().then((rows) => setStudentDisputes(rows));
   }, []);
+
+  const onDeleteLeave = async (id: string) => {
+    if (!window.confirm("ลบใบลารายการนี้หรือไม่?")) return;
+    const ok = await deleteLeave(id);
+    if (!ok) {
+      setLeaveNotice("ลบใบลาไม่สำเร็จ");
+      return;
+    }
+    setLeaves((rows) => rows.filter((x) => x.id !== id));
+    setLeaveNotice("ลบใบลาแล้ว");
+  };
 
   const onResolveDispute = async (id: string) => {
     const ok = await resolveDispute(id);
@@ -987,6 +999,15 @@ export default function ReportsPage() {
                       className="rounded p-1.5 text-[#2474c6] hover:bg-[#e8f1fb]"
                     >
                       <PencilIcon className="h-5 w-5" />
+                    </button>
+                    <button
+                      type="button"
+                      aria-label={`ลบใบลา ${l.id}`}
+                      title="ลบรายการใบลา"
+                      onClick={() => void onDeleteLeave(l.id)}
+                      className="rounded p-1.5 text-[#c62828] hover:bg-[#fdecec]"
+                    >
+                      <TrashIcon className="h-5 w-5" />
                     </button>
                   </li>
                 ))}

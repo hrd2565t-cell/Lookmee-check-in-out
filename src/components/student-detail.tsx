@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { PencilIcon } from "@/components/icons";
+import { PencilIcon, TrashIcon } from "@/components/icons";
 import { Modal } from "@/components/ui";
 import {
   fetchStudentAttendance,
@@ -12,6 +12,7 @@ import {
   LEAVE_TYPE_LABEL,
   type LeaveItem,
   type LeaveType,
+  deleteLeave,
   updateLeave,
 } from "@/lib/leaves";
 import { isSupabaseConfigured, supabase } from "@/lib/supabase/client";
@@ -107,6 +108,17 @@ export function StudentDetail({
         .eq("student_code", code);
       if (error) setTwinFlag(!next);
     }
+  };
+
+  const deleteLeaveItem = async (id: string) => {
+    if (!window.confirm("ลบใบลารายการนี้หรือไม่?")) return;
+    const ok = await deleteLeave(id);
+    if (!ok) {
+      setLeaveNotice("ลบใบลาไม่สำเร็จ");
+      return;
+    }
+    setLeaves((rows) => rows?.filter((x) => x.id !== id) ?? []);
+    setLeaveNotice("ลบใบลาแล้ว");
   };
 
   const openEditLeave = (l: LeaveItem) => {
@@ -278,11 +290,20 @@ export function StudentDetail({
               >
                 <PencilIcon className="h-4 w-4" />
               </button>
+              <button
+                type="button"
+                aria-label={`ลบใบลา ${l.id}`}
+                title="ลบรายการใบลา"
+                onClick={() => void deleteLeaveItem(l.id)}
+                className="ml-2 rounded p-1 text-[#c62828] hover:bg-[#fdecec]"
+              >
+                <TrashIcon className="h-4 w-4" />
+              </button>
             </li>
           ))}
         </ul>
       ) : (
-        <p className="py-2 text-center text-[13.5px] text-[#5b6b82]">
+        <p className="py-2 text-center text-[#5b6b82]">
           ไม่มีประวัติการลา
         </p>
       )}
