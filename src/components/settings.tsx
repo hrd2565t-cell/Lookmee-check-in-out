@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { AppShell } from "@/components/layout";
-import { PencilIcon, TrashIcon } from "@/components/icons";
+import { PencilIcon, TrashIcon, DownloadIcon } from "@/components/icons";
 import { Card, CardTitle, Modal, UIButton } from "@/components/ui";
 import {
   fetchLimits,
@@ -14,6 +14,7 @@ import {
 import { fetchGradeScales, saveGradeScales, type GradeScale } from "@/lib/grading";
 import { isSupabaseConfigured, supabase } from "@/lib/supabase/client";
 import { useRoster } from "@/lib/school-data";
+import { fetchFullBackup, downloadBackup, backupStats } from "@/lib/backup";
 import { cn } from "@/lib/cn";
 
 const inputCls =
@@ -26,6 +27,9 @@ export default function SettingsPage() {
   const [limits, setLimits] = useState<AbsenceLimit[]>([]);
   const [dbMode, setDbMode] = useState(false);
   const [notice, setNotice] = useState("");
+  const [backupBusy, setBackupBusy] = useState(false);
+  const [backupNotice, setBackupNotice] = useState("");
+  const [backupSummary, setBackupSummary] = useState<Array<{ table: string; rows: number }>>([]);
   const [tName, setTName] = useState("");
   const [tStart, setTStart] = useState("");
   const [tEnd, setTEnd] = useState("");
@@ -180,6 +184,24 @@ export default function SettingsPage() {
     }
     setNewLevel("");
     await reload();
+  };
+
+  const exportBackup = async () => {
+    setBackupBusy(true);
+    setBackupNotice("");
+    const data = await fetchFullBackup();
+    setBackupBusy(false);
+    if (!data) {
+      setBackupNotice("สำรองไม่สำเร็จ — ตรวจการเชื่อมต่อ");
+      return;
+    }
+    downloadBackup(data);
+    setBackupSummary(backupStats(data));
+    const total = Object.values(data.tables).reduce(
+      (n, rows) => n + (Array.isArray(rows) ? rows.length : 0),
+      0,
+    );
+    setBackupNotice(`สำรองข้อมูลแล้ว ${total} แถว`);
   };
 
   return (
@@ -353,6 +375,31 @@ export default function SettingsPage() {
           </div>
         </Card>
       </div>
+
+      {/* สำรอง/กู้คืนข้อมูล */}
+      <Card className="mt-3 p-4 sm:p-5">
+        <div className="flex flex-wrap items-center gap-2">
+          <CardTitle className="mr-auto">สำรองข้อมูลทั้งระบบ (JSON)</CardTitle>
+          <p className="text-[12.5px] text-[#5b6b82]">
+            ดาวน์โหลดข้อมูลทุกตารางเป็นไฟล์ JSON หนึ่งไฟล์ ไว้กู้คืนหรือย้ายเครื่องได้
+          </p>
+          <UIButton variant="green" onClick={() => void exportBackup()} disabled={backupBusy} className="h-10 px-4 text-[13.5px] disabled:opacity-40">
+            {backupBusy ? "กำลังสำรอง..." : (<><DownloadIcon className="mr-1 h-4 w-4" /> สำรองข้อมูล</>)}
+          </UIButton>
+        </div>
+        {backupNotice ? (
+          <p role="status" className="mt-2 rounded-lg bg-[#e8f1fb] px-3 py-2 text-[13.5px] font-medium text-[#1a5da3]">{backupNotice}</p>
+        ) : null}
+        {backupSummary && backupSummary.length > 0 ? (
+          <ul className="mt-2 divide-y divide-[#eef2f7] text-[13px]">
+            {backupSummary.map((row) => (
+              <li key={row.table} className="flex justify-between py-1.5">
+                <span>{row.table}</span><span className="text-[#5b6b82]">{row.rows} แถว</span>
+              </li>
+            ))}
+          </ul>
+        ) : null}
+      </Card>
 
       {termModal ? (
         <Modal title={`แก้ไข${termModal.name}`} onClose={() => setTermModal(null)}>
