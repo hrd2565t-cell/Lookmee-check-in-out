@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { AppShell } from "@/components/layout";
-import { ChevronDownIcon, ChevronUpIcon, DownloadIcon, EyeIcon, EyeOffIcon, PencilIcon, SearchIcon, TrashIcon } from "@/components/icons";
+import { ChevronDownIcon, DownloadIcon, EyeIcon, EyeOffIcon, PencilIcon, SearchIcon, TrashIcon } from "@/components/icons";
 import { Card, FilePreviewModal, Modal, ScoreCell, UIButton } from "@/components/ui";
 import { SubjectManager } from "@/components/subject-manager";
 import {
@@ -11,7 +11,7 @@ import {
   deleteAssignment,
   fetchSheet,
   fetchSubjects,
-  moveAssignmentOrder,
+  reorderAssignments,
   removeAssignmentFile,
   saveScores,
   toggleAssignmentVisible,
@@ -58,7 +58,7 @@ export default function GradingPage() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editAttachment, setEditAttachment] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
-  const [moveOrderBusy, setMoveOrderBusy] = useState(false);
+  const [draggedId, setDraggedId] = useState<string | null>(null);
   const [importModal, setImportModal] = useState(false);
   const [templateModal, setTemplateModal] = useState(false);
   const [templateDue, setTemplateDue] = useState(new Date().toISOString().slice(0, 10));
@@ -415,10 +415,16 @@ export default function GradingPage() {
     await reloadSheet();
   };
 
-  const moveOrder = async (a: (typeof assignments)[number], direction: "up" | "down") => {
-    setMoveOrderBusy(true);
-    const ok = await moveAssignmentOrder(activeGroup, a.subject, direction);
-    setMoveOrderBusy(false);
+  const handleColumnDrop = async (targetId: string) => {
+    if (!draggedId || draggedId === targetId) return;
+    const draggedIndex = assignments.findIndex((a) => a.id === draggedId);
+    const targetIndex = assignments.findIndex((a) => a.id === targetId);
+    if (draggedIndex === -1 || targetIndex === -1) return;
+    const newOrder = [...assignments];
+    const [moved] = newOrder.splice(draggedIndex, 1);
+    newOrder.splice(targetIndex, 0, moved);
+    const ok = await reorderAssignments(activeGroup, activeSubject, newOrder.map((a) => a.id));
+    setDraggedId(null);
     if (ok) {
       await reloadSheet();
     } else {
@@ -704,61 +710,66 @@ export default function GradingPage() {
                   <th className="min-w-[110px] whitespace-nowrap py-2 pr-3">รหัสประจำตัว</th>
                   <th className="min-w-[200px] whitespace-nowrap py-2 pr-3">ชื่อ-นามสกุล</th>
                   {assignments.map((a) => (
-                    <th key={a.id} className="max-w-[110px] px-1.5 py-2 text-center" title={`${a.title} · ส่ง ${a.due}`}>
-                      <span className="block truncate">{a.title}</span>
-                      <span className="block font-medium text-[#5b6b82]">({a.max})</span>
-                      {!a.visible ? (
-                        <span className="mx-auto mt-0.5 block text-[10px] font-bold text-[#8a97ab]">ซ่อนอยู่</span>
-                      ) : null}
-                      <span className="mx-auto mt-0.5 flex items-center justify-center gap-0.5">
-                        <button
-                          type="button"
-                          aria-label={`ย้ายคอลัมน์ ${a.title} ขึ้น`}
-                          title="ย้ายขึ้น"
-                          onClick={() => void moveOrder(a, "up")}
-                          disabled={moveOrderBusy}
-                          className="rounded p-0.5 text-[#c9d2de] hover:bg-[#e8f1fb] disabled:opacity-40"
-                        >
-                          <ChevronUpIcon className="h-3.5 w-3.5" />
-                        </button>
-                        <button
-                          type="button"
-                          aria-label={`ย้ายคอลัมน์ ${a.title} ลง`}
-                          title="ย้ายลง"
-                          onClick={() => void moveOrder(a, "down")}
-                          disabled={moveOrderBusy}
-                          className="rounded p-0.5 text-[#c9d2de] hover:bg-[#e8f1fb] disabled:opacity-40"
-                        >
-                          <ChevronDownIcon className="h-3.5 w-3.5" />
-                        </button>
-                        <button
-                          type="button"
-                          aria-label={`แก้ไขคอลัมน์ ${a.title}`}
-                          title={`แก้ไข ${a.title}`}
-                          onClick={() => openEditColumn(a)}
-                          className="rounded p-0.5 text-[#c9d2de] hover:bg-[#e8f1fb] hover:text-[#2474c6]"
-                        >
-                          <PencilIcon className="h-3.5 w-3.5" />
-                        </button>
-                        <button
-                          type="button"
-                          aria-label={a.visible ? `ซ่อนคอลัมน์ ${a.title} จากนักเรียน` : `เผยแพร่คอลัมน์ ${a.title}`}
-                          title={a.title + (a.visible ? " (นักเรียนเห็น)" : " (ครูเห็นคนเดียว)")}
-                          onClick={() => void toggleVisible(a)}
-                          className="rounded p-0.5 text-[#c9d2de] hover:bg-[#e8f1fb] hover:text-[#2474c6]"
-                        >
-                          {a.visible ? <EyeIcon className="h-3.5 w-3.5" /> : <EyeOffIcon className="h-3.5 w-3.5" />}
-                        </button>
-                        <button
-                          type="button"
-                          aria-label={`ลบคอลัมน์ ${a.title}`}
-                          title={a.title}
-                          onClick={() => void removeColumn(a)}
-                          className="rounded p-0.5 text-[#c9d2de] hover:bg-[#fdecec] hover:text-[#c62828]"
-                        >
-                          <TrashIcon className="h-3.5 w-3.5" />
-                        </button>
-                      </span>
+                    <th
+                      key={a.id}
+                      className={cn(
+                        "max-w-[110px] px-1.5 py-2 text-center",
+                        draggedId === a.id ? "opacity-50 ring-2 ring-[#2474c6]" : "",
+                      )}
+                      title={`${a.title} · ส่ง ${a.due}`}
+                      draggable={true}
+                      onDragStart={(e) => {
+                        setDraggedId(a.id);
+                        e.dataTransfer.setData("text/plain", a.id);
+                        e.dataTransfer.effectAllowed = "move";
+                      }}
+                      onDragOver={(e) => e.preventDefault()}
+                      onDrop={(e) => {
+                        e.preventDefault();
+                        if (draggedId && draggedId !== a.id) {
+                          void handleColumnDrop(a.id);
+                        }
+                      }}
+                      >
+                      <div className="flex items-center justify-between gap-1">
+                        <div className="flex-1 min-w-0">
+                          <span className="block truncate">{a.title}</span>
+                          <span className="block font-medium text-[#5b6b82]">({a.max})</span>
+                          {!a.visible ? (
+                            <span className="mt-0.5 block text-[10px] font-bold text-[#8a97ab]">ซ่อนอยู่</span>
+                          ) : null}
+                        </div>
+                        <div className="flex items-center gap-1 text-[#8a97ab]">
+                          <span className="text-[10px] cursor-grab active:cursor-grabbing">⋮⋮</span>
+                          <button
+                            type="button"
+                            aria-label={`แก้ไขคอลัมน์ ${a.title}`}
+                            title={`แก้ไข ${a.title}`}
+                            onClick={() => openEditColumn(a)}
+                            className="rounded p-0.5 text-[#c9d2de] hover:bg-[#e8f1fb] hover:text-[#2474c6]"
+                          >
+                            <PencilIcon className="h-3.5 w-3.5" />
+                          </button>
+                          <button
+                            type="button"
+                            aria-label={a.visible ? `ซ่อนคอลัมน์ ${a.title} จากนักเรียน` : `เผยแพร่คอลัมน์ ${a.title}`}
+                            title={a.title + (a.visible ? " (นักเรียนเห็น)" : " (ครูเห็นคนเดียว)")}
+                            onClick={() => void toggleVisible(a)}
+                            className="rounded p-0.5 text-[#c9d2de] hover:bg-[#e8f1fb] hover:text-[#2474c6]"
+                          >
+                            {a.visible ? <EyeIcon className="h-3.5 w-3.5" /> : <EyeOffIcon className="h-3.5 w-3.5" />}
+                          </button>
+                          <button
+                            type="button"
+                            aria-label={`ลบคอลัมน์ ${a.title}`}
+                            title={a.title}
+                            onClick={() => void removeColumn(a)}
+                            className="rounded p-0.5 text-[#c9d2de] hover:bg-[#fdecec] hover:text-[#c62828]"
+                          >
+                            <TrashIcon className="h-3.5 w-3.5" />
+                          </button>
+                        </div>
+                      </div>
                     </th>
                   ))}
                   <th className="px-2 py-2 text-center">รวม</th>

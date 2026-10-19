@@ -549,6 +549,27 @@ export async function moveAssignmentOrder(
   }
 }
 
+/** เรียงลำดับคอลัมน์งานตามลำดับ id ที่ส่งมา (ใช้ตอนลากวางเสร็จ) */
+export async function reorderAssignments(
+  groupName: string,
+  subject: string,
+  orderedIds: string[],
+): Promise<boolean> {
+  if (!isSupabaseConfigured) return false;
+  try {
+    const gid = await groupIdOf(groupName);
+    if (!gid) return false;
+    await Promise.all(
+      orderedIds.map((id, index) =>
+        supabase.from("assignments").update({ sort_order: index }).eq("id", id),
+      ),
+    );
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export type StandardSetItem = {
   title: string;
   max: number;
