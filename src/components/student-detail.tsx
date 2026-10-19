@@ -118,6 +118,11 @@ export function StudentDetail({
   };
 
   const deleteLeaveItem = async (id: string) => {
+    const target = leaves?.find((l) => l.id === id) ?? null;
+    if (!target || target.status !== "pending") {
+      setLeaveNotice("ลบได้เฉพาะใบลาที่ยังรออนุมัติเท่านั้น");
+      return;
+    }
     if (!window.confirm("ลบใบลารายการนี้หรือไม่?")) return;
     const ok = await deleteLeave(id);
     if (!ok) {
@@ -337,15 +342,17 @@ export function StudentDetail({
               >
                 <PencilIcon className="h-4 w-4" />
               </button>
-              <button
-                type="button"
-                aria-label={`ลบใบลา ${l.id}`}
-                title="ลบรายการใบลา"
-                onClick={() => void deleteLeaveItem(l.id)}
-                className="ml-2 rounded p-1 text-[#c62828] hover:bg-[#fdecec]"
-              >
-                <TrashIcon className="h-4 w-4" />
-              </button>
+              {l.status === "pending" ? (
+                <button
+                  type="button"
+                  aria-label={`ลบใบลา ${l.id}`}
+                  title="ลบรายการใบลา"
+                  onClick={() => void deleteLeaveItem(l.id)}
+                  className="ml-2 rounded p-1 text-[#c62828] hover:bg-[#fdecec]"
+                >
+                  <TrashIcon className="h-4 w-4" />
+                </button>
+              ) : null}
             </li>
           ))}
         </ul>

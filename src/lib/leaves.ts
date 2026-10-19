@@ -156,11 +156,11 @@ export async function decideLeave(id: string, status: "approved" | "rejected"): 
   }
 }
 
-/** ลบใบลาออกจากระบบ (ใช้เฉพาะกรณีบันทึกผิดจริง ๆ) */
+/** ลบใบลาออกจากระบบ (ใช้เฉพาะกรณีบันทึกผิดจริง ๆ และต้องเป็นใบลาที่ยังรออนุมัติเท่านั้น) */
 export async function deleteLeave(id: string): Promise<boolean> {
   if (!isSupabaseConfigured) return false;
   try {
-    const { error } = await supabase.from("leave_requests").delete().eq("id", id);
+    const { error } = await supabase.from("leave_requests").delete().eq("id", id).eq("status", "pending");
     return !error;
   } catch {
     return false;

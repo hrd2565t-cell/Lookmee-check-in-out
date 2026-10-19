@@ -404,6 +404,11 @@ export default function ReportsPage() {
   }, []);
 
   const onDeleteLeave = async (id: string) => {
+    const target = visibleLeaves.find((l) => l.id === id) ?? null;
+    if (!target || target.status !== "pending") {
+      setLeaveNotice("ลบได้เฉพาะใบลาที่ยังรออนุมัติเท่านั้น");
+      return;
+    }
     if (!window.confirm("ลบใบลารายการนี้หรือไม่?")) return;
     const ok = await deleteLeave(id);
     if (!ok) {
@@ -1005,7 +1010,7 @@ export default function ReportsPage() {
                       aria-label={`ลบใบลา ${l.id}`}
                       title="ลบรายการใบลา"
                       onClick={() => void onDeleteLeave(l.id)}
-                      className="rounded p-1.5 text-[#c62828] hover:bg-[#fdecec]"
+                      className={l.status !== "pending" ? "opacity-0 pointer-events-none" : "rounded p-1.5 text-[#c62828] hover:bg-[#fdecec]"}
                     >
                       <TrashIcon className="h-5 w-5" />
                     </button>
