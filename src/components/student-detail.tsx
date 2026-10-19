@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { PencilIcon } from "@/components/icons";
 import { Modal } from "@/components/ui";
 import {
   fetchStudentAttendance,
@@ -10,6 +11,8 @@ import {
   fetchStudentLeaves,
   LEAVE_TYPE_LABEL,
   type LeaveItem,
+  type LeaveType,
+  updateLeave,
 } from "@/lib/leaves";
 import { isSupabaseConfigured, supabase } from "@/lib/supabase/client";
 import { cn } from "@/lib/cn";
@@ -60,6 +63,13 @@ export function StudentDetail({
   const [facePhoto, setFacePhoto] = useState<string | null | undefined>(undefined);
   const [faceBusy, setFaceBusy] = useState(false);
   const [twinFlag, setTwinFlag] = useState(false);
+  const [editingLeaveId, setEditingLeaveId] = useState<string | null>(null);
+  const [editLeaveFrom, setEditLeaveFrom] = useState("");
+  const [editLeaveTo, setEditLeaveTo] = useState("");
+  const [editLeaveType, setEditLeaveType] = useState<LeaveType>("sick");
+  const [editLeaveReason, setEditLeaveReason] = useState("");
+  const [editLeaveBusy, setEditLeaveBusy] = useState(false);
+  const [leaveNotice, setLeaveNotice] = useState("");
 
   useEffect(() => {
     let cancelled = false;
@@ -97,6 +107,46 @@ export function StudentDetail({
         .eq("student_code", code);
       if (error) setTwinFlag(!next);
     }
+  };
+
+  const openEditLeave = (l: LeaveItem) => {
+    if (l.status !== "pending") return;
+    setEditingLeaveId(l.id);
+    setEditLeaveFrom(l.dateFrom);
+    setEditLeaveTo(l.dateTo);
+    setEditLeaveType(l.type);
+    setEditLeaveReason(l.reason);
+  };
+
+  const saveEditLeave = async () => {
+    if (!editingLeaveId) return;
+    setEditLeaveBusy(true);
+    const ok = await updateLeave(editingLeaveId, {
+      dateFrom: editLeaveFrom,
+      dateTo: editLeaveTo,
+      type: editLeaveType,
+      reason: editLeaveReason,
+    });
+    setEditLeaveBusy(false);
+    if (!ok) {
+      setLeaveNotice("แก้ไขใบลาไม่สำเร็จ — ตรวจการเชื่อมต่อ");
+      return;
+    }
+    setLeaves((rows) =>
+      rows?.map((x) =>
+        x.id === editingLeaveId
+          ? {
+              ...x,
+              dateFrom: editLeaveFrom,
+              dateTo: editLeaveTo,
+              type: editLeaveType,
+              reason: editLeaveReason,
+            }
+          : x
+      ) ?? []
+    );
+    setEditingLeaveId(null);
+    setLeaveNotice("แก้ไขใบลาแล้ว");
   };
 
   const deleteFace = async () => {
@@ -220,6 +270,17 @@ export function StudentDetail({
               >
                 {STATUS_LABEL[l.status]}
               </span>
+              {l.status === "pending" ? (
+                <button
+                  type="button"
+                  aria-label={`แก้ไขใบลา ${l.id}`}
+                  title="แก้ไขวันที่ / ชนิด / เหตุผลใบลา"
+                  onClick={() => void openEditLeave(l)}
+                  className="ml-2 rounded p-1 text-[#2474c6] hover:bg-[#e8f1fb]"
+                >
+                  <PencilIcon className="h-4 w-4" />
+                </button>
+              ) : null}
             </li>
           ))}
         </ul>
@@ -263,10 +324,79 @@ export function StudentDetail({
           ))}
         </ul>
       ) : (
-        <p className="py-2 text-center text-[13.5px] text-[#5b6b82]">
+        <p className="py-2 text-center text-[#5b6b82]">
           ยังไม่มีประวัติเช็กชื่อ — เริ่มสแกนที่หน้า Daily Scanner
         </p>
       )}
+
+      {/* แก้ไขใบลา */}
+      {editingLeaveId ? (
+        <Modal title="แก้ไขใบลา" onClose={() => setEditingLeaveId(null)}>
+          <div className="grid grid-cols-2 gap-2">
+            <label className="col-span-1 block text-[13px] font-medium text-[#16233a]">
+              ลาตั้งแต่วันที่
+              <input
+                type="date"
+                value={editLeaveFrom}
+                onChange={(e) => setEditLeaveFrom(e.target.value)}
+                className="mt-1 h-10 rounded-lg border border-[#d8e0ec] bg-white px-3 text-[13px] focus:border-[#2474c6] focus:outline-none"
+              />
+            </label>
+            <label className="col-span-1 block text-[13px] font-medium text-[#16233a]">
+              ถึงวันที่
+              <input
+                type="date"
+                value={editLeaveTo}
+                onChange={(e) => setEditLeaveTo(e.target.value)}
+                className="mt-1 h-10 rounded-lg border border-[#d8e0ec] bg-white px-3 text-[13px] focus:border-[#2474c6] focus:outline-none"
+              />
+            </label>
+            <label className="col-span-1 block text-[13px] font-medium text-[#16233a]">
+              ประเภท
+              <select
+                value={editLeaveType}
+                onChange={(e) => setEditLeaveType(e.target.value as LeaveType)}
+                className="mt-1 h-10 rounded-lg border border-[#d8e0ec] bg-white px-3 text-[13px] focus:border-[#2474c6] focus:outline-none"
+              >
+                <option value="sick">ลาป่วย</option>
+                <option value="personal">ลากิจ</option>
+                <option value="other">ลาอื่นๆ</option>
+              </select>
+            </label>
+            <label className="col-span-2 block text-[13px] font-medium text-[#16233a]">
+              เหตุผล
+              <input
+                value={editLeaveReason}
+                onChange={(e) => setEditLeaveReason(e.target.value)}
+                placeholder="เช่น ป่วยเป็นไข้"
+                className="mt-1 h-10 rounded-lg border border-[#d8e0ec] bg-white px-3 text-[13px] focus:border-[#2474c6] focus:outline-none"
+              />
+            </label>
+          </div>
+          {leaveNotice ? (
+            <p role="status" className="mt-2 rounded-lg bg-[#e8f1fb] px-3 py-2 text-[12.5px] font-medium text-[#1a5da3]">
+              {leaveNotice}
+            </p>
+          ) : null}
+          <div className="mt-3 flex justify-end gap-2">
+            <button
+              type="button"
+              onClick={() => setEditingLeaveId(null)}
+              className="rounded-md bg-[#f1f5fa] px-3 py-1.5 text-[12.5px] font-semibold text-[#5b6b82] hover:bg-[#e4eaf3]"
+            >
+              ยกเลิก
+            </button>
+            <button
+              type="button"
+              onClick={() => void saveEditLeave()}
+              disabled={editLeaveBusy}
+              className="rounded-md bg-[#2474c6] px-3 py-1.5 text-[12.5px] font-bold text-white hover:bg-[#1a5da3] disabled:opacity-40"
+            >
+              {editLeaveBusy ? "กำลังบันทึก..." : "บันทึก"}
+            </button>
+          </div>
+        </Modal>
+      ) : null}
     </Modal>
   );
 }
