@@ -12,6 +12,7 @@ import {
   type SchoolTerm,
 } from "@/lib/terms";
 import { fetchGradeScales, saveGradeScales, type GradeScale } from "@/lib/grading";
+import { fetchAbsentCounts } from "@/lib/attendance";
 import { isSupabaseConfigured, supabase } from "@/lib/supabase/client";
 import { useRoster } from "@/lib/school-data";
 import { fetchFullBackup, downloadBackup, backupStats } from "@/lib/backup";
@@ -38,6 +39,17 @@ export default function SettingsPage() {
   const [scaleLevel, setScaleLevel] = useState("ม.1");
   const [scales, setScales] = useState<GradeScale[]>([]);
   const [scalesMsg, setScalesMsg] = useState("");
+  const [watchlist, setWatchlist] = useState<Array<{
+    code: string;
+    name: string;
+    group: string;
+    level: string;
+    absent: number;
+    maxAbsent: number | null;
+    warnBefore: number;
+  }>>([]);
+  const [watchlistLoaded, setWatchlistLoaded] = useState(false);
+  const [watchlistBusy, setWatchlistBusy] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -73,6 +85,54 @@ export default function SettingsPage() {
       cancelled = true;
     };
   }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      if (!terms.length || !limits.length) return;
+      const current = terms.find((t) => t.isCurrent);
+      if (!current) {
+        setWatchlist([]);
+        setWatchlistLoaded(true);
+        return;
+      }
+      setWatchlistBusy(true);
+      try {
+        const rows = await fetchAbsentCounts(current.startsOn, current.endsOn);
+        const list = (rows ?? [])
+          .map((r) => {
+            const level = levelOf(r.group);
+            const limit = limits.find((l) => l.level === level);
+            const maxAbsent = limit?.maxAbsent ?? null;
+            const warnBefore = limit?.warnBefore ?? 0;
+            return {
+              code: r.code,
+              name: r.name,
+              group: r.group,
+              level,
+              absent: r.count,
+              maxAbsent,
+              warnBefore,
+            };
+          })
+          .sort((a, b) => b.absent - a.absent);
+        if (!cancelled) {
+          setWatchlist(list);
+          setWatchlistLoaded(true);
+        }
+      } catch {
+        if (!cancelled) {
+          setWatchlist([]);
+          setWatchlistLoaded(true);
+        }
+      } finally {
+        if (!cancelled) setWatchlistBusy(false);
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [terms, limits]);
 
   const existingLevels = useMemo(() => new Set(limits.map((l) => l.level)), [limits]);
   const missingLevels = useMemo(() => {
@@ -375,6 +435,103 @@ export default function SettingsPage() {
           </div>
         </Card>
       </div>
+
+      {/* Watchlist นักเรียนขาดเกินเกณฑ์ในเทอมปัจจุบัน */}
+      <Card className="mt-3 p-4 sm:p-5">
+        <div className="flex flex-wrap items-center gap-2">
+          <CardTitle className="mr-auto">นักเรียนขาดเกินเกณฑ์ (Watchlist)</CardTitle>
+          <p className="text-[12.5px] text-[#5b6b82]">
+            ยอดขาดในเทอมปัจจุบัน vs เกณฑ์ที่ตั้งไว้ — เกินเกณฑ์ควรเรียกผู้ปกครองพบ
+          </p>
+        </div>
+        {!watchlistLoaded && !watchlistBusy ? (
+          <p className="mt-2 text-center text-[13px] text-[#5b6b82]">กำลังโหลดข้อมูล...</p>
+        ) : watchlistBusy ? (
+          <p className="mt-2 text-center text-[13px] text-[#5b6b82]">กำลังคำนวณยอดขาด...</p>
+        ) : terms.find((t) => t.isCurrent) === undefined ? (
+          <p className="mt-2 rounded-lg bg-[#fef6ec] px-3 py-2 text-[13px] font-semibold text-[#e65100]">
+            ยังไม่มีเทอมปัจจุบัน — ตั้งค่าเทอมในหน้านี้ก่อน
+          </p>
+        ) : watchlist.length === 0 ? (
+          <p className="mt-2 rounded-lg bg-[#e6f4ea] px-3 py-2 text-[13px] font-semibold text-[#166c2e]">
+            ไม่มีนักเรียนขาดเกินเกณฑ์ในเทอมนี้
+          </p>
+        ) : (
+          <div className="mt-2 overflow-x-auto">
+            <table className="w-full min-w-[640px] border-collapse text-left text-[13px]">
+              <thead className="bg-[#f8fafc] text-[12.5px] font-bold text-[#16233a]">
+                <tr>
+                  <th className="px-3 py-2 text-center">ลำดับ</th>
+                  <th className="px-3 py-2">รหัสประจำตัว</th>
+                  <th className="px-3 py-2">ชื่อ-นามสกุล</th>
+                  <th className="px-3 py-2">กลุ่มเรียน</th>
+                  <th className="px-3 py-2 text-center">ระดับ</th>
+                  <th className="px-3 py-2 text-center">ขาด</th>
+                  <th className="px-3 py-2 text-center">เกณฑ์</th>
+                  <th className="px-3 py-2 text-center">สถานะ</th>
+                </tr>
+              </thead>
+              <tbody>
+                {watchlist.map((r, i) => {
+                  const exceeded =
+                    r.maxAbsent !== null && r.absent > r.maxAbsent;
+                  const warning =
+                    !exceeded && r.warnBefore > 0 && r.absent >= r.warnBefore;
+                  return (
+                    <tr
+                      key={r.code}
+                      className={cn(
+                        "border-t border-[#eef2f7]",
+                        exceeded
+                          ? "bg-[#fdecec]"
+                          : warning
+                          ? "bg-[#fef6ec]"
+                          : "",
+                      )}
+                    >
+                      <td className="px-3 py-1.5 text-center text-[#5b6b82]">
+                        {i + 1}
+                      </td>
+                      <td className="px-3 py-1.5 whitespace-nowrap">{r.code}</td>
+                      <td className="px-3 py-1.5 font-medium text-[#16233a]">
+                        {r.name}
+                      </td>
+                      <td className="px-3 py-1.5">{r.group}</td>
+                      <td className="px-3 py-1.5 text-center font-semibold">
+                        {r.level}
+                      </td>
+                      <td className="px-3 py-1.5 text-center font-bold text-[#c62828]">
+                        {r.absent}
+                      </td>
+                      <td className="px-3 py-1.5 text-center">
+                        {r.maxAbsent === null ? "ไม่จำกัด" : String(r.maxAbsent)}
+                      </td>
+                      <td className="px-3 py-1.5 text-center">
+                        <span
+                          className={cn(
+                            "inline-flex items-center justify-center rounded-md px-2 py-0.5 text-[11px] font-bold text-white",
+                            exceeded
+                              ? "bg-[#c62828]"
+                              : warning
+                              ? "bg-[#ef8c1a]"
+                              : "bg-[#1e8e3e]",
+                          )}
+                        >
+                          {exceeded
+                            ? "เกินเกณฑ์"
+                            : warning
+                            ? "เตือน"
+                            : "ปกติ"}
+                        </span>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </Card>
 
       {/* สำรอง/กู้คืนข้อมูล */}
       <Card className="mt-3 p-4 sm:p-5">
