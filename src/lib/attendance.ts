@@ -378,6 +378,83 @@ export async function fillAbsentForLeave(
   return { filled };
 }
 
+export type RangeSummaryRow = {
+  code: string;
+  number: string;
+  name: string;
+  present: number;
+  late: number;
+  activity: number;
+  absent: number;
+  days: number;
+};
+
+/** สรุปรายคนช่วงวันที่ของกลุ่มเดียว (มา/สาย/กิจกรรม/ขาด + จำนวนวันที่มีข้อมูล) */
+export async function fetchGroupRangeSummary(
+  groupName: string,
+  from: string,
+  to: string,
+): Promise<RangeSummaryRow[] | null> {
+  if (!isSupabaseConfigured) return null;
+  try {
+    const { data, error } = await supabase
+      .from("attendance_sessions")
+      .select("session_date,class_groups!inner(name),attendance_records(status,students!inner(student_code,prefix,first_name,last_name,class_no))")
+      .eq("class_groups.name", groupName)
+      .gte("session_date", from)
+      .lte("session_date", to)
+      .order("session_date");
+    if (error || !data) return null;
+    const days = new Set<string>();
+    const map = new Map<string, RangeSummaryRow>();
+    for (const s of data as unknown as Array<{
+      session_date: string;
+      attendance_records: Array<{
+        status: string;
+        students: {
+          student_code: string | null;
+          prefix: string;
+          first_name: string;
+          last_name: string | null;
+          class_no: string;
+        };
+      }>;
+    }>) {
+      days.add(s.session_date);
+      for (const r of s.attendance_records) {
+        const st = r.students;
+        if (!st.student_code) continue;
+        const last = st.last_name ?? "";
+        const cur = map.get(st.student_code) ?? {
+          code: st.student_code,
+          number: st.class_no,
+          name: `${st.prefix}${st.first_name}${last ? ` ${last}` : ""}`,
+          present: 0,
+          late: 0,
+          activity: 0,
+          absent: 0,
+          days: 0,
+        };
+        if (r.status === "present") cur.present++;
+        else if (r.status === "late") cur.late++;
+        else if (r.status === "activity") cur.activity++;
+        else if (r.status === "absent") cur.absent++;
+        map.set(st.student_code, cur);
+      }
+    }
+    const totalDays = days.size;
+    return [...map.values()]
+      .map((row) => ({ ...row, days: totalDays }))
+      .sort(
+        (a, b) =>
+          (Number(a.number) || 999) - (Number(b.number) || 999) ||
+          a.name.localeCompare(b.name, "th"),
+      );
+  } catch {
+    return null;
+  }
+}
+
 export type AbsentCount = {
   code: string;
   name: string;

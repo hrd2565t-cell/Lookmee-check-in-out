@@ -21,14 +21,20 @@ import {
   type ReportRow,
 } from "@/data/reports";
 import {
+  ensureSession,
+  fetchGroupRangeSummary,
   fetchRecordsByDate,
   fetchSessionsByDate,
+  fillAbsentForLeave,
+  markActivity,
+  todayStr as dbToday,
   type DayRecord,
+  type RangeSummaryRow,
   type SessionInfo,
 } from "@/lib/attendance";
+import { downloadCsv } from "@/lib/export";
 import { useRoster } from "@/lib/school-data";
 import { useTeacherGroup } from "@/lib/teacher-scope";
-import { ensureSession, fillAbsentForLeave, markActivity, todayStr as dbToday } from "@/lib/attendance";
 import {
   createLeave,
   decideLeave,
@@ -41,22 +47,12 @@ import { cn } from "@/lib/cn";
 import { fetchPendingDisputes, resolveDispute, type StudentDispute } from "@/lib/disputes";
 
 /* ---------- CSV export (เปิดใน Excel ได้, รองรับภาษาไทย) ---------- */
-function downloadCsv(filename: string, rows: ReportRow[]) {
-  const header = "ชื่อ,รหัสประจำตัว,กลุ่ม,เวลา,สถานะ";
-  const body = rows.map((r) =>
-    [r.name, r.id, r.group, r.time, STATUS_LABEL[r.status]].join(","),
+function downloadReportsCsv(filename: string, rows: ReportRow[]) {
+  downloadCsv(
+    filename,
+    ["ชื่อ", "รหัสประจำตัว", "กลุ่ม", "เวลา", "สถานะ"],
+    rows.map((r) => [r.name, r.id, r.group, r.time, STATUS_LABEL[r.status]]),
   );
-  const blob = new Blob(["\uFEFF" + [header, ...body].join("\n")], {
-    type: "text/csv;charset=utf-8",
-  });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = filename;
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  URL.revokeObjectURL(url);
 }
 
 /* ---------- status pill ---------- */
@@ -171,6 +167,51 @@ export default function ReportsPage() {
     const absent = absentRecs + (session?.status === "completed" ? Math.max(0, missing) : 0);
     return { present, absent, late, activity, total: groupSize };
   }, [grec, groupSize, session]);
+
+  /* ---------- สรุปช่วงวันที่ (ทั้งเทอม/เดือน) ---------- */
+  const monthStart = (() => {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-01`;
+  })();
+  const [rangeFrom, setRangeFrom] = useState(monthStart);
+  const [rangeTo, setRangeTo] = useState(dbToday());
+  const [rangeRows, setRangeRows] = useState<RangeSummaryRow[] | null>(null);
+  const [rangeBusy, setRangeBusy] = useState(false);
+  const [rangeNotice, setRangeNotice] = useState("");
+
+  const loadRange = async (exportIt: boolean) => {
+    if (!group) return;
+    if (!rangeFrom || !rangeTo || rangeFrom > rangeTo) {
+      setRangeNotice("ช่วงวันที่ไม่ถูกต้อง");
+      return;
+    }
+    setRangeBusy(true);
+    const rows = await fetchGroupRangeSummary(group, rangeFrom, rangeTo);
+    setRangeBusy(false);
+    if (!rows) {
+      setRangeRows(null);
+      setRangeNotice("โหลดสรุปไม่สำเร็จ — ตรวจการเชื่อมต่อ");
+      return;
+    }
+    setRangeRows(rows);
+    if (!exportIt) {
+      setRangeNotice(rows.length ? "" : "ไม่พบข้อมูลในช่วงวันที่นี้");
+      return;
+    }
+    downloadCsv(
+      `summary-${group}-${rangeFrom}-${rangeTo}.csv`,
+      ["ลำดับ", "รหัสประจำตัว", "เลขที่", "ชื่อ-นามสกุล", "มาเรียน", "มาสาย", "กิจกรรม", "ขาด", "วันที่มีข้อมูล", "% มาเรียน"],
+      rows.map((r, i) => {
+        const attended = r.present + r.late + r.activity;
+        return [
+          i + 1, r.code, r.number, r.name,
+          r.present, r.late, r.activity, r.absent, r.days,
+          r.days ? Math.round((attended / r.days) * 100) : 0,
+        ];
+      }),
+    );
+    setRangeNotice(`ส่งออก ${rows.length} คนแล้ว`);
+  };
 
   /* ---------- ใบลา ---------- */
   const [leaves, setLeaves] = useState<LeaveItem[]>([]);
@@ -444,6 +485,8 @@ export default function ReportsPage() {
                 onChange={(e) => {
                   setSelectedGroup(e.target.value);
                   setPage(1);
+                  setRangeRows(null);
+                  setRangeNotice("");
                 }}
                 className="h-10 w-full appearance-none rounded-lg border border-[#d8e0ec] bg-white pl-3 pr-9 text-[14px] text-[#16233a] focus:border-[#2474c6] focus:outline-none"
               >
@@ -535,6 +578,82 @@ export default function ReportsPage() {
           </Card>
 
           <Card className="p-4 sm:p-5">
+            <CardTitle className="mb-0.5">สรุปการมาเรียนช่วงวันที่</CardTitle>
+            <p className="mb-2 text-[12.5px] text-[#5b6b82]">
+              รวมยอดมา/สาย/กิจกรรม/ขาดรายคนของห้อง {group} — ใช้ส่งฝ่ายวิชาการหรือเก็บเป็นหลักฐาน
+            </p>
+            <div className="flex flex-wrap items-end gap-2">
+              <label className="block text-[13.5px] font-medium text-[#16233a]">
+                ตั้งแต่วันที่
+                <input
+                  type="date"
+                  value={rangeFrom}
+                  onChange={(e) => setRangeFrom(e.target.value)}
+                  className="mt-1 h-10 rounded-lg border border-[#d8e0ec] bg-white px-3 text-[14px] focus:border-[#2474c6] focus:outline-none"
+                />
+              </label>
+              <label className="block text-[13.5px] font-medium text-[#16233a]">
+                ถึงวันที่
+                <input
+                  type="date"
+                  value={rangeTo}
+                  onChange={(e) => setRangeTo(e.target.value)}
+                  className="mt-1 h-10 rounded-lg border border-[#d8e0ec] bg-white px-3 text-[14px] focus:border-[#2474c6] focus:outline-none"
+                />
+              </label>
+              <UIButton variant="blue" onClick={() => void loadRange(false)} disabled={rangeBusy} className="h-10 bg-[#5b6b82] px-3 text-[13.5px] hover:bg-[#465364] focus-visible:ring-[#5b6b82]/40 disabled:opacity-40">
+                {rangeBusy ? "กำลังโหลด..." : "ดูสรุป"}
+              </UIButton>
+              <UIButton variant="green" onClick={() => void loadRange(true)} disabled={rangeBusy} className="h-10 px-3 text-[13.5px] disabled:opacity-40">
+                ส่งออก (Excel)
+              </UIButton>
+            </div>
+            {rangeNotice ? (
+              <p role="status" className="mt-2 rounded-lg bg-[#e8f1fb] px-3 py-2 text-[13.5px] font-medium text-[#1a5da3]">
+                {rangeNotice}
+              </p>
+            ) : null}
+            {rangeRows && rangeRows.length > 0 ? (
+              <div className="slim-scroll mt-2 max-h-64 overflow-auto rounded-lg border border-[#eef2f7]">
+                <table className="w-full min-w-[620px] border-collapse text-left text-[13px]">
+                  <thead className="sticky top-0 bg-[#f8fafc] text-[12.5px] font-bold text-[#16233a]">
+                    <tr>
+                      <th className="px-2.5 py-2">ลำดับ</th>
+                      <th className="px-2.5 py-2">รหัส</th>
+                      <th className="px-2.5 py-2">ชื่อ-นามสกุล</th>
+                      <th className="px-2.5 py-2 text-center">มา</th>
+                      <th className="px-2.5 py-2 text-center">สาย</th>
+                      <th className="px-2.5 py-2 text-center">กิจกรรม</th>
+                      <th className="px-2.5 py-2 text-center">ขาด</th>
+                      <th className="px-2.5 py-2 text-center">วันที่มีข้อมูล</th>
+                      <th className="px-2.5 py-2 text-center">% มาเรียน</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {rangeRows.map((r, i) => {
+                      const attended = r.present + r.late + r.activity;
+                      const pctAttend = r.days ? Math.round((attended / r.days) * 100) : 0;
+                      return (
+                        <tr key={r.code} className="border-t border-[#eef2f7]">
+                          <td className="px-2.5 py-1.5 text-[#5b6b82]">{i + 1}</td>
+                          <td className="px-2.5 py-1.5">{r.code}</td>
+                          <td className="whitespace-nowrap px-2.5 py-1.5 font-medium text-[#16233a]">{r.name}</td>
+                          <td className="px-2.5 py-1.5 text-center text-[#1e8e3e]">{r.present}</td>
+                          <td className="px-2.5 py-1.5 text-center text-[#ef8c1a]">{r.late}</td>
+                          <td className="px-2.5 py-1.5 text-center text-[#00897b]">{r.activity}</td>
+                          <td className="px-2.5 py-1.5 text-center text-[#c62828]">{r.absent}</td>
+                          <td className="px-2.5 py-1.5 text-center text-[#5b6b82]">{r.days}</td>
+                          <td className="px-2.5 py-1.5 text-center font-bold text-[#16233a]">{pctAttend}%</td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            ) : null}
+          </Card>
+
+          <Card className="p-4 sm:p-5">
             <div className="flex flex-wrap items-center gap-2">
               <h2 className="mr-auto text-[16px] font-bold text-[#16233a]">
                 รายชื่อนักเรียน {group} ({fmtDate(date)})
@@ -555,7 +674,7 @@ export default function ReportsPage() {
                 aria-label="ดาวน์โหลดรายงานเป็น Excel (CSV)"
                 title="ดาวน์โหลดเป็น CSV เปิดใน Excel ได้"
                 onClick={() =>
-                  downloadCsv(`report-${group}.csv`, rows)
+                  downloadReportsCsv(`report-${group}-${date}.csv`, rows)
                 }
                 className="rounded bg-[#1e8e3e] px-1.5 py-0.5 text-[11px] font-bold text-white hover:brightness-110"
               >
@@ -634,7 +753,7 @@ export default function ReportsPage() {
                           type="button"
                           aria-label={`ดาวน์โหลดรายงาน ${r.name}`}
                           title="ดาวน์โหลดรายคน (CSV)"
-                          onClick={() => downloadCsv(`report-${r.id}.csv`, [r])}
+                          onClick={() => downloadReportsCsv(`report-${r.id}-${date}.csv`, [r])}
                           className="rounded p-1.5 text-[#c62828] hover:bg-[#fdecec]"
                         >
                           <DownloadIcon className="h-5 w-5" />

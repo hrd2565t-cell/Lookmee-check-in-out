@@ -20,6 +20,7 @@ import {
   type SheetAssignment,
 } from "@/lib/grading";
 import { fetchTerms, type SchoolTerm } from "@/lib/terms";
+import { downloadCsv } from "@/lib/export";
 import { useRoster } from "@/lib/school-data";
 import { useTeacherGroup } from "@/lib/teacher-scope";
 import { cn } from "@/lib/cn";
@@ -251,39 +252,24 @@ export default function GradingPage() {
 
   const exportCsv = () => {
     const header = ["ลำดับ", "รหัสประจำตัว", "ชื่อ", ...assignments.map((a) => `${a.title} (${a.max})`), "รวม"];
-    const lines = filteredStudents.map((s, i) => {
+    const rows = filteredStudents.map((s, i) => {
       const total = rowTotal(s.code);
       const cells = assignments.map((a) => {
         const d = drafts.get(cellKey(a.id, s.code));
         const v = d !== undefined ? d : (savedScores.get(cellKey(a.id, s.code)) ?? "");
         return v === null ? "" : String(v);
       });
-      return [i + 1, s.code, s.name, ...cells, total].join(",");
+      return [i + 1, s.code, s.name, ...cells, total];
     });
-    const blob = new Blob(["\uFEFF" + [header.join(","), ...lines].join("\n")], {
-      type: "text/csv;charset=utf-8",
-    });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `grades-${activeGroup}-${activeSubject}.csv`;
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    URL.revokeObjectURL(url);
+    downloadCsv(`grades-${activeGroup}-${activeSubject}.csv`, header, rows);
   };
 
   const downloadScoreTemplate = () => {
-    const header = ["เลขประจำตัว", ...assignments.map((a) => a.title)];
-    const blob = new Blob(["\uFEFF" + header.join(",") + "\n"], { type: "text/csv;charset=utf-8" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = "template-import-scores.csv";
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    URL.revokeObjectURL(url);
+    downloadCsv(
+      "template-import-scores.csv",
+      ["เลขประจำตัว", ...assignments.map((a) => a.title)],
+      [],
+    );
   };
 
   const importScores = async (file: File) => {

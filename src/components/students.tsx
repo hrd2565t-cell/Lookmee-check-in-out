@@ -24,6 +24,7 @@ import {
 } from "@/data/students";
 import { isSupabaseConfigured, supabase } from "@/lib/supabase/client";
 import { compareGroupNames } from "@/lib/school-data";
+import { downloadCsv, exportStamp } from "@/lib/export";
 import { readTeacherGroup, useTeacherGroup } from "@/lib/teacher-scope";
 import { cn } from "@/lib/cn";
 import { todayStr as attendanceToday } from "@/lib/attendance";
@@ -289,6 +290,25 @@ export default function StudentsPage() {
     "rounded-md p-1.5 text-[#5b6b82] hover:bg-[#eef3f9] disabled:opacity-30 disabled:hover:bg-transparent";
 
   const half = Math.ceil(groupList.length / 2);
+
+  const exportRoster = () => {
+    downloadCsv(
+      `students-${group === "all" ? "all" : group.replace("/", "-")}-${exportStamp()}.csv`,
+      ["ลำดับ", "รหัสประจำตัว", "คำนำหน้า", "ชื่อ", "นามสกุล", "กลุ่มเรียน", "เลขที่", "สถานะใบหน้า", "รด."],
+      filtered.map((s, i) => [
+        i + 1,
+        s.studentId,
+        s.prefix ?? "",
+        s.firstName ?? "",
+        s.lastName ?? "",
+        s.group,
+        s.number ?? "",
+        s.registered ? "ลงทะเบียนแล้ว" : "ยังไม่ลงทะเบียน",
+        s.isRotc ? "รด." : "",
+      ]),
+    );
+    setNotice(`ส่งออกรายชื่อ ${filtered.length} คนแล้ว`);
+  };
 
   const viewGroup = (name: string) => {
     setSharedGroup(name);
@@ -892,6 +912,9 @@ export default function StudentsPage() {
             </UIButton>
             <UIButton variant="green" onClick={() => fileRef.current?.click()} className="h-9 px-3.5 text-[13.5px]">
               นำเข้าจากไฟล์ใหม่
+            </UIButton>
+            <UIButton variant="blue" onClick={exportRoster} className="h-9 bg-[#5b6b82] px-3.5 text-[13.5px] hover:bg-[#465364] focus-visible:ring-[#5b6b82]/40">
+              ส่งออก (Excel)
             </UIButton>
             <button
               type="button"
