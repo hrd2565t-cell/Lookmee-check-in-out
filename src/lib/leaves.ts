@@ -171,8 +171,7 @@ export async function updateLeave(
         type: fields.type,
         reason: fields.reason ?? null,
       })
-      .eq("id", id)
-      .eq("status", "pending");
+      .eq("id", id);
     return !error;
   } catch {
     return false;

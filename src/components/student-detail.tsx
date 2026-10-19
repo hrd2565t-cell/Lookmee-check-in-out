@@ -110,7 +110,6 @@ export function StudentDetail({
   };
 
   const openEditLeave = (l: LeaveItem) => {
-    if (l.status !== "pending") return;
     setEditingLeaveId(l.id);
     setEditLeaveFrom(l.dateFrom);
     setEditLeaveTo(l.dateTo);
@@ -270,17 +269,15 @@ export function StudentDetail({
               >
                 {STATUS_LABEL[l.status]}
               </span>
-              {l.status === "pending" ? (
-                <button
-                  type="button"
-                  aria-label={`แก้ไขใบลา ${l.id}`}
-                  title="แก้ไขวันที่ / ชนิด / เหตุผลใบลา"
-                  onClick={() => void openEditLeave(l)}
-                  className="ml-2 rounded p-1 text-[#2474c6] hover:bg-[#e8f1fb]"
-                >
-                  <PencilIcon className="h-4 w-4" />
-                </button>
-              ) : null}
+              <button
+                type="button"
+                aria-label={`แก้ไขใบลา ${l.id}`}
+                title="แก้ไขวันที่ / ชนิด / เหตุผลใบลา"
+                onClick={() => void openEditLeave(l)}
+                className="ml-2 rounded p-1 text-[#2474c6] hover:bg-[#e8f1fb]"
+              >
+                <PencilIcon className="h-4 w-4" />
+              </button>
             </li>
           ))}
         </ul>

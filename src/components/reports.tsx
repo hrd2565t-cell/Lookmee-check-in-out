@@ -357,7 +357,6 @@ export default function ReportsPage() {
   };
 
   const openEditLeave = (l: LeaveItem) => {
-    if (l.status !== "pending") return;
     setEditLeave(l);
     setEditLeaveFrom(l.dateFrom);
     setEditLeaveTo(l.dateTo);
@@ -981,16 +980,14 @@ export default function ReportsPage() {
                     >
                       ปฏิเสธ
                     </UIButton>
-                    {l.status === "pending" ? (
-                      <button
-                        type="button"
-                        onClick={() => void openEditLeave(l)}
-                        title="แก้ไขวันที่ / ชนิด / เหตุผลใบลา"
-                        className="rounded p-1.5 text-[#2474c6] hover:bg-[#e8f1fb]"
-                      >
-                        <PencilIcon className="h-5 w-5" />
-                      </button>
-                    ) : null}
+                    <button
+                      type="button"
+                      onClick={() => void openEditLeave(l)}
+                      title="แก้ไขวันที่ / ชนิด / เหตุผลใบลา"
+                      className="rounded p-1.5 text-[#2474c6] hover:bg-[#e8f1fb]"
+                    >
+                      <PencilIcon className="h-5 w-5" />
+                    </button>
                   </li>
                 ))}
               </ul>
