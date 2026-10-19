@@ -6,6 +6,7 @@ export type AttendanceRow = {
   id: string;
   date: string;
   time: string;
+  checkInAt: string | null;
   group: string;
   status: AttendanceStatus;
   confidence: number | null;
@@ -221,7 +222,7 @@ export async function fetchStudentAttendance(studentCode: string): Promise<Atten
       .order("check_in_at", { ascending: false })
       .limit(30);
     if (error || !data) return null;
-    return (data as unknown as Array<{
+      return (data as unknown as Array<{
       id: string;
       check_in_at: string | null;
       status: string;
@@ -233,9 +234,8 @@ export async function fetchStudentAttendance(studentCode: string): Promise<Atten
     }>).map((r) => ({
       id: r.id,
       date: r.attendance_sessions.session_date,
-      time: r.check_in_at
-        ? new Date(r.check_in_at).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" })
-        : "-",
+      time: r.check_in_at ? new Date(r.check_in_at).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" }) : "-",
+      checkInAt: r.check_in_at ?? null,
       group: r.attendance_sessions.class_groups.name,
       status: (["present", "absent", "late", "activity"] as const).includes(
         r.status as AttendanceRow["status"],

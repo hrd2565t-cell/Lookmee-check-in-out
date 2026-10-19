@@ -6,6 +6,9 @@ import { Modal } from "@/components/ui";
 import {
   fetchStudentAttendance,
   type AttendanceRow,
+  type AttendanceStatus,
+  updateAttendanceRecord,
+  deleteAttendanceRecord,
 } from "@/lib/attendance";
 import {
   fetchStudentLeaves,
@@ -71,6 +74,10 @@ export function StudentDetail({
   const [editLeaveReason, setEditLeaveReason] = useState("");
   const [editLeaveBusy, setEditLeaveBusy] = useState(false);
   const [leaveNotice, setLeaveNotice] = useState("");
+  const [editRecord, setEditRecord] = useState<AttendanceRow | null>(null);
+  const [editStatus, setEditStatus] = useState<AttendanceStatus>("present");
+  const [editCheckIn, setEditCheckIn] = useState("");
+  const [editSaving, setEditSaving] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -158,6 +165,46 @@ export function StudentDetail({
     );
     setEditingLeaveId(null);
     setLeaveNotice("แก้ไขใบลาแล้ว");
+  };
+
+  const openEditRecord = (a: AttendanceRow) => {
+    setEditRecord(a);
+    setEditStatus(a.status);
+    setEditCheckIn(a.checkInAt ? a.checkInAt.slice(0, 16) : "");
+  };
+
+  const saveEditRecord = async () => {
+    if (!editRecord) return;
+    setEditSaving(true);
+    const ok = await updateAttendanceRecord(editRecord.id, {
+      status: editStatus,
+      check_in_at: editCheckIn ? editCheckIn + ":00" : null,
+    });
+    setEditSaving(false);
+    if (!ok) {
+      setLeaveNotice("แก้ไขเช็คชื่อไม่สำเร็จ");
+      return;
+    }
+    setAttendance((rows) =>
+      rows?.map((x) =>
+        x.id === editRecord!.id ? { ...x, status: editStatus, checkInAt: editCheckIn ? editCheckIn + ":00" : null } : x
+      ) ?? []
+    );
+    setEditRecord(null);
+    setLeaveNotice("แก้ไขเช็คชื่อแล้ว");
+    const refreshed = await fetchStudentAttendance(code);
+    if (refreshed) setAttendance(refreshed ?? []);
+  };
+
+  const deleteRecord = async (recordId: string) => {
+    if (!window.confirm("ลบแถวเช็คชื่อนี้หรือไม่?")) return;
+    const ok = await deleteAttendanceRecord(recordId);
+    if (!ok) {
+      setLeaveNotice("ลบแถวเช็คชื่อไม่สำเร็จ");
+      return;
+    }
+    setAttendance((rows) => rows?.filter((x) => x.id !== recordId) ?? []);
+    setLeaveNotice("ลบแถวเช็คชื่อแล้ว");
   };
 
   const deleteFace = async () => {
@@ -338,6 +385,24 @@ export function StudentDetail({
               >
                 {STATUS_LABEL[a.status]}
               </span>
+              <button
+                type="button"
+                aria-label={`แก้ไขเช็คชื่อ ${a.id}`}
+                title="แก้ไขสถานะ / เวลาเช็คชื่อ"
+                onClick={() => void openEditRecord(a)}
+                className="ml-2 rounded p-1 text-[#2474c6] hover:bg-[#e8f1fb]"
+              >
+                <PencilIcon className="h-4 w-4" />
+              </button>
+              <button
+                type="button"
+                aria-label={`ลบเช็คชื่อ ${a.id}`}
+                title="ลบแถวเช็คชื่อนี้"
+                onClick={() => void deleteRecord(a.id)}
+                className="ml-2 rounded p-1 text-[#c62828] hover:bg-[#fdecec]"
+              >
+                <TrashIcon className="h-4 w-4" />
+              </button>
             </li>
           ))}
         </ul>
@@ -411,6 +476,64 @@ export function StudentDetail({
               className="rounded-md bg-[#2474c6] px-3 py-1.5 text-[12.5px] font-bold text-white hover:bg-[#1a5da3] disabled:opacity-40"
             >
               {editLeaveBusy ? "กำลังบันทึก..." : "บันทึก"}
+            </button>
+          </div>
+        </Modal>
+      ) : null}
+
+      {/* แก้ไขเช็คชื่อ */}
+      {editRecord ? (
+        <Modal title="แก้ไขเช็คชื่อ" onClose={() => setEditRecord(null)}>
+          <div className="grid grid-cols-2 gap-2">
+            <label className="col-span-1 block text-[13px] font-medium text-[#16233a]">
+              นักเรียน
+              <span className="mt-1 block text-[13px]">{name}</span>
+            </label>
+            <label className="col-span-1 block text-[13px] font-medium text-[#16233a]">
+              วันที่
+              <span className="mt-1 block text-[13px]">{editRecord.date}</span>
+            </label>
+            <label className="col-span-1 block text-[13px] font-medium text-[#16233a]">
+              สถานะ
+              <select
+                value={editStatus}
+                onChange={(e) => setEditStatus(e.target.value as AttendanceStatus)}
+                className="mt-1 h-10 rounded-lg border border-[#d8e0ec] bg-white px-3 text-[13px] focus:border-[#2474c6] focus:outline-none"
+              >
+                <option value="present">มาเรียน</option>
+                <option value="late">มาสาย</option>
+                <option value="absent">ขาดเรียน</option>
+                <option value="activity">กิจกรรม</option>
+              </select>
+            </label>
+            <label className="col-span-1 block text-[13px] font-medium text-[#16233a]">
+              เวลาเช็คชื่อ
+              <input
+                type="datetime-local"
+                value={editCheckIn}
+                onChange={(e) => setEditCheckIn(e.target.value)}
+                className="mt-1 h-10 rounded-lg border border-[#d8e0ec] bg-white px-3 text-[13px] focus:border-[#2474c6] focus:outline-none"
+              />
+            </label>
+          </div>
+          {editSaving ? (
+            <p className="mt-2 text-center text-[13px] text-[#5b6b82]">กำลังบันทึก...</p>
+          ) : null}
+          <div className="mt-3 flex justify-end gap-2">
+            <button
+              type="button"
+              onClick={() => setEditRecord(null)}
+              className="rounded-md bg-[#f1f5fa] px-3 py-1.5 text-[12.5px] font-semibold text-[#5b6b82] hover:bg-[#e4eaf3]"
+            >
+              ยกเลิก
+            </button>
+            <button
+              type="button"
+              onClick={() => void saveEditRecord()}
+              disabled={editSaving}
+              className="rounded-md bg-[#2474c6] px-3 py-1.5 text-[12.5px] font-bold text-white hover:bg-[#1a5da3] disabled:opacity-40"
+            >
+              บันทึก
             </button>
           </div>
         </Modal>
