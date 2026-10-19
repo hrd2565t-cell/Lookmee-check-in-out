@@ -113,6 +113,14 @@ export function ChevronDownIcon({ className = "h-4 w-4" }: IconProps) {
   );
 }
 
+export function ChevronUpIcon({ className = "h-4 w-4" }: IconProps) {
+  return (
+    <Base className={className}>
+      <path d="m18 15-6-6-6 6" />
+    </Base>
+  );
+}
+
 export function EyeIcon({ className = "h-4 w-4" }: IconProps) {
   return (
     <Base className={className}>

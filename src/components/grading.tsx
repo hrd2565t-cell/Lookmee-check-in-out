@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { AppShell } from "@/components/layout";
-import { ChevronDownIcon, DownloadIcon, EyeIcon, EyeOffIcon, PencilIcon, SearchIcon, TrashIcon } from "@/components/icons";
+import { ChevronDownIcon, ChevronUpIcon, DownloadIcon, EyeIcon, EyeOffIcon, PencilIcon, SearchIcon, TrashIcon } from "@/components/icons";
 import { Card, FilePreviewModal, Modal, ScoreCell, UIButton } from "@/components/ui";
 import { SubjectManager } from "@/components/subject-manager";
 import {
@@ -11,6 +11,7 @@ import {
   deleteAssignment,
   fetchSheet,
   fetchSubjects,
+  moveAssignmentOrder,
   removeAssignmentFile,
   saveScores,
   toggleAssignmentVisible,
@@ -57,6 +58,7 @@ export default function GradingPage() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editAttachment, setEditAttachment] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
+  const [moveOrderBusy, setMoveOrderBusy] = useState(false);
   const [importModal, setImportModal] = useState(false);
   const [templateModal, setTemplateModal] = useState(false);
   const [templateDue, setTemplateDue] = useState(new Date().toISOString().slice(0, 10));
@@ -413,6 +415,17 @@ export default function GradingPage() {
     await reloadSheet();
   };
 
+  const moveOrder = async (a: (typeof assignments)[number], direction: "up" | "down") => {
+    setMoveOrderBusy(true);
+    const ok = await moveAssignmentOrder(activeGroup, a.subject, direction);
+    setMoveOrderBusy(false);
+    if (ok) {
+      await reloadSheet();
+    } else {
+      setNotice("ย้ายลำดับไม่สำเร็จ — ลองอีกครั้ง");
+    }
+  };
+
   const publishFirstFive = async () => {
     const first5 = [...assignments].sort((a, b) => a.title.localeCompare(b.title, "th")).slice(0, 5);
     if (first5.length === 0) return;
@@ -698,6 +711,26 @@ export default function GradingPage() {
                         <span className="mx-auto mt-0.5 block text-[10px] font-bold text-[#8a97ab]">ซ่อนอยู่</span>
                       ) : null}
                       <span className="mx-auto mt-0.5 flex items-center justify-center gap-0.5">
+                        <button
+                          type="button"
+                          aria-label={`ย้ายคอลัมน์ ${a.title} ขึ้น`}
+                          title="ย้ายขึ้น"
+                          onClick={() => void moveOrder(a, "up")}
+                          disabled={moveOrderBusy}
+                          className="rounded p-0.5 text-[#c9d2de] hover:bg-[#e8f1fb] disabled:opacity-40"
+                        >
+                          <ChevronUpIcon className="h-3.5 w-3.5" />
+                        </button>
+                        <button
+                          type="button"
+                          aria-label={`ย้ายคอลัมน์ ${a.title} ลง`}
+                          title="ย้ายลง"
+                          onClick={() => void moveOrder(a, "down")}
+                          disabled={moveOrderBusy}
+                          className="rounded p-0.5 text-[#c9d2de] hover:bg-[#e8f1fb] disabled:opacity-40"
+                        >
+                          <ChevronDownIcon className="h-3.5 w-3.5" />
+                        </button>
                         <button
                           type="button"
                           aria-label={`แก้ไขคอลัมน์ ${a.title}`}

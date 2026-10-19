@@ -9,6 +9,7 @@ export type SheetAssignment = {
   max: number;
   visible: boolean;
   attachment: string | null;
+  sortOrder: number;
 };
 
 export type SheetData = {
@@ -308,11 +309,12 @@ export async function fetchSheet(
     if (!gid) return { assignments: [], scores: new Map() };
     let q = supabase
       .from("assignments")
-      .select("id,title,subject,category,due_date,max_score,visible,attachment_url")
+      .select("id,title,subject,category,due_date,max_score,visible,attachment_url,sort_order")
       .eq("group_id", gid)
       .eq("subject", subject)
-      .order("due_date")
-      .order("created_at");
+      .order("sort_order", { ascending: true })
+      .order("due_date", { ascending: true })
+      .order("created_at", { ascending: true });
     if (term) q = q.gte("due_date", term.startsOn).lte("due_date", term.endsOn);
     const { data: aData, error: aErr } = await q;
     if (aErr || !aData) return null;
@@ -326,6 +328,7 @@ export async function fetchSheet(
         max_score: number;
         visible: boolean | null;
         attachment_url: string | null;
+        sort_order: number | null;
       }>
     ).map((a) => ({
       id: a.id,
@@ -336,6 +339,7 @@ export async function fetchSheet(
       max: Number(a.max_score),
       visible: a.visible !== false,
       attachment: a.attachment_url,
+      sortOrder: Number(a.sort_order) ?? 0,
     }));
     const scores = new Map<string, number | null>();
     if (assignments.length > 0) {
@@ -508,6 +512,38 @@ export async function toggleAssignmentVisible(id: string, visible: boolean): Pro
   try {
     const { error } = await supabase.from("assignments").update({ visible }).eq("id", id);
     return !error;
+  } catch {
+    return false;
+  }
+}
+
+/** สลับลำดับคอลัมน์งานกับคอลัมน์ข้างเคียง (ขึ้น/ลง) */
+export async function moveAssignmentOrder(
+  groupName: string,
+  subject: string,
+  direction: "up" | "down",
+): Promise<boolean> {
+  if (!isSupabaseConfigured) return false;
+  try {
+    const gid = await groupIdOf(groupName);
+    if (!gid) return false;
+    const { data: rows } = await supabase
+      .from("assignments")
+      .select("id,sort_order")
+      .eq("group_id", gid)
+      .eq("subject", subject)
+      .order("sort_order", { ascending: true });
+    if (!rows || rows.length === 0) return false;
+    const current = rows[0] as { id: string; sort_order: number };
+    const typedRows = rows as Array<{ id: string; sort_order: number }>;
+    const targetOrder = direction === "up"
+      ? typedRows.find((r) => r.sort_order < current.sort_order)?.sort_order ?? current.sort_order - 1
+      : typedRows.find((r) => r.sort_order > current.sort_order)?.sort_order ?? current.sort_order + 1;
+    const targetRow = typedRows.find((r) => r.sort_order === targetOrder);
+    if (!targetRow) return false;
+    await supabase.from("assignments").update({ sort_order: targetOrder }).eq("id", current.id);
+    await supabase.from("assignments").update({ sort_order: current.sort_order }).eq("id", targetRow.id);
+    return true;
   } catch {
     return false;
   }
