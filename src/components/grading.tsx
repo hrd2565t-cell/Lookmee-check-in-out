@@ -731,7 +731,7 @@ export default function GradingPage() {
                         }
                       }}
                       >
-                      <div className="flex items-center justify-between gap-1">
+                      <div className="flex flex-col items-start gap-1.5">
                         <div className="flex-1 min-w-0">
                           <span className="block truncate">{a.title}</span>
                           <span className="block font-medium text-[#5b6b82]">({a.max})</span>
