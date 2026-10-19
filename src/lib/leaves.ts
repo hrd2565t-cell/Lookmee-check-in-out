@@ -155,3 +155,26 @@ export async function decideLeave(id: string, status: "approved" | "rejected"): 
     return false;
   }
 }
+
+/** แก้ไขใบลาที่ยังรออนุมัติ (วันที่ / ชนิด / เหตุผล) */
+export async function updateLeave(
+  id: string,
+  fields: { dateFrom?: string; dateTo?: string; type?: LeaveType; reason?: string },
+): Promise<boolean> {
+  if (!isSupabaseConfigured) return false;
+  try {
+    const { error } = await supabase
+      .from("leave_requests")
+      .update({
+        date_from: fields.dateFrom,
+        date_to: fields.dateTo,
+        type: fields.type,
+        reason: fields.reason ?? null,
+      })
+      .eq("id", id)
+      .eq("status", "pending");
+    return !error;
+  } catch {
+    return false;
+  }
+}

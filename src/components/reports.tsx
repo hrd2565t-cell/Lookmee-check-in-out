@@ -9,6 +9,7 @@ import {
   PageLastIcon,
   PageNextIcon,
   PagePrevIcon,
+  PencilIcon,
   SearchIcon,
 } from "@/components/icons";
 import { Avatar, Card, CardTitle, DonutChart, Modal, UIButton } from "@/components/ui";
@@ -17,21 +18,22 @@ import { FaceEnrollModal } from "@/components/face-enroll";
 import type { Student } from "@/data/students";
 import {
   PAGE_SIZE,
-  type AttendanceStatus,
   type ReportRow,
 } from "@/data/reports";
-import {
-  ensureSession,
-  fetchGroupRangeSummary,
-  fetchRecordsByDate,
-  fetchSessionsByDate,
-  fillAbsentForLeave,
-  markActivity,
-  todayStr as dbToday,
-  type DayRecord,
-  type RangeSummaryRow,
-  type SessionInfo,
-} from "@/lib/attendance";
+  import {
+    ensureSession,
+    fetchGroupRangeSummary,
+    fetchRecordsByDate,
+    fetchSessionsByDate,
+    fillAbsentForLeave,
+    markActivity,
+    todayStr as dbToday,
+    type DayRecord,
+    type RangeSummaryRow,
+    type SessionInfo,
+    type AttendanceStatus,
+    updateAttendanceRecord,
+  } from "@/lib/attendance";
 import { downloadCsv } from "@/lib/export";
 import { useRoster } from "@/lib/school-data";
 import { useTeacherGroup } from "@/lib/teacher-scope";
@@ -42,6 +44,7 @@ import {
   LEAVE_TYPE_LABEL,
   type LeaveItem,
   type LeaveType,
+  updateLeave,
 } from "@/lib/leaves";
 import { cn } from "@/lib/cn";
 import { fetchPendingDisputes, resolveDispute, type StudentDispute } from "@/lib/disputes";
@@ -229,6 +232,18 @@ export default function ReportsPage() {
   const [fReason, setFReason] = useState("");
   const [detailCode, setDetailCode] = useState<string | null>(null);
   const [enrollCode, setEnrollCode] = useState<string | null>(null);
+  /* ---------- แก้ไขเช็คชื่อรายคน ---------- */
+  const [editRecord, setEditRecord] = useState<DayRecord | null>(null);
+  const [editStatus, setEditStatus] = useState<AttendanceStatus>("present");
+  const [editCheckIn, setEditCheckIn] = useState("");
+  const [editSaving, setEditSaving] = useState(false);
+  /* ---------- แก้ไขใบลาที่ยังรออนุมัติ ---------- */
+  const [editLeave, setEditLeave] = useState<LeaveItem | null>(null);
+  const [editLeaveFrom, setEditLeaveFrom] = useState("");
+  const [editLeaveTo, setEditLeaveTo] = useState("");
+  const [editLeaveType, setEditLeaveType] = useState<LeaveType>("sick");
+  const [editLeaveReason, setEditLeaveReason] = useState("");
+  const [editLeaveSaving, setEditLeaveSaving] = useState(false);
   const reportStudents: Student[] = useMemo(
     () =>
       rosterStudents.map((s) => ({
@@ -306,6 +321,61 @@ export default function ReportsPage() {
     setActModal(false);
     setActBanner(`บันทึกกิจกรรม “${actName.trim()}” ให้ ${ok} คนแล้ว (${actGroup} ${actDate})`);
     setRefreshKey((k) => k + 1);
+  };
+
+  const openEditRecord = (studentCode: string) => {
+    const d = grec.find((x) => x.studentCode === studentCode);
+    if (!d) return;
+    setEditRecord(d);
+    setEditStatus(d.status);
+    setEditCheckIn(d.checkInAt ? d.checkInAt.slice(0, 16) : "");
+  };
+
+  const saveEditRecord = async () => {
+    if (!editRecord) return;
+    setEditSaving(true);
+    const ok = await updateAttendanceRecord(editRecord.id, {
+      status: editStatus,
+      check_in_at: editCheckIn ? editCheckIn + ":00" : null,
+    });
+    setEditSaving(false);
+    if (!ok) return;
+    setEditRecord(null);
+    setRefreshKey((k) => k + 1);
+  };
+
+  const openEditLeave = (l: LeaveItem) => {
+    if (l.status !== "pending") return;
+    setEditLeave(l);
+    setEditLeaveFrom(l.dateFrom);
+    setEditLeaveTo(l.dateTo);
+    setEditLeaveType(l.type);
+    setEditLeaveReason(l.reason);
+  };
+
+  const saveEditLeave = async () => {
+    if (!editLeave) return;
+    setEditLeaveSaving(true);
+    const ok = await updateLeave(editLeave.id, {
+      dateFrom: editLeaveFrom,
+      dateTo: editLeaveTo,
+      type: editLeaveType,
+      reason: editLeaveReason,
+    });
+    setEditLeaveSaving(false);
+    if (!ok) {
+      setLeaveNotice("แก้ไขใบลาไม่สำเร็จ");
+      return;
+    }
+    setLeaves((rows) =>
+      rows.map((x) =>
+        x.id === editLeave!.id
+          ? { ...x, dateFrom: editLeaveFrom, dateTo: editLeaveTo, type: editLeaveType, reason: editLeaveReason }
+          : x,
+      ),
+    );
+    setEditLeave(null);
+    setLeaveNotice("แก้ไขใบลาแล้ว");
   };
 
   useEffect(() => {
@@ -751,6 +821,15 @@ export default function ReportsPage() {
                       <td className="whitespace-nowrap py-1.5 text-right">
                         <button
                           type="button"
+                          aria-label={`แก้ไข ${r.name}`}
+                          title="แก้ไขสถานะ / เวลาเช็คชื่อ"
+                          onClick={() => void openEditRecord(r.id)}
+                          className="rounded p-1.5 text-[#2474c6] hover:bg-[#e8f1fb]"
+                        >
+                          <PencilIcon className="h-5 w-5" />
+                        </button>
+                        <button
+                          type="button"
                           aria-label={`ดาวน์โหลดรายงาน ${r.name}`}
                           title="ดาวน์โหลดรายคน (CSV)"
                           onClick={() => downloadReportsCsv(`report-${r.id}-${date}.csv`, [r])}
@@ -874,6 +953,16 @@ export default function ReportsPage() {
                     >
                       ปฏิเสธ
                     </UIButton>
+                    {l.status === "pending" ? (
+                      <button
+                        type="button"
+                        onClick={() => void openEditLeave(l)}
+                        title="แก้ไขวันที่ / ชนิด / เหตุผลใบลา"
+                        className="rounded p-1.5 text-[#2474c6] hover:bg-[#e8f1fb]"
+                      >
+                        <PencilIcon className="h-5 w-5" />
+                      </button>
+                    ) : null}
                   </li>
                 ))}
               </ul>
@@ -1137,6 +1226,138 @@ export default function ReportsPage() {
           onSaved={() => {}}
           onClose={() => setEnrollCode(null)}
         />
+      ) : null}
+      {/* แก้ไขเช็คชื่อรายคน */}
+      {editRecord ? (
+        <Modal title="แก้ไขเช็คชื่อ" onClose={() => setEditRecord(null)}>
+          <div className="grid grid-cols-2 gap-2">
+            <label className="col-span-1 block text-[14px] font-medium text-[#16233a]">
+              นักเรียน
+              <span className="mt-1 block text-[14px]">
+                {editRecord.name} ({editRecord.studentCode})
+              </span>
+            </label>
+              <label className="col-span-1 block text-[14px] font-medium text-[#16233a]">
+                กลุ่ม / วันที่
+                <span className="mt-1 block text-[14px]">
+                  {editRecord.group} · {editRecord.checkInAt ? editRecord.checkInAt.slice(0, 10) : "-"}
+                </span>
+              </label>
+            <label className="col-span-1 block text-[14px] font-medium text-[#16233a]">
+              สถานะ
+              <select
+                value={editStatus}
+                onChange={(e) => setEditStatus(e.target.value as AttendanceStatus)}
+                className="mt-1 h-10 w-full rounded-lg border border-[#d8e0ec] bg-white px-3 text-[14px] focus:border-[#2474c6] focus:outline-none"
+              >
+                <option value="present">มาเรียน</option>
+                <option value="late">มาสาย</option>
+                <option value="absent">ขาดเรียน</option>
+                <option value="activity">กิจกรรม</option>
+              </select>
+            </label>
+            <label className="col-span-1 block text-[14px] font-medium text-[#16233a]">
+              เวลาเช็คชื่อ
+              <input
+                type="datetime-local"
+                value={editCheckIn}
+                onChange={(e) => setEditCheckIn(e.target.value)}
+                className="mt-1 h-10 w-full rounded-lg border border-[#d8e0ec] bg-white px-3 text-[14px] focus:border-[#2474c6] focus:outline-none"
+              />
+            </label>
+          </div>
+          <div className="mt-3 flex justify-end gap-2">
+            <UIButton
+              variant="blue"
+              onClick={() => setEditRecord(null)}
+              className="h-10 bg-[#5b6b82] hover:bg-[#465364] focus-visible:ring-[#5b6b82]/40"
+            >
+              ยกเลิก
+            </UIButton>
+            <UIButton
+              variant="green"
+              onClick={() => void saveEditRecord()}
+              disabled={editSaving}
+              className="h-10 disabled:opacity-40"
+            >
+              บันทึก
+            </UIButton>
+          </div>
+        </Modal>
+      ) : null}
+
+      {/* แก้ไขใบลา */}
+      {editLeave ? (
+        <Modal title="แก้ไขใบลา" onClose={() => setEditLeave(null)}>
+          <div className="grid grid-cols-2 gap-2">
+            <label className="col-span-1 block text-[14px] font-medium text-[#16233a]">
+              นักเรียน
+              <span className="mt-1 block text-[14px]">
+                {editLeave.studentName} ({editLeave.studentCode})
+              </span>
+            </label>
+            <label className="col-span-1 block text-[14px] font-medium text-[#16233a]">
+              กลุ่ม
+              <span className="mt-1 block text-[14px]">{editLeave.group}</span>
+            </label>
+            <label className="col-span-1 block text-[14px] font-medium text-[#16233a]">
+              ลาตั้งแต่วันที่
+              <input
+                type="date"
+                value={editLeaveFrom}
+                onChange={(e) => setEditLeaveFrom(e.target.value)}
+                className="mt-1 h-10 w-full rounded-lg border border-[#d8e0ec] bg-white px-3 text-[14px] focus:border-[#2474c6] focus:outline-none"
+              />
+            </label>
+            <label className="col-span-1 block text-[14px] font-medium text-[#16233a]">
+              ถึงวันที่
+              <input
+                type="date"
+                value={editLeaveTo}
+                onChange={(e) => setEditLeaveTo(e.target.value)}
+                className="mt-1 h-10 w-full rounded-lg border border-[#d8e0ec] bg-white px-3 text-[14px] focus:border-[#2474c6] focus:outline-none"
+              />
+            </label>
+            <label className="col-span-1 block text-[14px] font-medium text-[#16233a]">
+              ประเภท
+              <select
+                value={editLeaveType}
+                onChange={(e) => setEditLeaveType(e.target.value as LeaveType)}
+                className="mt-1 h-10 w-full rounded-lg border border-[#d8e0ec] bg-white px-3 text-[14px] focus:border-[#2474c6] focus:outline-none"
+              >
+                <option value="sick">ลาป่วย</option>
+                <option value="personal">ลากิจ</option>
+                <option value="other">ลาอื่นๆ</option>
+              </select>
+            </label>
+            <label className="col-span-2 block text-[14px] font-medium text-[#16233a]">
+              เหตุผล
+              <input
+                value={editLeaveReason}
+                onChange={(e) => setEditLeaveReason(e.target.value)}
+                placeholder="เช่น ป่วยเป็นไข้"
+                className="mt-1 h-10 w-full rounded-lg border border-[#d8e0ec] bg-white px-3 text-[14px] focus:border-[#2474c6] focus:outline-none"
+              />
+            </label>
+          </div>
+          <div className="mt-3 flex justify-end gap-2">
+            <UIButton
+              variant="blue"
+              onClick={() => setEditLeave(null)}
+              className="h-10 bg-[#5b6b82] hover:bg-[#465364] focus-visible:ring-[#5b6b82]/40"
+            >
+              ยกเลิก
+            </UIButton>
+            <UIButton
+              variant="green"
+              onClick={() => void saveEditLeave()}
+              disabled={editLeaveSaving}
+              className="h-10 disabled:opacity-40"
+            >
+              บันทึก
+            </UIButton>
+          </div>
+        </Modal>
       ) : null}
     </AppShell>
   );

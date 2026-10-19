@@ -173,6 +173,25 @@ export async function markActivity(
   }
 }
 
+/** แก้ไขสถานะ / เวลาเช็คชื่อของแถวเดิม (ครูแก้ไขย้อนหลังได้) */
+export async function updateAttendanceRecord(
+  recordId: string,
+  fields: {
+    status?: AttendanceStatus;
+    check_in_at?: string | null;
+    method?: string;
+    activity_name?: string | null;
+  },
+): Promise<boolean> {
+  if (!isSupabaseConfigured) return false;
+  try {
+    const { error } = await supabase.from("attendance_records").update(fields).eq("id", recordId);
+    return !error;
+  } catch {
+    return false;
+  }
+}
+
 /** ประวัติเช็กชื่อรายคน (ล่าสุด 30 แถว) — null ถ้าต่อ DB ไม่ได้ */
 export async function fetchStudentAttendance(studentCode: string): Promise<AttendanceRow[] | null> {
   if (!isSupabaseConfigured) return null;
