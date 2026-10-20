@@ -282,13 +282,22 @@ export default function GradingPage() {
       return;
     }
     const header = (lines[0] ?? "").split(",").map((c) => c.trim());
-    if (header[0] !== "เลขประจำตัว") {
-      setNotice("คอลัมน์แรกต้องเป็นเลขประจำตัว — โหลดเทมเพลตมากรอกใหม่");
+    const firstCol = header[0];
+    if (firstCol !== "เลขประจำตัว" && firstCol !== "รหัสประจำตัว") {
+      setNotice("คอลัมน์แรกต้องเป็นเลขประจำตัวหรือรหัสประจำตัว — ใช้ไฟล์ส่งออกหรือเทมเพลตจากหน้านี้");
       return;
     }
-    const colAssign = header.slice(1).map((t) => assignments.find((a) => a.title === t) ?? null);
-    if (colAssign.some((c) => !c)) {
-      setNotice("ชื่อคอลัมน์งานไม่ตรงกับตาราง — โหลดเทมเพลตมากรอกใหม่");
+    // จับคู่คอลัมน์งาน: ลองชื่อตรงๆ ก่อน แล้วค่อยลบ " (คะแนนเต็ม)" ออกเพื่อรองรับไฟล์ส่งออก
+    const colAssign: Array<{ id: string; title: string; max: number } | null> = header.slice(1).map((t) => {
+      let a = assignments.find((x) => x.title === t);
+      if (a) return { id: a.id, title: a.title, max: a.max };
+      const stripped = t.replace(/\(\s*\d+\s*\)$/, "").trim();
+      a = assignments.find((x) => x.title === stripped);
+      if (a) return { id: a.id, title: a.title, max: a.max };
+      return null; // ข้ามคอลัมน์ที่ไม่ใช่งาน เช่น ลำดับ, ชื่อ, รวม
+    });
+    if (!colAssign.some((c) => c !== null)) {
+      setNotice("ไม่พบคอลัมน์งานที่ตรงกับตาราง — โหลดเทมเพลตมากรอกใหม่");
       return;
     }
     const rows: Array<{ assignmentId: string; studentCode: string; score: number | null }> = [];
@@ -972,7 +981,7 @@ export default function GradingPage() {
       {importModal ? (
         <Modal title="นำเข้าคะแนน (CSV)" onClose={() => setImportModal(false)}>
           <p className="text-[13.5px] text-[#16233a]">
-            1. กด <b>โหลดเทมเพลต</b> ไปกรอก (คอลัมน์แรก = เลขประจำตัว, ถัดไป = ชื่องานตามตาราง)
+            1. กด <b>ส่งออก (Excel)</b> หรือ <b>โหลดเทมเพลต</b> ไปกรอกคะแนน (คอลัมน์แรก = เลขประจำตัว/รหัสประจำตัว, ถัดไป = ชื่องาน) แล้วเลือกไฟล์นั้นด้านล่าง
           </p>
           <div className="mt-2 flex gap-2">
             <UIButton variant="blue" onClick={downloadScoreTemplate} className="h-10 flex-1">
