@@ -344,12 +344,9 @@ export async function fetchSheet(
     const scores = new Map<string, number | null>();
     if (assignments.length > 0) {
       const { data: sData } = await supabase
-        .from("submissions")
-        .select("assignment_id,student_id,score,students!inner(student_code)")
-        .in(
-          "assignment_id",
-          assignments.map((a) => a.id),
-        );
+        .from("v_submission_latest")
+        .select("assignment_id,score,students!inner(student_code)")
+        .in("assignment_id", assignments.map((a) => a.id));
       for (const r of (sData ?? []) as unknown as Array<{
         assignment_id: string;
         score: number | null;
@@ -382,16 +379,33 @@ export async function saveScores(
   const idOf = new Map(
     ((stData ?? []) as Array<{ id: string; student_code: string }>).map((s) => [s.student_code, s.id]),
   );
+  const studentIds = [...new Set([...idOf.values()])];
+  const assignmentIds = [...new Set(rows.map((r) => r.assignmentId))];
+  const { data: maxAttempts } = await supabase
+    .from("submissions")
+    .select("assignment_id,student_id,attempt_no")
+    .in("assignment_id", assignmentIds)
+    .in("student_id", studentIds);
+  const maxAttemptMap = new Map<string, number>();
+  for (const r of (maxAttempts ?? []) as Array<{ assignment_id: string; student_id: string; attempt_no: number }>) {
+    const key = `${r.assignment_id}|${r.student_id}`;
+    const cur = maxAttemptMap.get(key) ?? 0;
+    if (r.attempt_no > cur) maxAttemptMap.set(key, r.attempt_no);
+  }
   for (const r of rows) {
     const studentId = idOf.get(r.studentCode);
     if (!studentId) {
       failed++;
       continue;
     }
-    const { error } = await supabase.from("submissions").upsert(
-      { assignment_id: r.assignmentId, student_id: studentId, score: r.score },
-      { onConflict: "assignment_id,student_id" },
-    );
+    const key = `${r.assignmentId}|${studentId}`;
+    const nextAttempt = (maxAttemptMap.get(key) ?? 0) + 1;
+    const { error } = await supabase.from("submissions").insert({
+      assignment_id: r.assignmentId,
+      student_id: studentId,
+      score: r.score,
+      attempt_no: nextAttempt,
+    });
     if (error) failed++;
     else ok++;
   }
