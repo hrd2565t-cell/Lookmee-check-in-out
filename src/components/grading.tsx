@@ -61,6 +61,12 @@ export default function GradingPage() {
   const [draggedId, setDraggedId] = useState<string | null>(null);
   const cellRefs = useRef<(HTMLInputElement | null)[]>([]);
   const [importModal, setImportModal] = useState(false);
+  const [previewData, setPreviewData] = useState<{
+    rows: Array<{ code: string; name: string; scores: Array<{ assignmentId: string; score: number | null }> }>;
+    assignments: Array<{ id: string; title: string; max: number }>;
+    problems: string[];
+  } | null>(null);
+  const [moveOrderBusy, setMoveOrderBusy] = useState(false);
   const [templateModal, setTemplateModal] = useState(false);
   const [templateDue, setTemplateDue] = useState(new Date().toISOString().slice(0, 10));
   const [templateBusy, setTemplateBusy] = useState(false);
@@ -302,9 +308,10 @@ export default function GradingPage() {
       setNotice("ไม่พบคอลัมน์งานที่ตรงกับตาราง — โหลดเทมเพลตมากรอกใหม่");
       return;
     }
-    const rows: Array<{ assignmentId: string; studentCode: string; score: number | null }> = [];
+    const rows: Array<{ code: string; name: string; scores: Array<{ assignmentId: string; score: number | null }> }> = [];
     const problems: string[] = [];
     const codeSet = new Set(students.map((s) => s.code));
+    const nameMap = new Map(students.map((s) => [s.code, s.name]));
     lines.slice(1).forEach((line, i) => {
       const cols = line.split(",").map((c) => c.trim());
       const code = cols[0] ?? "";
@@ -312,11 +319,12 @@ export default function GradingPage() {
         problems.push(`แถวที่ ${i + 2}: ไม่มีรหัส ${code} ในห้องนี้`);
         return;
       }
+      const scores: Array<{ assignmentId: string; score: number | null }> = [];
       cols.slice(1).forEach((cell, j) => {
         const a = colAssign[j];
         if (!a) return;
         if (cell === "") {
-          rows.push({ assignmentId: a.id, studentCode: code, score: null });
+          scores.push({ assignmentId: a.id, score: null });
           return;
         }
         const n = Number(cell);
@@ -324,19 +332,32 @@ export default function GradingPage() {
           problems.push(`แถวที่ ${i + 2} (${a.title}): ต้อง 0–${a.max}`);
           return;
         }
-        rows.push({ assignmentId: a.id, studentCode: code, score: n });
+        scores.push({ assignmentId: a.id, score: n });
       });
+      rows.push({ code, name: nameMap.get(code) ?? code, scores });
     });
     if (rows.length === 0) {
       setNotice("ไม่มีแถวที่ใช้ได้" + (problems[0] ? ` — ${problems[0]}` : ""));
       return;
     }
-    const { ok, failed } = await saveScores(rows.map((r) => ({ ...r, groupName: activeGroup })));
+    const validAssignments = colAssign.filter((c): c is { id: string; title: string; max: number } => c !== null);
+    setPreviewData({ rows, assignments: validAssignments, problems });
+  };
+
+  const confirmImport = async () => {
+    if (!previewData) return;
+    setMoveOrderBusy(true);
+    const flatRows = previewData.rows.flatMap((r) =>
+      r.scores.map((s) => ({ assignmentId: s.assignmentId, studentCode: r.code, score: s.score })),
+    );
+    const { ok, failed } = await saveScores(flatRows.map((r) => ({ ...r, groupName: activeGroup })));
+    setMoveOrderBusy(false);
+    setPreviewData(null);
+    setImportModal(false);
     setNotice(
       `นำเข้าคะแนน ${ok} ช่อง${failed ? ` (พลาด ${failed})` : ""}` +
-        (problems.length ? ` · ข้าม: ${problems.slice(0, 2).join("; ")}${problems.length > 2 ? ` และอีก ${problems.length - 2}` : ""}` : ""),
+        (previewData.problems.length ? ` · ข้าม: ${previewData.problems.slice(0, 2).join("; ")}${previewData.problems.length > 2 ? ` และอีก ${previewData.problems.length - 2}` : ""}` : ""),
     );
-    setImportModal(false);
     await reloadSheet();
   };
 
@@ -1002,25 +1023,79 @@ export default function GradingPage() {
       {/* modal นำเข้า */}
       {importModal ? (
         <Modal title="นำเข้าคะแนน (CSV)" onClose={() => setImportModal(false)}>
-          <p className="text-[13.5px] text-[#16233a]">
-            1. กด <b>ส่งออก (Excel)</b> ในหน้านี้ ไปกรอกคะแนนใน Excel (คอลัมน์แรก = เลขประจำตัว/รหัสประจำตัว, ถัดไป = ชื่องาน) แล้วเซฟเป็นไฟล์ CSV (.csv) ก่อนนำเข้าด้านล่าง
-          </p>
-          <div className="mt-2 flex gap-2">
-            <label className="flex h-10 flex-1 cursor-pointer items-center justify-center rounded-md bg-[#1e8e3e] px-4 text-[15px] font-semibold text-white">
-              เลือกไฟล์
-              <input
-                type="file"
-                accept=".csv,text/csv,.xlsx"
-                className="hidden"
-                onChange={(e) => {
-                  const f = e.target.files?.[0];
-                  if (f) void importScores(f);
-                  e.target.value = "";
-                }}
-              />
-            </label>
-          </div>
-          <p className="mt-2 text-[12.5px] text-[#5b6b82]">ค่าว่าง = ล้างคะแนนช่องนั้น · เกินคะแนนเต็มจะถูกข้ามพร้อมแจ้ง · เปิดไฟล์ใน Excel แล้วเซฟเป็น CSV (.csv) ก่อนนำเข้าเสมอ</p>
+          {!previewData ? (
+            <>
+              <p className="text-[13.5px] text-[#16233a]">
+                1. กด <b>ส่งออก (Excel)</b> ในหน้านี้ ไปกรอกคะแนนใน Excel (คอลัมน์แรก = เลขประจำตัว/รหัสประจำตัว, ถัดไป = ชื่องาน) แล้วเซฟเป็นไฟล์ CSV (.csv) ก่อนนำเข้าด้านล่าง
+              </p>
+              <div className="mt-2 flex gap-2">
+                <label className="flex h-10 flex-1 cursor-pointer items-center justify-center rounded-md bg-[#1e8e3e] px-4 text-[15px] font-semibold text-white">
+                  เลือกไฟล์
+                  <input
+                    type="file"
+                    accept=".csv,text/csv,.xlsx"
+                    className="hidden"
+                    onChange={(e) => {
+                      const f = e.target.files?.[0];
+                      if (f) void importScores(f);
+                      e.target.value = "";
+                    }}
+                  />
+                </label>
+              </div>
+              <p className="mt-2 text-[12.5px] text-[#5b6b82]">ค่าว่าง = ล้างคะแนนช่องนั้น · เกินคะแนนเต็มจะถูกข้ามพร้อมแจ้ง · เปิดไฟล์ใน Excel แล้วเซฟเป็น CSV (.csv) ก่อนนำเข้าเสมอ</p>
+            </>
+          ) : (
+            <>
+              <p className="text-[13.5px] text-[#16233a]">ตัวอย่างข้อมูลที่จะนำเข้า ({previewData.rows.length} คน, ${previewData.assignments.length} งาน)</p>
+              {previewData.problems.length > 0 ? (
+                <p className="mt-1 text-[12.5px] text-[#c62828]">ข้าม: {previewData.problems.slice(0, 3).join("; ")}${previewData.problems.length > 3 ? ` และอีก ${previewData.problems.length - 3}` : ""}</p>
+              ) : null}
+              <div className="mt-2 overflow-x-auto max-h-[400px] overflow-y-auto rounded-lg border border-[#e4eaf3]">
+                <table className="w-full border-collapse text-left text-[12px]">
+                  <thead className="bg-[#f8fafc] text-[11px] font-bold text-[#16233a]">
+                    <tr>
+                      <th className="px-2 py-1.5">รหัส</th>
+                      <th className="px-2 py-1.5">ชื่อ-นามสกุล</th>
+                      {previewData.assignments.map((a) => (
+                        <th key={a.id} className="px-2 py-1.5 text-center">{a.title}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {previewData.rows.map((r) => (
+                      <tr key={r.code} className="border-t border-[#eef2f7]">
+                        <td className="px-2 py-1 font-medium text-[#16233a]">{r.code}</td>
+                        <td className="px-2 py-1">{r.name}</td>
+                        {r.scores.map((s) => (
+                          <td key={s.assignmentId} className="px-2 py-1 text-center text-[11px]">
+                            {s.score === null ? "-" : s.score}
+                          </td>
+                        ))}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              <div className="mt-3 flex justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => setPreviewData(null)}
+                  className="rounded-md bg-[#f1f5fa] px-3 py-1.5 text-[12.5px] font-semibold text-[#5b6b82] hover:bg-[#e4eaf3]"
+                >
+                  เลือกไฟล์ใหม่
+                </button>
+                <UIButton
+                  variant="green"
+                  onClick={() => void confirmImport()}
+                  disabled={moveOrderBusy}
+                  className="h-10 disabled:opacity-40"
+                >
+                  {moveOrderBusy ? "กำลังนำเข้า..." : "ยืนยันนำเข้า"}
+                </UIButton>
+              </div>
+            </>
+          )}
         </Modal>
       ) : null}
       {previewUrl ? (
