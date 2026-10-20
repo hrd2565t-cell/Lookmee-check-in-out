@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { forwardRef, type ReactNode } from "react";
 import Link from "next/link";
 import { cn } from "@/lib/cn";
 
@@ -165,28 +165,24 @@ export function DonutChart({
 }
 
 /* ---------- ScoreCell (ช่องกรอกคะแนนในตาราง, ใช้ร่วมกันได้) ---------- */
-export function ScoreCell({
-  value,
-  max,
-  dirty,
-  disabled,
-  onChange,
-  label,
-}: {
+export const ScoreCell = forwardRef<HTMLInputElement, {
   value: string;
   max: number;
   dirty?: boolean;
   disabled?: boolean;
   onChange: (v: string) => void;
   label: string;
-}) {
+  onKeyDown?: (e: React.KeyboardEvent) => void;
+}>(({ value, max, dirty, disabled, onChange, label, onKeyDown }, ref) => {
   return (
     <input
+      ref={ref}
       aria-label={label}
       value={value}
       disabled={disabled}
       inputMode="decimal"
       onChange={(e) => onChange(e.target.value.replace(/[^0-9.]/g, ""))}
+      onKeyDown={onKeyDown}
       placeholder="-"
       title={`เต็ม ${max}`}
       className={
@@ -196,7 +192,8 @@ export function ScoreCell({
       }
     />
   );
-}
+});
+ScoreCell.displayName = "ScoreCell";
 
 /* ---------- FilePreviewModal (ดูรูป/PDF ในจอเดียว ไม่เปลี่ยนหน้า) ---------- */
 export function FilePreviewModal({

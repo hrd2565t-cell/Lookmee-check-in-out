@@ -1,8 +1,8 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { AppShell } from "@/components/layout";
-import { ChevronDownIcon, DownloadIcon, EyeIcon, EyeOffIcon, PencilIcon, SearchIcon, TrashIcon } from "@/components/icons";
+import { ChevronDownIcon, EyeIcon, EyeOffIcon, PencilIcon, SearchIcon, TrashIcon } from "@/components/icons";
 import { Card, FilePreviewModal, Modal, ScoreCell, UIButton } from "@/components/ui";
 import { SubjectManager } from "@/components/subject-manager";
 import {
@@ -59,6 +59,7 @@ export default function GradingPage() {
   const [editAttachment, setEditAttachment] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
   const [draggedId, setDraggedId] = useState<string | null>(null);
+  const cellRefs = useRef<(HTMLInputElement | null)[]>([]);
   const [importModal, setImportModal] = useState(false);
   const [templateModal, setTemplateModal] = useState(false);
   const [templateDue, setTemplateDue] = useState(new Date().toISOString().slice(0, 10));
@@ -202,6 +203,10 @@ export default function GradingPage() {
     );
   }, [students, query]);
 
+  useEffect(() => {
+    cellRefs.current = new Array(filteredStudents.length * assignments.length).fill(null);
+  }, [filteredStudents, assignments]);
+
   const totalPages = Math.max(1, Math.ceil(filteredStudents.length / PAGE_SIZE));
   const safePage = Math.min(page, totalPages);
   const pageRows = filteredStudents.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE);
@@ -266,15 +271,12 @@ export default function GradingPage() {
     downloadCsv(`grades-${activeGroup}-${activeSubject}.csv`, header, rows);
   };
 
-  const downloadScoreTemplate = () => {
-    downloadCsv(
-      "template-import-scores.csv",
-      ["เลขประจำตัว", ...assignments.map((a) => a.title)],
-      [],
-    );
-  };
-
   const importScores = async (file: File) => {
+    const isXlsx = file.name.toLowerCase().endsWith(".xlsx");
+    if (isXlsx) {
+      setNotice("ไฟล์ Excel (.xlsx) อ่านไม่ได้ — กรุณาเปิดใน Excel แล้วเซฟเป็นไฟล์ CSV (.csv) ก่อนนำเข้า");
+      return;
+    }
     const text = (await file.text()).replace(/^\uFEFF/, "");
     const lines = text.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
     if (lines.length < 2) {
@@ -439,6 +441,21 @@ export default function GradingPage() {
     } else {
       setNotice("ย้ายลำดับไม่สำเร็จ — ลองอีกครั้ง");
     }
+  };
+
+  const handleCellKeyDown = (e: React.KeyboardEvent, index: number) => {
+    if (!["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"].includes(e.key)) return;
+    e.preventDefault();
+    const cols = assignments.length;
+    const rows = filteredStudents.length;
+    const row = Math.floor(index / cols);
+    const col = index % cols;
+    let next = index;
+    if (e.key === "ArrowRight" && col < cols - 1) next = index + 1;
+    else if (e.key === "ArrowLeft" && col > 0) next = index - 1;
+    else if (e.key === "ArrowDown" && row < rows - 1) next = index + cols;
+    else if (e.key === "ArrowUp" && row > 0) next = index - cols;
+    cellRefs.current[next]?.focus();
   };
 
   const publishFirstFive = async () => {
@@ -799,17 +816,22 @@ export default function GradingPage() {
                       <td className="min-w-[200px] whitespace-nowrap py-1.5 pr-3 text-[13.5px] font-medium text-[#16233a]">
                         {s.name}
                       </td>
-                      {assignments.map((a) => (
-                        <td key={a.id} className="px-1.5 py-1.5 text-center">
-                          <ScoreCell
-                            value={cellValue(a.id, s.code)}
-                            max={a.max}
-                            dirty={drafts.has(cellKey(a.id, s.code))}
-                            onChange={(v) => setDraft(a.id, s.code, v)}
-                            label={`${s.name} ${a.title} เต็ม ${a.max}`}
-                          />
-                        </td>
-                      ))}
+                      {assignments.map((a, ai) => {
+                        const cellIndex = ri * assignments.length + ai;
+                        return (
+                          <td key={a.id} className="px-1.5 py-1.5 text-center">
+                            <ScoreCell
+                              ref={el => { cellRefs.current[cellIndex] = el; }}
+                              value={cellValue(a.id, s.code)}
+                              max={a.max}
+                              dirty={drafts.has(cellKey(a.id, s.code))}
+                              onChange={(v) => setDraft(a.id, s.code, v)}
+                              label={`${s.name} ${a.title} เต็ม ${a.max}`}
+                              onKeyDown={(e) => handleCellKeyDown(e, cellIndex)}
+                            />
+                          </td>
+                        );
+                      })}
                       <td className="whitespace-nowrap px-2 py-1.5 text-center text-[14px] font-bold text-[#16233a]">
                         {rowTotal(s.code)}
                       </td>
@@ -981,17 +1003,14 @@ export default function GradingPage() {
       {importModal ? (
         <Modal title="นำเข้าคะแนน (CSV)" onClose={() => setImportModal(false)}>
           <p className="text-[13.5px] text-[#16233a]">
-            1. กด <b>ส่งออก (Excel)</b> หรือ <b>โหลดเทมเพลต</b> ไปกรอกคะแนน (คอลัมน์แรก = เลขประจำตัว/รหัสประจำตัว, ถัดไป = ชื่องาน) แล้วเลือกไฟล์นั้นด้านล่าง
+            1. กด <b>ส่งออก (Excel)</b> ในหน้านี้ ไปกรอกคะแนนใน Excel (คอลัมน์แรก = เลขประจำตัว/รหัสประจำตัว, ถัดไป = ชื่องาน) แล้วเซฟเป็นไฟล์ CSV (.csv) ก่อนนำเข้าด้านล่าง
           </p>
           <div className="mt-2 flex gap-2">
-            <UIButton variant="blue" onClick={downloadScoreTemplate} className="h-10 flex-1">
-              <DownloadIcon className="mr-1 h-4 w-4" /> โหลดเทมเพลต
-            </UIButton>
             <label className="flex h-10 flex-1 cursor-pointer items-center justify-center rounded-md bg-[#1e8e3e] px-4 text-[15px] font-semibold text-white">
               เลือกไฟล์
               <input
                 type="file"
-                accept=".csv,text/csv"
+                accept=".csv,text/csv,.xlsx"
                 className="hidden"
                 onChange={(e) => {
                   const f = e.target.files?.[0];
@@ -1001,7 +1020,7 @@ export default function GradingPage() {
               />
             </label>
           </div>
-          <p className="mt-2 text-[12.5px] text-[#5b6b82]">ค่าว่าง = ล้างคะแนนช่องนั้น · เกินคะแนนเต็มจะถูกข้ามพร้อมแจ้ง</p>
+          <p className="mt-2 text-[12.5px] text-[#5b6b82]">ค่าว่าง = ล้างคะแนนช่องนั้น · เกินคะแนนเต็มจะถูกข้ามพร้อมแจ้ง · เปิดไฟล์ใน Excel แล้วเซฟเป็น CSV (.csv) ก่อนนำเข้าเสมอ</p>
         </Modal>
       ) : null}
       {previewUrl ? (
