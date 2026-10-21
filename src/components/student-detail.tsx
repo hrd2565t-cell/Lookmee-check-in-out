@@ -18,6 +18,13 @@ import {
   deleteLeave,
   updateLeave,
 } from "@/lib/leaves";
+import {
+  fetchBonusScores,
+  saveBonusScore,
+  deleteBonusScore,
+  fetchBonusScoreTotal,
+  type BonusScoreRow,
+} from "@/lib/grading";
 import { isSupabaseConfigured, supabase } from "@/lib/supabase/client";
 import { cn } from "@/lib/cn";
 
@@ -87,6 +94,12 @@ export function StudentDetail({
     submittedAt: string;
     isLatest: boolean;
   }> | null>(null);
+  const [bonusScores, setBonusScores] = useState<BonusScoreRow[] | null>(null);
+  const [bonusTotal, setBonusTotal] = useState<number | null>(null);
+  const [bonusBusy, setBonusBusy] = useState(false);
+  const [bonusScore, setBonusScore] = useState("");
+  const [bonusReason, setBonusReason] = useState("");
+  const [bonusNotice, setBonusNotice] = useState("");
 
   useEffect(() => {
     let cancelled = false;
@@ -108,6 +121,51 @@ export function StudentDetail({
       const row = data as { photo_url: string | null; face_status: string; twin_flag: boolean | null } | null;
       setFacePhoto(row?.face_status === "registered" ? (row.photo_url ?? null) : null);
       setTwinFlag(row?.twin_flag === true);
+
+      // โหลดคะแนนพิเศษ
+      const bonus = await fetchBonusScores(code);
+      if (!cancelled) setBonusScores(bonus ?? []);
+      const total = await fetchBonusScoreTotal(code);
+      if (!cancelled) setBonusTotal(total ?? 0);
+
+      // โหลดประวัติสอบซ่อม (submissions ทั้งหมดของนักเรียนคนนี้)
+      const { data: studentRow } = await supabase
+        .from("students")
+        .select("id")
+        .eq("student_code", code)
+        .single();
+      if (cancelled) return;
+      if (studentRow) {
+        const { data: rData } = await supabase
+          .from("submissions")
+          .select("id, attempt_no, score, submitted_at, assignment_id, assignments(title, max_score)")
+          .eq("student_id", studentRow.id)
+          .order("submitted_at", { ascending: true });
+        if (!cancelled && rData) {
+          const rows = rData as unknown as Array<{
+            id: string;
+            attempt_no: number;
+            score: number | null;
+            submitted_at: string;
+            assignments: { title: string; max_score: number } | null;
+          }>;
+          const latestMap = new Map<string, string>();
+          for (const r of rows) {
+            if (r.assignments) latestMap.set(r.assignments.title, r.id);
+          }
+          setRetakes(
+            rows.map((r) => ({
+              id: r.id,
+              assignmentTitle: r.assignments?.title ?? "-",
+              maxScore: r.assignments?.max_score ?? 0,
+              attemptNo: r.attempt_no,
+              score: r.score,
+              submittedAt: r.submitted_at,
+              isLatest: latestMap.get(r.assignments?.title ?? "") === r.id,
+            })),
+          );
+        }
+      }
     })();
     return () => {
       cancelled = true;
@@ -219,6 +277,42 @@ export function StudentDetail({
     }
     setAttendance((rows) => rows?.filter((x) => x.id !== recordId) ?? []);
     setLeaveNotice("ลบแถวเช็คชื่อแล้ว");
+  };
+
+  const addBonusScore = async () => {
+    const s = Number(bonusScore);
+    if (!Number.isFinite(s) || s < 0) {
+      setBonusNotice("กรอกคะแนนเป็นตัวเลข 0 ขึ้นไป");
+      return;
+    }
+    setBonusBusy(true);
+    const ok = await saveBonusScore(code, s, bonusReason.trim() || null);
+    setBonusBusy(false);
+    if (!ok) {
+      setBonusNotice("บันทึกคะแนนพิเศษไม่สำเร็จ");
+      return;
+    }
+    setBonusScore("");
+    setBonusReason("");
+    const bonus = await fetchBonusScores(code);
+    setBonusScores(bonus ?? []);
+    const total = await fetchBonusScoreTotal(code);
+    setBonusTotal(total ?? 0);
+    setBonusNotice("บันทึกคะแนนพิเศษแล้ว");
+  };
+
+  const removeBonusScore = async (id: string) => {
+    if (!window.confirm("ลบคะแนนพิเศษรายการนี้หรือไม่?")) return;
+    const ok = await deleteBonusScore(id);
+    if (!ok) {
+      setBonusNotice("ลบคะแนนพิเศษไม่สำเร็จ");
+      return;
+    }
+    const bonus = await fetchBonusScores(code);
+    setBonusScores(bonus ?? []);
+    const total = await fetchBonusScoreTotal(code);
+    setBonusTotal(total ?? 0);
+    setBonusNotice("ลบคะแนนพิเศษแล้ว");
   };
 
   const deleteFace = async () => {
@@ -483,6 +577,94 @@ export function StudentDetail({
       ) : (
         <p className="py-2 text-center text-[#5b6b82]">ยังไม่มีประวัติสอบซ่อม</p>
       )}
+
+      {/* คะแนนพิเศษ */}
+      <h4 className="mb-1.5 mt-4 text-[14.5px] font-bold text-[#16233a]">
+        คะแนนพิเศษ ({bonusScores?.length ?? 0}) <span className="ml-2 text-[12px] font-normal text-[#5b6b82]">รวม {bonusTotal ?? 0} คะแนน</span>
+      </h4>
+      {loading ? (
+        <p className="py-2 text-center text-[13.5px] text-[#5b6b82]">กำลังโหลด...</p>
+      ) : bonusScores && bonusScores.length > 0 ? (
+        <div className="slim-scroll max-h-[220px] divide-y divide-[#eef2f7] overflow-y-auto rounded-lg border border-[#eef2f7]">
+          <table className="w-full border-collapse text-left text-[13px]">
+            <thead className="bg-[#fef6ec] text-[12px] font-bold text-[#e65100]">
+              <tr>
+                <th className="px-3 py-1.5 text-center">วันที่</th>
+                <th className="px-3 py-1.5 text-center">คะแนน</th>
+                <th className="px-3 py-1.5">เหตุผล</th>
+                <th className="px-3 py-1.5 text-center">ลบ</th>
+              </tr>
+            </thead>
+            <tbody>
+              {bonusScores.map((b) => (
+                <tr key={b.id} className="border-t border-[#eef2f7]">
+                  <td className="px-3 py-1.5 text-[#5b6b82]">
+                    {new Date(b.createdAt).toLocaleDateString("th-TH", {
+                      day: "numeric",
+                      month: "short",
+                      year: "numeric",
+                    })}
+                  </td>
+                  <td className="px-3 py-1.5 text-center font-bold text-[#e65100]">{b.score}</td>
+                  <td className="px-3 py-1.5">{b.reason ?? "-"}</td>
+                  <td className="px-3 py-1.5 text-center">
+                    <button
+                      type="button"
+                      aria-label={`ลบคะแนนพิเศษ ${b.id}`}
+                      onClick={() => void removeBonusScore(b.id)}
+                      className="rounded p-1 text-[#c62828] hover:bg-[#fdecec]"
+                    >
+                      <TrashIcon className="h-4 w-4" />
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ) : (
+        <p className="py-2 text-center text-[#5b6b82]">ยังไม่มีคะแนนพิเศษ</p>
+      )}
+
+      {/* ฟอร์มเพิ่มคะแนนพิเศษ */}
+      <div className="mt-3 rounded-lg border border-[#eef2f7] p-3">
+        <h5 className="mb-2 text-[13px] font-bold text-[#16233a]">เพิ่มคะแนนพิเศษ</h5>
+        <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+          <label className="block text-[13px] font-medium text-[#16233a]">
+            คะแนน
+            <input
+              type="number"
+              min="0"
+              value={bonusScore}
+              onChange={(e) => setBonusScore(e.target.value)}
+              className="mt-1 h-10 rounded-lg border border-[#d8e0ec] bg-white px-3 text-[13px] focus:border-[#2474c6] focus:outline-none"
+            />
+          </label>
+          <label className="col-span-2 block text-[13px] font-medium text-[#16233a]">
+            เหตุผล
+            <input
+              type="text"
+              value={bonusReason}
+              onChange={(e) => setBonusReason(e.target.value)}
+              placeholder="เช่น ช่วยงานครู, สอบซ่อมพิเศษ"
+              className="mt-1 h-10 rounded-lg border border-[#d8e0ec] bg-white px-3 text-[13px] focus:border-[#2474c6] focus:outline-none"
+            />
+          </label>
+          <div className="col-span-2">
+            <button
+              type="button"
+              onClick={() => void addBonusScore()}
+              disabled={bonusBusy}
+              className="rounded-md bg-[#1e8e3e] px-4 py-2 text-[13px] font-bold text-white hover:bg-[#1a5da3] disabled:opacity-40"
+            >
+              {bonusBusy ? "กำลังบันทึก..." : "บันทึกคะแนนพิเศษ"}
+            </button>
+            {bonusNotice ? (
+              <span className="ml-3 text-[12px] font-medium text-[#1e8e3e]">{bonusNotice}</span>
+            ) : null}
+          </div>
+        </div>
+      </div>
 
       {/* แก้ไขใบลา */}
       {editingLeaveId ? (
