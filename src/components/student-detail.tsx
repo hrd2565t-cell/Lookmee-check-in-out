@@ -78,6 +78,15 @@ export function StudentDetail({
   const [editStatus, setEditStatus] = useState<AttendanceStatus>("present");
   const [editCheckIn, setEditCheckIn] = useState("");
   const [editSaving, setEditSaving] = useState(false);
+  const [retakes, setRetakes] = useState<Array<{
+    id: string;
+    assignmentTitle: string;
+    maxScore: number;
+    attemptNo: number;
+    score: number | null;
+    submittedAt: string;
+    isLatest: boolean;
+  }> | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -231,7 +240,7 @@ export function StudentDetail({
     onFaceDeleted?.(code);
   };
 
-  const loading = attendance === null || leaves === null;
+  const loading = attendance === null || leaves === null || retakes === null;
 
   return (
     <Modal title="ประวัตินักเรียน" onClose={onClose}>
@@ -417,6 +426,62 @@ export function StudentDetail({
         <p className="py-2 text-center text-[#5b6b82]">
           ยังไม่มีประวัติเช็กชื่อ — เริ่มสแกนที่หน้า Daily Scanner
         </p>
+      )}
+
+      {/* ประวัติสอบซ่อม */}
+      <h4 className="mb-1.5 mt-4 text-[14.5px] font-bold text-[#16233a]">
+        ประวัติสอบซ่อม ({retakes?.length ?? 0})
+      </h4>
+      {loading ? (
+        <p className="py-2 text-center text-[13.5px] text-[#5b6b82]">กำลังโหลด...</p>
+      ) : retakes && retakes.length > 0 ? (
+        <div className="slim-scroll max-h-[220px] divide-y divide-[#eef2f7] overflow-y-auto rounded-lg border border-[#eef2f7]">
+          <table className="w-full border-collapse text-left text-[13px]">
+            <thead className="bg-[#f8fafc] text-[12px] font-bold text-[#16233a]">
+              <tr>
+                <th className="px-3 py-1.5">งาน</th>
+                <th className="px-3 py-1.5 text-center">ครั้งที่</th>
+                <th className="px-3 py-1.5 text-center">คะแนน</th>
+                <th className="px-3 py-1.5 text-center">เต็ม</th>
+                <th className="px-3 py-1.5">วันที่สอบ</th>
+                <th className="px-3 py-1.5 text-center">สถานะ</th>
+              </tr>
+            </thead>
+            <tbody>
+              {retakes.map((r) => (
+                <tr key={r.id} className="border-t border-[#eef2f7]">
+                  <td className="px-3 py-1.5 whitespace-nowrap">{r.assignmentTitle}</td>
+                  <td className="px-3 py-1.5 text-center">{r.attemptNo}</td>
+                  <td className="px-3 py-1.5 text-center font-bold">
+                    {r.score === null ? "-" : r.score}
+                  </td>
+                  <td className="px-3 py-1.5 text-center text-[#8a97ab]">{r.maxScore}</td>
+                  <td className="px-3 py-1.5 text-[#5b6b82]">
+                    {new Date(r.submittedAt).toLocaleDateString("th-TH", {
+                      day: "numeric",
+                      month: "short",
+                      year: "numeric",
+                    })}
+                  </td>
+                  <td className="px-3 py-1.5 text-center">
+                    <span
+                      className={cn(
+                        "inline-flex items-center justify-center rounded-md px-2 py-0.5 text-[11px] font-bold",
+                        r.isLatest
+                          ? "bg-[#e6f4ea] text-[#166c2e]"
+                          : "bg-[#f1f5fa] text-[#5b6b82]",
+                      )}
+                    >
+                      {r.isLatest ? "คะแนนปัจจุบัน" : "เก่า"}
+                    </span>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ) : (
+        <p className="py-2 text-center text-[#5b6b82]">ยังไม่มีประวัติสอบซ่อม</p>
       )}
 
       {/* แก้ไขใบลา */}
