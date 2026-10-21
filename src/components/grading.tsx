@@ -839,7 +839,7 @@ export default function GradingPage() {
                     <th
                       key={a.id}
                       className={cn(
-                        "max-w-[110px] px-1.5 py-2 text-center",
+                        "w-[110px] max-w-[110px] px-1.5 py-2 text-center",
                         draggedId === a.id ? "opacity-50 ring-2 ring-[#2474c6]" : "",
                       )}
                       title={`${a.title} · ส่ง ${a.due}`}
@@ -859,7 +859,7 @@ export default function GradingPage() {
                       >
                       <div className="flex flex-col items-start gap-1.5">
                         <div className="flex-1 min-w-0">
-                          <span className="block truncate">
+                          <span className="block break-words leading-tight line-clamp-2">
                             {a.title}
                             {a.retakeOf ? <span className="ml-1 align-middle text-[9px] font-bold text-[#b45309]">ซ่อม</span> : null}
                           </span>
