@@ -14,7 +14,13 @@ import {
   type AssignmentSummary,
   type StudentIdentity,
 } from "@/lib/student";
-import { fetchGradeScales, gradeOf, GRADE_POINTS, type GradeScale } from "@/lib/grading";
+import {
+  fetchGradeScales,
+  gradeOf,
+  GRADE_POINTS,
+  fetchBonusScoreTotal,
+  type GradeScale,
+} from "@/lib/grading";
 import { cn } from "@/lib/cn";
 
 const STATUS_STYLE: Record<string, string> = {
@@ -53,6 +59,7 @@ export default function StudentGradesPage() {
   const [filter, setFilter] = useState<FilterKey>("all");
   const [scales, setScales] = useState<GradeScale[] | null>(null);
   const [preview, setPreview] = useState<{ url: string; title: string } | null>(null);
+  const [bonusTotalState, setBonusTotalState] = useState(0);
 
   useEffect(() => {
     const code = getStudentCode();
@@ -62,10 +69,11 @@ export default function StudentGradesPage() {
     }
     let cancelled = false;
     (async () => {
-      const [id, s, r] = await Promise.all([
+      const [id, s, r, bonusTotal] = await Promise.all([
         lookupStudent(code),
         fetchAssignmentSummary(code),
         fetchAssignments(code),
+        fetchBonusScoreTotal(code),
       ]);
       if (cancelled) return;
       if (!id) {
@@ -73,6 +81,7 @@ export default function StudentGradesPage() {
         return;
       }
       setIdentity(id);
+      setBonusTotalState(bonusTotal ?? 0);
       setSummary(s ?? { total: 0, submitted: 0, missing: 0, pending: 0, earned: 0, max: 0, cats: [] });
       setRows(r ?? []);
       setSubjects([...new Set((r ?? []).map((x) => x.subject))].sort((a, b) => a.localeCompare(b, "th")));
@@ -88,18 +97,22 @@ export default function StudentGradesPage() {
     setSubject(subj);
     const code = getStudentCode();
     if (!code) return;
-    void (async () => {
-      const [s, r] = await Promise.all([
+    void     (async () => {
+      const [s, r, bonusTotal] = await Promise.all([
         fetchAssignmentSummary(code, subj || undefined),
         fetchAssignments(code, subj || undefined),
+        fetchBonusScoreTotal(code),
       ]);
+      setBonusTotalState(bonusTotal ?? 0);
       setSummary(s ?? { total: 0, submitted: 0, missing: 0, pending: 0, earned: 0, max: 0, cats: [] });
       setRows(r ?? []);
     })();
   };
 
+  const bonusTotal = bonusTotalState;
+  const effectiveEarned = (summary?.earned ?? 0) + bonusTotal;
   const avgPct =
-    summary && summary.max > 0 ? Math.round((summary.earned / summary.max) * 1000) / 10 : 0;
+    summary && summary.max > 0 ? Math.round((effectiveEarned / summary.max) * 1000) / 10 : 0;
   const gradeLetter = gradeOf(scales, avgPct);
   const gradePoints =
     gradeLetter !== null ? (GRADE_POINTS[gradeLetter] ?? null) : null;

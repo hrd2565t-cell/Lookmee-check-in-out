@@ -674,3 +674,108 @@ export async function saveGradeScales(level: string, rows: GradeScale[]): Promis
     return false;
   }
 }
+
+/** ---------- คะแนนพิเศษ (Bonus Scores) ---------- */
+export type BonusScoreRow = {
+  id: string;
+  studentCode: string;
+  studentName: string;
+  score: number;
+  reason: string | null;
+  createdAt: string;
+};
+
+/** ดึงคะแนนพิเศษทั้งหมดของนักเรียนคนหนึ่ง (เรียงจากใหม่ไปเก่า) */
+export async function fetchBonusScores(studentCode: string): Promise<BonusScoreRow[] | null> {
+  if (!isSupabaseConfigured) return null;
+  try {
+    const { data: st } = await supabase
+      .from("students")
+      .select("id,prefix,first_name,last_name")
+      .eq("student_code", studentCode)
+      .eq("status", "active")
+      .single();
+    if (!st) return null;
+    const studentId = st.id;
+    const last = st.last_name ?? "";
+    const studentName = `${st.prefix}${st.first_name}${last ? ` ${last}` : ""}`;
+
+    const { data, error } = await supabase
+      .from("bonus_scores")
+      .select("id,score,reason,created_at")
+      .eq("student_id", studentId)
+      .order("created_at", { ascending: false });
+    if (error || !data) return null;
+    return (data as Array<{ id: string; score: number; reason: string | null; created_at: string }>).map(
+      (r) => ({
+        id: r.id,
+        studentCode,
+        studentName,
+        score: r.score,
+        reason: r.reason,
+        createdAt: r.created_at,
+      }),
+    );
+  } catch {
+    return null;
+  }
+}
+
+/** เพิ่มคะแนนพิเศษให้นักเรียน (ครูกำหนดคะแนนเองทุกครั้ง) */
+export async function saveBonusScore(
+  studentCode: string,
+  score: number,
+  reason: string | null,
+): Promise<boolean> {
+  if (!isSupabaseConfigured) return false;
+  try {
+    const { data: st } = await supabase
+      .from("students")
+      .select("id")
+      .eq("student_code", studentCode)
+      .eq("status", "active")
+      .single();
+    if (!st) return false;
+    const { error } = await supabase.from("bonus_scores").insert({
+      student_id: st.id,
+      score,
+      reason: reason ?? null,
+    });
+    return !error;
+  } catch {
+    return false;
+  }
+}
+
+/** ลบคะแนนพิเศษ */
+export async function deleteBonusScore(id: string): Promise<boolean> {
+  if (!isSupabaseConfigured) return false;
+  try {
+    const { error } = await supabase.from("bonus_scores").delete().eq("id", id);
+    return !error;
+  } catch {
+    return false;
+  }
+}
+
+/** ดึงยอดคะแนนพิเศษรวมทั้งหมดของนักเรียน (ใช้รวมคำนวณเกรด) */
+export async function fetchBonusScoreTotal(studentCode: string): Promise<number | null> {
+  if (!isSupabaseConfigured) return null;
+  try {
+    const { data: st } = await supabase
+      .from("students")
+      .select("id")
+      .eq("student_code", studentCode)
+      .eq("status", "active")
+      .single();
+    if (!st) return null;
+    const { data, error } = await supabase
+      .from("bonus_scores")
+      .select("score")
+      .eq("student_id", st.id);
+    if (error || !data) return null;
+    return (data as Array<{ score: number }>).reduce((sum, r) => sum + r.score, 0);
+  } catch {
+    return null;
+  }
+}
