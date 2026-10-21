@@ -19,6 +19,9 @@ import {
   gradeOf,
   GRADE_POINTS,
   fetchBonusScoreTotal,
+  fetchCategoryWeights,
+  fetchRoomGradeScales,
+  type CategoryWeight,
   type GradeScale,
 } from "@/lib/grading";
 import { cn } from "@/lib/cn";
@@ -60,6 +63,7 @@ export default function StudentGradesPage() {
   const [scales, setScales] = useState<GradeScale[] | null>(null);
   const [preview, setPreview] = useState<{ url: string; title: string } | null>(null);
   const [bonusTotalState, setBonusTotalState] = useState(0);
+  const [categoryWeights, setCategoryWeights] = useState<CategoryWeight[]>([]);
 
   useEffect(() => {
     const code = getStudentCode();
@@ -85,8 +89,19 @@ export default function StudentGradesPage() {
       setSummary(s ?? { total: 0, submitted: 0, missing: 0, pending: 0, earned: 0, max: 0, cats: [] });
       setRows(r ?? []);
       setSubjects([...new Set((r ?? []).map((x) => x.subject))].sort((a, b) => a.localeCompare(b, "th")));
-      const sc = await fetchGradeScales(levelOfGroup(id.group));
-      if (!cancelled) setScales(sc);
+
+      const [weights, roomScales] = await Promise.all([
+        fetchCategoryWeights(id.group),
+        fetchRoomGradeScales(id.group),
+      ]);
+      if (cancelled) return;
+      setCategoryWeights(weights ?? []);
+      if (roomScales && roomScales.length > 0) {
+        setScales(roomScales);
+      } else {
+        const sc = await fetchGradeScales(levelOfGroup(id.group));
+        if (!cancelled) setScales(sc);
+      }
     })();
     return () => {
       cancelled = true;
@@ -109,10 +124,29 @@ export default function StudentGradesPage() {
     })();
   };
 
+  const weightedPct = useMemo(() => {
+    if (!summary?.cats?.length || !categoryWeights.length) return null;
+    const weightMap = new Map(categoryWeights.map((w) => [w.category, w.weight]));
+    let total = 0;
+    let totalWeight = 0;
+    for (const cat of summary.cats) {
+      const w = weightMap.get(cat.category) ?? 0;
+      const pct = cat.max > 0 ? (cat.earned / cat.max) * 100 : 0;
+      total += (pct * w) / 100;
+      totalWeight += w;
+    }
+    if (totalWeight <= 0) return null;
+    return (total / totalWeight) * 100;
+  }, [summary, categoryWeights]);
+
   const bonusTotal = bonusTotalState;
-  const effectiveEarned = (summary?.earned ?? 0) + bonusTotal;
-  const avgPct =
-    summary && summary.max > 0 ? Math.round((effectiveEarned / summary.max) * 1000) / 10 : 0;
+  const basePct =
+    weightedPct !== null
+      ? weightedPct
+      : summary && summary.max > 0
+        ? (summary.earned / summary.max) * 100
+        : 0;
+  const avgPct = Math.max(0, Math.round((basePct + bonusTotal) * 10) / 10);
   const gradeLetter = gradeOf(scales, avgPct);
   const gradePoints =
     gradeLetter !== null ? (GRADE_POINTS[gradeLetter] ?? null) : null;
