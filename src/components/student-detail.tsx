@@ -21,7 +21,6 @@ import {
 import {
   fetchBonusScores,
   saveBonusScore,
-  deleteBonusScore,
   fetchBonusScoreTotal,
   type BonusScoreRow,
 } from "@/lib/grading";
@@ -303,11 +302,14 @@ export function StudentDetail({
 
   const removeBonusScore = async (id: string) => {
     if (!window.confirm("ลบคะแนนพิเศษรายการนี้หรือไม่?")) return;
-    const ok = await deleteBonusScore(id);
-    if (!ok) {
+    setBonusBusy(true);
+    const { error } = await supabase.from("bonus_scores").delete().eq("id", id);
+    if (error) {
       setBonusNotice("ลบคะแนนพิเศษไม่สำเร็จ");
+      setBonusBusy(false);
       return;
     }
+    setBonusBusy(false);
     const bonus = await fetchBonusScores(code);
     setBonusScores(bonus ?? []);
     const total = await fetchBonusScoreTotal(code);
