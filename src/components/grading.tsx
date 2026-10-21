@@ -28,7 +28,7 @@ import {
   type SheetAssignment,
 } from "@/lib/grading";
 import { fetchTerms, levelOf, type SchoolTerm } from "@/lib/terms";
-import { downloadCsv } from "@/lib/export";
+import { downloadCsv, parseCsv, readCsvFile } from "@/lib/export";
 import { useRoster } from "@/lib/school-data";
 import { useTeacherGroup } from "@/lib/teacher-scope";
 import { cn } from "@/lib/cn";
@@ -73,6 +73,7 @@ export default function GradingPage() {
     assignments: Array<{ id: string; title: string; max: number }>;
     problems: string[];
   } | null>(null);
+  const [importMsg, setImportMsg] = useState("");
   const [moveOrderBusy, setMoveOrderBusy] = useState(false);
   const [templateModal, setTemplateModal] = useState(false);
   const [templateDue, setTemplateDue] = useState(new Date().toISOString().slice(0, 10));
@@ -354,49 +355,51 @@ export default function GradingPage() {
   };
 
   const importScores = async (file: File) => {
+    setImportMsg("");
     const isXlsx = file.name.toLowerCase().endsWith(".xlsx");
     if (isXlsx) {
-      setNotice("ไฟล์ Excel (.xlsx) อ่านไม่ได้ — กรุณาเปิดใน Excel แล้วเซฟเป็นไฟล์ CSV (.csv) ก่อนนำเข้า");
+      setImportMsg("ไฟล์ Excel (.xlsx) อ่านไม่ได้ — กรุณาเปิดใน Excel แล้วเซฟเป็นไฟล์ CSV (.csv) ก่อนนำเข้า");
       return;
     }
-    const text = (await file.text()).replace(/^\uFEFF/, "");
-    const lines = text.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
-    if (lines.length < 2) {
-      setNotice("ไฟล์ว่าง");
+    const text = await readCsvFile(file);
+    const rows = parseCsv(text);
+    if (rows.length < 2) {
+      setImportMsg("ไฟล์ว่าง");
       return;
     }
-    const header = (lines[0] ?? "").split(",").map((c) => c.trim());
-    const firstCol = header[0];
-    if (firstCol !== "เลขประจำตัว" && firstCol !== "รหัสประจำตัว") {
-      setNotice("คอลัมน์แรกต้องเป็นเลขประจำตัวหรือรหัสประจำตัว — ใช้ไฟล์ส่งออกหรือเทมเพลตจากหน้านี้");
+    const header = (rows[0] ?? []).map((c) => c.trim());
+    // หาตำแหน่งคอลัมน์รหัสประจำตัวตามชื่อ (export มี "ลำดับ" นำหน้า)
+    const codeCol = header.findIndex((h) => h === "รหัสประจำตัว" || h === "เลขประจำตัว");
+    if (codeCol === -1) {
+      setImportMsg("ไม่พบคอลัมน์รหัสประจำตัว/เลขประจำตัว — ใช้ไฟล์ส่งออกจากหน้านี้");
       return;
     }
-    // จับคู่คอลัมน์งาน: ลองชื่อตรงๆ ก่อน แล้วค่อยลบ " (คะแนนเต็ม)" ออกเพื่อรองรับไฟล์ส่งออก
-    const colAssign: Array<{ id: string; title: string; max: number } | null> = header.slice(1).map((t) => {
+    // จับคู่คอลัมน์งานตาม index ใน header
+    const colAssign: Array<{ id: string; title: string; max: number } | null> = header.map((t) => {
       let a = assignments.find((x) => x.title === t);
       if (a) return { id: a.id, title: a.title, max: a.max };
       const stripped = t.replace(/\(\s*\d+\s*\)$/, "").trim();
       a = assignments.find((x) => x.title === stripped);
       if (a) return { id: a.id, title: a.title, max: a.max };
-      return null; // ข้ามคอลัมน์ที่ไม่ใช่งาน เช่น ลำดับ, ชื่อ, รวม
+      return null;
     });
     if (!colAssign.some((c) => c !== null)) {
-      setNotice("ไม่พบคอลัมน์งานที่ตรงกับตาราง — โหลดเทมเพลตมากรอกใหม่");
+      setImportMsg("ไม่พบคอลัมน์งานที่ตรงกับตาราง — โหลดเทมเพลตมากรอกใหม่");
       return;
     }
-    const rows: Array<{ code: string; name: string; scores: Array<{ assignmentId: string; score: number | null }> }> = [];
+    const out: Array<{ code: string; name: string; scores: Array<{ assignmentId: string; score: number | null }> }> = [];
     const problems: string[] = [];
     const codeSet = new Set(students.map((s) => s.code));
     const nameMap = new Map(students.map((s) => [s.code, s.name]));
-    lines.slice(1).forEach((line, i) => {
-      const cols = line.split(",").map((c) => c.trim());
-      const code = cols[0] ?? "";
+    for (let i = 1; i < rows.length; i++) {
+      const cols = rows[i]?.map((c) => c.trim()) ?? [];
+      const code = cols[codeCol] ?? "";
       if (!codeSet.has(code)) {
-        problems.push(`แถวที่ ${i + 2}: ไม่มีรหัส ${code} ในห้องนี้`);
-        return;
+        problems.push(`แถวที่ ${i + 1}: ไม่มีรหัส ${code} ในห้องนี้`);
+        continue;
       }
       const scores: Array<{ assignmentId: string; score: number | null }> = [];
-      cols.slice(1).forEach((cell, j) => {
+      cols.forEach((cell, j) => {
         const a = colAssign[j];
         if (!a) return;
         if (cell === "") {
@@ -405,19 +408,19 @@ export default function GradingPage() {
         }
         const n = Number(cell);
         if (!Number.isFinite(n) || n < 0 || n > a.max) {
-          problems.push(`แถวที่ ${i + 2} (${a.title}): ต้อง 0–${a.max}`);
+          problems.push(`แถวที่ ${i + 1} (${a.title}): ต้อง 0–${a.max}`);
           return;
         }
         scores.push({ assignmentId: a.id, score: n });
       });
-      rows.push({ code, name: nameMap.get(code) ?? code, scores });
-    });
-    if (rows.length === 0) {
-      setNotice("ไม่มีแถวที่ใช้ได้" + (problems[0] ? ` — ${problems[0]}` : ""));
+      out.push({ code, name: nameMap.get(code) ?? code, scores });
+    }
+    if (out.length === 0) {
+      setImportMsg("ไม่มีแถวที่ใช้ได้" + (problems[0] ? ` — ${problems[0]}` : ""));
       return;
     }
     const validAssignments = colAssign.filter((c): c is { id: string; title: string; max: number } => c !== null);
-    setPreviewData({ rows, assignments: validAssignments, problems });
+    setPreviewData({ rows: out, assignments: validAssignments, problems });
   };
 
   const confirmImport = async () => {
@@ -1118,11 +1121,11 @@ export default function GradingPage() {
 
       {/* modal นำเข้า */}
       {importModal ? (
-        <Modal title="นำเข้าคะแนน (CSV)" onClose={() => setImportModal(false)}>
+        <Modal title="นำเข้าคะแนน (CSV)" onClose={() => { setImportModal(false); setPreviewData(null); setImportMsg(""); }}>
           {!previewData ? (
             <>
               <p className="text-[13.5px] text-[#16233a]">
-                1. กด <b>ส่งออก (Excel)</b> ในหน้านี้ ไปกรอกคะแนนใน Excel (คอลัมน์แรก = เลขประจำตัว/รหัสประจำตัว, ถัดไป = ชื่องาน) แล้วเซฟเป็นไฟล์ CSV (.csv) ก่อนนำเข้าด้านล่าง
+                1. กด <b>ส่งออก (Excel)</b> ในหน้านี้ → เปิดไฟล์ใน Excel → แก้คะแนน → เซฟเป็น <b>CSV (.csv)</b> → เลือกไฟล์ด้านล่างนำเข้า
               </p>
               <div className="mt-2 flex gap-2">
                 <label className="flex h-10 flex-1 cursor-pointer items-center justify-center rounded-md bg-[#1e8e3e] px-4 text-[15px] font-semibold text-white">
@@ -1139,13 +1142,16 @@ export default function GradingPage() {
                   />
                 </label>
               </div>
+              {importMsg ? (
+                <p role="alert" className="mt-2 rounded-lg bg-[#fdecec] px-3 py-2 text-[13px] font-semibold text-[#c62828]">{importMsg}</p>
+              ) : null}
               <p className="mt-2 text-[12.5px] text-[#5b6b82]">ค่าว่าง = ล้างคะแนนช่องนั้น · เกินคะแนนเต็มจะถูกข้ามพร้อมแจ้ง · เปิดไฟล์ใน Excel แล้วเซฟเป็น CSV (.csv) ก่อนนำเข้าเสมอ</p>
             </>
           ) : (
             <>
-              <p className="text-[13.5px] text-[#16233a]">ตัวอย่างข้อมูลที่จะนำเข้า ({previewData.rows.length} คน, ${previewData.assignments.length} งาน)</p>
+              <p className="text-[13.5px] text-[#16233a]">ตัวอย่างข้อมูลที่จะนำเข้า ({previewData.rows.length} คน, {previewData.assignments.length} งาน)</p>
               {previewData.problems.length > 0 ? (
-                <p className="mt-1 text-[12.5px] text-[#c62828]">ข้าม: {previewData.problems.slice(0, 3).join("; ")}${previewData.problems.length > 3 ? ` และอีก ${previewData.problems.length - 3}` : ""}</p>
+                <p className="mt-1 text-[12.5px] text-[#c62828]">ข้าม: {previewData.problems.slice(0, 3).join("; ")}{previewData.problems.length > 3 ? ` และอีก ${previewData.problems.length - 3}` : ""}</p>
               ) : null}
               <div className="mt-2 overflow-x-auto max-h-[400px] overflow-y-auto rounded-lg border border-[#e4eaf3]">
                 <table className="w-full border-collapse text-left text-[12px]">
