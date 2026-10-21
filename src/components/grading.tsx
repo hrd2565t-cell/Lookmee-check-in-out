@@ -17,10 +17,17 @@ import {
   toggleAssignmentVisible,
   updateAssignment,
   uploadAssignmentFile,
+  fetchCategoryWeights,
+  computeWeightedScore,
+  fetchRoomGradeScales,
+  fetchGradeScales,
+  gradeOf,
   type ClassSubject,
+  type CategoryWeight,
+  type GradeScale,
   type SheetAssignment,
 } from "@/lib/grading";
-import { fetchTerms, type SchoolTerm } from "@/lib/terms";
+import { fetchTerms, levelOf, type SchoolTerm } from "@/lib/terms";
 import { downloadCsv } from "@/lib/export";
 import { useRoster } from "@/lib/school-data";
 import { useTeacherGroup } from "@/lib/teacher-scope";
@@ -72,6 +79,8 @@ export default function GradingPage() {
   const [templateBusy, setTemplateBusy] = useState(false);
   const [modalMsg, setModalMsg] = useState("");
   const [colForm, setColForm] = useState({ subject: "", title: "", max: "10", due: "", category: "ใบงาน/การบ้าน" });
+  const [categoryWeights, setCategoryWeights] = useState<CategoryWeight[]>([]);
+  const [gradeScales, setGradeScales] = useState<GradeScale[] | null>(null);
 
   const activeSubjectScope = `${activeGroup}|${termId}`;
   const activeSubjectItem = subjectsScope === activeSubjectScope
@@ -125,6 +134,28 @@ export default function GradingPage() {
       cancelled = true;
     };
   }, []);
+
+  // โหลดน้ำหนักหมวด + เกณฑ์เกรดของห้อง (ถ้ามี)
+  useEffect(() => {
+    if (!activeGroup) return;
+    let cancelled = false;
+    (async () => {
+      const weights = await fetchCategoryWeights(activeGroup);
+      if (!cancelled) setCategoryWeights(weights ?? []);
+      const roomScales = await fetchRoomGradeScales(activeGroup);
+      if (cancelled) return;
+      if (roomScales && roomScales.length > 0) {
+        setGradeScales(roomScales);
+      } else {
+        const level = levelOf(activeGroup);
+        const levelScales = await fetchGradeScales(level);
+        if (!cancelled) setGradeScales(levelScales ?? []);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [activeGroup]);
 
   // โหลดวิชาตามห้องและภาคเรียนที่เลือก
   useEffect(() => {
@@ -201,6 +232,51 @@ export default function GradingPage() {
       const s = savedScores.get(cellKey(a.id, code));
       return s !== null && s !== undefined;
     });
+
+  const mergedScores = useMemo(() => {
+    const map = new Map<string, number | null>();
+    for (const [key, v] of savedScores) map.set(key, v);
+    for (const [key, d] of drafts) {
+      map.set(key, d.trim() === "" ? null : Number(d));
+    }
+    return map;
+  }, [savedScores, drafts]);
+
+  const rowWeighted = (code: string): number | null =>
+    computeWeightedScore(assignments, mergedScores, code, categoryWeights);
+
+  const rowGrade = (code: string): string | null => {
+    const w = rowWeighted(code);
+    if (w === null) return null;
+    return gradeOf(gradeScales, w);
+  };
+
+  const addRetake = async (a: SheetAssignment) => {
+    if (a.retakeOf) return;
+    if (assignments.some((x) => x.retakeOf === a.id)) {
+      setNotice("มีคอลัมน์สอบซ่อมของงานนี้แล้ว");
+      return;
+    }
+    if (termId === "all" || !activeTerm) {
+      setNotice("เลือกภาคเรียนก่อนเพิ่มสอบซ่อม");
+      return;
+    }
+    const ok = await addAssignment({
+      groupName: activeGroup,
+      subject: activeSubject,
+      title: `สอบซ่อม ${a.title}`,
+      max: a.max,
+      due: a.due,
+      category: a.category,
+      retakeOf: a.id,
+    });
+    if (!ok) {
+      setNotice("เพิ่มคอลัมน์สอบซ่อมไม่สำเร็จ");
+      return;
+    }
+    setNotice(`เพิ่มคอลัมน์สอบซ่อม “${a.title}” แล้ว`);
+    await reloadSheet();
+  };
 
   const filteredStudents = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -780,7 +856,10 @@ export default function GradingPage() {
                       >
                       <div className="flex flex-col items-start gap-1.5">
                         <div className="flex-1 min-w-0">
-                          <span className="block truncate">{a.title}</span>
+                          <span className="block truncate">
+                            {a.title}
+                            {a.retakeOf ? <span className="ml-1 align-middle text-[9px] font-bold text-[#b45309]">ซ่อม</span> : null}
+                          </span>
                           <span className="block font-medium text-[#5b6b82]">({a.max})</span>
                           {!a.visible ? (
                             <span className="mt-0.5 block text-[10px] font-bold text-[#8a97ab]">ซ่อนอยู่</span>
@@ -815,11 +894,22 @@ export default function GradingPage() {
                           >
                             <TrashIcon className="h-3.5 w-3.5" />
                           </button>
+                          {!a.retakeOf && !assignments.some((x) => x.retakeOf === a.id) ? (
+                            <button
+                              type="button"
+                              title={`เพิ่มคอลัมน์สอบซ่อมของ ${a.title}`}
+                              onClick={() => void addRetake(a)}
+                              className="rounded px-1 text-[9px] font-bold text-[#b45309] hover:bg-[#fef6ec]"
+                            >
+                              +ซ่อม
+                            </button>
+                          ) : null}
                         </div>
                       </div>
                     </th>
                   ))}
-                  <th className="px-2 py-2 text-center">รวม</th>
+                  <th className="px-2 py-2 text-center">คะแนนรวม (100)</th>
+                  <th className="px-2 py-2 text-center">เกรด</th>
                   <th className="py-2 text-right">สถานะ</th>
                 </tr>
               </thead>
@@ -854,7 +944,13 @@ export default function GradingPage() {
                         );
                       })}
                       <td className="whitespace-nowrap px-2 py-1.5 text-center text-[14px] font-bold text-[#16233a]">
-                        {rowTotal(s.code)}
+                        {(() => {
+                          const w = rowWeighted(s.code);
+                          return w !== null ? w.toFixed(1) : rowTotal(s.code);
+                        })()}
+                      </td>
+                      <td className="whitespace-nowrap px-2 py-1.5 text-center text-[14px] font-bold text-[#1e8e3e]">
+                        {rowGrade(s.code) ?? "-"}
                       </td>
                       <td className="whitespace-nowrap py-1.5 text-right">
                         <span
@@ -871,7 +967,7 @@ export default function GradingPage() {
                 })}
                 {pageRows.length === 0 ? (
                   <tr>
-                    <td colSpan={5 + assignments.length} className="py-8 text-center text-[14px] text-[#5b6b82]">
+                    <td colSpan={6 + assignments.length} className="py-8 text-center text-[14px] text-[#5b6b82]">
                       ไม่พบนักเรียนตามเงื่อนไข
                     </td>
                   </tr>

@@ -11,7 +11,16 @@ import {
   type AbsenceLimit,
   type SchoolTerm,
 } from "@/lib/terms";
-import { fetchGradeScales, saveGradeScales, type GradeScale } from "@/lib/grading";
+import {
+  fetchGradeScales,
+  saveGradeScales,
+  fetchCategoryWeights,
+  saveCategoryWeights,
+  fetchRoomGradeScales,
+  saveRoomGradeScales,
+  type CategoryWeight,
+  type GradeScale,
+} from "@/lib/grading";
 import { fetchAbsentCounts } from "@/lib/attendance";
 import { isSupabaseConfigured, supabase } from "@/lib/supabase/client";
 import { useRoster } from "@/lib/school-data";
@@ -20,6 +29,8 @@ import { cn } from "@/lib/cn";
 
 const inputCls =
   "h-10 w-full rounded-lg border border-[#d8e0ec] bg-white px-3 text-[14px] text-[#16233a] focus:border-[#2474c6] focus:outline-none";
+
+const CATEGORIES = ["ใบงาน/การบ้าน", "คะแนนย่อย", "สอบกลางภาค", "สอบปลายภาค", "ชิ้นงาน"];
 
 /* ---------- ตั้งค่าเทอม + เกณฑ์ขาดเรียนรายชั้น ---------- */
 export default function SettingsPage() {
@@ -50,6 +61,13 @@ export default function SettingsPage() {
   }>>([]);
   const [watchlistLoaded, setWatchlistLoaded] = useState(false);
   const [watchlistBusy, setWatchlistBusy] = useState(false);
+  const [weightRoom, setWeightRoom] = useState("");
+  const [weightValues, setWeightValues] = useState<Record<string, string>>({});
+  const [weightMsg, setWeightMsg] = useState("");
+  const [scaleRoom, setScaleRoom] = useState("");
+  const [roomScales, setRoomScales] = useState<GradeScale[]>([]);
+  const [roomScalesMsg, setRoomScalesMsg] = useState("");
+  const [newRoomGrade, setNewRoomGrade] = useState("");
 
   useEffect(() => {
     let cancelled = false;
@@ -264,6 +282,79 @@ export default function SettingsPage() {
     setBackupNotice(`สำรองข้อมูลแล้ว ${total} แถว`);
   };
 
+  /* ---------- สัดส่วนคะแนนรายห้อง ---------- */
+  const loadWeights = async (room: string) => {
+    if (!room) return;
+    const rows = await fetchCategoryWeights(room);
+    const map: Record<string, string> = {};
+    for (const c of CATEGORIES) {
+      const w = rows?.find((r) => r.category === c);
+      map[c] = w ? String(w.weight) : "";
+    }
+    setWeightValues(map);
+    setWeightMsg("");
+  };
+
+  const saveWeights = async () => {
+    if (!weightRoom) return;
+    const items: CategoryWeight[] = [];
+    let sum = 0;
+    for (const c of CATEGORIES) {
+      const v = weightValues[c]?.trim();
+      if (v === "") continue;
+      const n = Number(v);
+      if (!Number.isFinite(n) || n < 0) {
+        setWeightMsg("น้ำหนักต้องเป็นตัวเลข 0 ขึ้นไป");
+        return;
+      }
+      items.push({ category: c, weight: n });
+      sum += n;
+    }
+    if (Math.round(sum) !== 100) {
+      setWeightMsg(`น้ำหนักรวมต้องเท่ากับ 100 (ตอนนี้ ${sum})`);
+      return;
+    }
+    const ok = await saveCategoryWeights(weightRoom, items);
+    setWeightMsg(ok ? "บันทึกสัดส่วนคะแนนแล้ว" : "บันทึกไม่สำเร็จ");
+  };
+
+  /* ---------- เกณฑ์ตัดเกรดรายห้อง ---------- */
+  const loadRoomScales = async (room: string) => {
+    if (!room) return;
+    const rows = await fetchRoomGradeScales(room);
+    setRoomScales(rows ?? []);
+    setRoomScalesMsg("");
+  };
+
+  const saveRoomScales = async () => {
+    if (!scaleRoom) return;
+    const rows = roomScales.filter((s) => s.grade.trim() !== "");
+    const ok = await saveRoomGradeScales(scaleRoom, rows);
+    setRoomScalesMsg(ok ? "บันทึกเกณฑ์เกรดแล้ว" : "บันทึกไม่สำเร็จ");
+  };
+
+  const addRoomGrade = () => {
+    const g = newRoomGrade.trim();
+    if (!g) return;
+    if (roomScales.some((s) => s.grade === g)) {
+      setRoomScalesMsg(`มีเกรด ${g} แล้ว`);
+      return;
+    }
+    setRoomScales((prev) => [...prev, { grade: g, min: 0 }]);
+    setNewRoomGrade("");
+    setRoomScalesMsg("");
+  };
+
+  useEffect(() => {
+    if (weightRoom) void loadWeights(weightRoom);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [weightRoom]);
+
+  useEffect(() => {
+    if (scaleRoom) void loadRoomScales(scaleRoom);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [scaleRoom]);
+
   return (
     <AppShell active="settings" title="ตั้งค่าระบบ">
       {notice ? (
@@ -435,6 +526,113 @@ export default function SettingsPage() {
           </div>
         </Card>
       </div>
+
+      {/* สัดส่วนคะแนนรายห้อง */}
+      <Card className="mt-3 p-4 sm:p-5">
+        <CardTitle className="mb-1">สัดส่วนคะแนนรายห้อง (รวม 100)</CardTitle>
+        <p className="mb-2 text-[12.5px] text-[#5b6b82]">
+          กำหนดน้ำหนัก % แต่ละหมวดต่อห้อง — ใช้กับทุกวิชาในห้องนั้น คะแนนรวมจะถ่วงน้ำหนักตามหมวด
+        </p>
+        <div className="flex flex-wrap items-end gap-2">
+          <label className="block min-w-[180px] text-[13.5px] font-medium text-[#16233a]">
+            ห้อง
+            <select value={weightRoom} onChange={(e) => setWeightRoom(e.target.value)} className={cn(inputCls, "mt-1")}>
+              <option value="">เลือกห้อง...</option>
+              {rosterGroups.map((g) => (
+                <option key={g.name} value={g.name}>{g.name}</option>
+              ))}
+            </select>
+          </label>
+        </div>
+        {weightRoom ? (
+          <>
+            <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-5">
+              {CATEGORIES.map((c) => (
+                <label key={c} className="block text-[13px] font-medium text-[#16233a]">
+                  {c}
+                  <input
+                    value={weightValues[c] ?? ""}
+                    onChange={(e) => setWeightValues((prev) => ({ ...prev, [c]: e.target.value }))}
+                    inputMode="decimal"
+                    placeholder="0"
+                    className="mt-1 h-10 w-full rounded-lg border border-[#d8e0ec] bg-white px-3 text-center text-[14px] focus:border-[#2474c6] focus:outline-none"
+                  />
+                </label>
+              ))}
+            </div>
+            {weightMsg ? (
+              <p role="status" className="mt-2 rounded-lg bg-[#e8f1fb] px-3 py-2 text-[13.5px] font-medium text-[#1a5da3]">{weightMsg}</p>
+            ) : null}
+            <div className="mt-3">
+              <UIButton variant="green" onClick={() => void saveWeights()} className="h-10 w-full sm:w-auto sm:px-8">
+                บันทึกสัดส่วน
+              </UIButton>
+            </div>
+          </>
+        ) : null}
+      </Card>
+
+      {/* เกณฑ์ตัดเกรดรายห้อง */}
+      <Card className="mt-3 p-4 sm:p-5">
+        <CardTitle className="mb-1">เกณฑ์ตัดเกรดรายห้อง (คะแนนเต็ม 100)</CardTitle>
+        <p className="mb-2 text-[12.5px] text-[#5b6b82]">
+          ตั้งเกณฑ์เฉพาะห้อง — ห้องไหนไม่ตั้ง ใช้เกณฑ์ของระดับชั้น
+        </p>
+        <div className="flex flex-wrap items-end gap-2">
+          <label className="block min-w-[180px] text-[13.5px] font-medium text-[#16233a]">
+            ห้อง
+            <select value={scaleRoom} onChange={(e) => setScaleRoom(e.target.value)} className={cn(inputCls, "mt-1")}>
+              <option value="">เลือกห้อง...</option>
+              {rosterGroups.map((g) => (
+                <option key={g.name} value={g.name}>{g.name}</option>
+              ))}
+            </select>
+          </label>
+        </div>
+        {scaleRoom ? (
+          <>
+            <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-4">
+              {roomScales.map((s) => (
+                <label key={s.grade} className="flex items-center gap-2 rounded-lg border border-[#eef2f7] px-2.5 py-2 text-[14px] font-bold text-[#16233a]">
+                  <span className="w-8">{s.grade}</span>
+                  <span className="font-normal text-[#8a97ab]">≥</span>
+                  <input
+                    value={s.min}
+                    onChange={(e) =>
+                      setRoomScales((prev) =>
+                        prev.map((x) => (x.grade === s.grade ? { ...x, min: Number(e.target.value) || 0 } : x)),
+                      )
+                    }
+                    inputMode="decimal"
+                    aria-label={`เกณฑ์ ${s.grade}`}
+                    className="h-9 w-full rounded-md border border-[#d8e0ec] px-2 text-center focus:border-[#2474c6] focus:outline-none"
+                  />
+                </label>
+              ))}
+            </div>
+            {roomScales.length === 0 ? (
+              <p className="mt-2 text-[13px] text-[#5b6b82]">ยังไม่มีเกณฑ์ห้องนี้ — เพิ่มเกรดด้านล่าง</p>
+            ) : null}
+            <div className="mt-2 flex gap-2">
+              <input
+                value={newRoomGrade}
+                onChange={(e) => setNewRoomGrade(e.target.value)}
+                placeholder="เกรด เช่น A, B+"
+                className="h-10 w-40 rounded-lg border border-[#d8e0ec] bg-white px-3 text-[14px] focus:border-[#2474c6] focus:outline-none"
+              />
+              <UIButton variant="blue" onClick={addRoomGrade} className="h-10">เพิ่มเกรด</UIButton>
+            </div>
+            {roomScalesMsg ? (
+              <p role="status" className="mt-2 rounded-lg bg-[#e8f1fb] px-3 py-2 text-[13.5px] font-medium text-[#1a5da3]">{roomScalesMsg}</p>
+            ) : null}
+            <div className="mt-3">
+              <UIButton variant="green" onClick={() => void saveRoomScales()} className="h-10 w-full sm:w-auto sm:px-8">
+                บันทึกเกณฑ์
+              </UIButton>
+            </div>
+          </>
+        ) : null}
+      </Card>
 
       {/* Watchlist นักเรียนขาดเกินเกณฑ์ในเทอมปัจจุบัน */}
       <Card className="mt-3 p-4 sm:p-5">

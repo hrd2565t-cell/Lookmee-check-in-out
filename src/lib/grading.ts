@@ -10,6 +10,7 @@ export type SheetAssignment = {
   visible: boolean;
   attachment: string | null;
   sortOrder: number;
+  retakeOf: string | null;
 };
 
 export type SheetData = {
@@ -309,7 +310,7 @@ export async function fetchSheet(
     if (!gid) return { assignments: [], scores: new Map() };
     let q = supabase
       .from("assignments")
-      .select("id,title,subject,category,due_date,max_score,visible,attachment_url,sort_order")
+      .select("id,title,subject,category,due_date,max_score,visible,attachment_url,sort_order,retake_of")
       .eq("group_id", gid)
       .eq("subject", subject)
       .order("sort_order", { ascending: true })
@@ -329,6 +330,7 @@ export async function fetchSheet(
         visible: boolean | null;
         attachment_url: string | null;
         sort_order: number | null;
+        retake_of: string | null;
       }>
     ).map((a) => ({
       id: a.id,
@@ -340,6 +342,7 @@ export async function fetchSheet(
       visible: a.visible !== false,
       attachment: a.attachment_url,
       sortOrder: Number(a.sort_order) ?? 0,
+      retakeOf: a.retake_of,
     }));
     const scores = new Map<string, number | null>();
     if (assignments.length > 0) {
@@ -420,6 +423,7 @@ export async function addAssignment(input: {
   max: number;
   due: string;
   category?: string;
+  retakeOf?: string | null;
 }): Promise<boolean> {
   if (!isSupabaseConfigured) return false;
   try {
@@ -432,6 +436,7 @@ export async function addAssignment(input: {
       max_score: input.max,
       due_date: input.due,
       category: input.category ?? "ใบงาน/การบ้าน",
+      retake_of: input.retakeOf ?? null,
     });
     return !error;
   } catch {
@@ -778,4 +783,133 @@ export async function fetchBonusScoreTotal(studentCode: string): Promise<number 
   } catch {
     return null;
   }
+}
+
+/** ---------- คะแนนถ่วงน้ำหนักรายห้อง + เกณฑ์เกรดรายห้อง ---------- */
+export type CategoryWeight = {
+  category: string;
+  weight: number;
+};
+
+/** ดึงน้ำหนักหมวดของห้อง (ถ้ายังไม่ตั้ง คืน []) */
+export async function fetchCategoryWeights(groupName: string): Promise<CategoryWeight[] | null> {
+  if (!isSupabaseConfigured) return null;
+  try {
+    const gid = await groupIdOf(groupName);
+    if (!gid) return null;
+    const { data, error } = await supabase
+      .from("category_weights")
+      .select("category,weight")
+      .eq("group_id", gid)
+      .order("category");
+    if (error || !data) return null;
+    return (data as Array<{ category: string; weight: number }>).map((r) => ({
+      category: r.category,
+      weight: Number(r.weight),
+    }));
+  } catch {
+    return null;
+  }
+}
+
+/** บันทึกน้ำหนักหมวดของห้อง (ลบเก่าแล้ว insert ใหม่) */
+export async function saveCategoryWeights(groupName: string, weights: CategoryWeight[]): Promise<boolean> {
+  if (!isSupabaseConfigured) return false;
+  try {
+    const gid = await groupIdOf(groupName);
+    if (!gid) return false;
+    await supabase.from("category_weights").delete().eq("group_id", gid);
+    if (weights.length > 0) {
+      const { error } = await supabase.from("category_weights").insert(
+        weights.map((w) => ({ group_id: gid, category: w.category, weight: w.weight })),
+      );
+      if (error) return false;
+    }
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** ดึงเกณฑ์ตัดเกรดรายห้อง (ถ้ายังไม่ตั้ง คืน []) */
+export async function fetchRoomGradeScales(groupName: string): Promise<GradeScale[] | null> {
+  if (!isSupabaseConfigured) return null;
+  try {
+    const gid = await groupIdOf(groupName);
+    if (!gid) return null;
+    const { data, error } = await supabase
+      .from("room_grade_scales")
+      .select("grade,min_score")
+      .eq("group_id", gid)
+      .order("min_score", { ascending: false });
+    if (error || !data) return null;
+    return (data as Array<{ grade: string; min_score: number }>).map((r) => ({
+      grade: r.grade,
+      min: Number(r.min_score),
+    }));
+  } catch {
+    return null;
+  }
+}
+
+/** บันทึกเกณฑ์ตัดเกรดรายห้อง (ลบเก่าแล้ว insert ใหม่) */
+export async function saveRoomGradeScales(groupName: string, scales: GradeScale[]): Promise<boolean> {
+  if (!isSupabaseConfigured) return false;
+  try {
+    const gid = await groupIdOf(groupName);
+    if (!gid) return false;
+    await supabase.from("room_grade_scales").delete().eq("group_id", gid);
+    if (scales.length > 0) {
+      const { error } = await supabase.from("room_grade_scales").insert(
+        scales.map((s) => ({ group_id: gid, grade: s.grade, min_score: s.min })),
+      );
+      if (error) return false;
+    }
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** คำนวณคะแนนรวมถ่วงน้ำหนัก: Σ(คะแนนหมวด% × น้ำหนัก) — ใช้สอบซ่อมแทนข้อสอบเดิมถ้ามีคะแนน */
+export function computeWeightedScore(
+  assignments: SheetAssignment[],
+  scores: Map<string, number | null>,
+  studentCode: string,
+  weights: CategoryWeight[],
+): number | null {
+  if (!assignments.length || !weights.length) return null;
+  const weightMap = new Map(weights.map((w) => [w.category, w.weight]));
+  const retakeMap = new Map<string, string>();
+  for (const a of assignments) {
+    if (a.retakeOf) retakeMap.set(a.retakeOf, a.id);
+  }
+  const byCategory = new Map<string, { earned: number; max: number }>();
+  for (const a of assignments) {
+    if (a.retakeOf) continue; // คอลัมน์สอบซ่อมไม่นับแยก — ไปแทนข้อสอบเดิม
+    const weight = weightMap.get(a.category);
+    if (weight === undefined) continue;
+    let score = scores.get(`${a.id}|${studentCode}`);
+    const retakeId = retakeMap.get(a.id);
+    if (retakeId) {
+      const retakeScore = scores.get(`${retakeId}|${studentCode}`);
+      if (retakeScore !== null && retakeScore !== undefined) score = retakeScore;
+    }
+    const earned = score === null || score === undefined ? 0 : Number(score);
+    const cur = byCategory.get(a.category) ?? { earned: 0, max: 0 };
+    cur.earned += earned;
+    cur.max += a.max;
+    byCategory.set(a.category, cur);
+  }
+  let total = 0;
+  let totalWeight = 0;
+  for (const [cat, v] of byCategory) {
+    const weight = weightMap.get(cat) ?? 0;
+    const pct = v.max > 0 ? (v.earned / v.max) * 100 : 0;
+    total += (pct * weight) / 100;
+    totalWeight += weight;
+  }
+  if (totalWeight === 0) return null;
+  // ปรับสเกลในกรณีน้ำหนักรวมไม่ครบ 100
+  return totalWeight > 0 ? (total / totalWeight) * 100 : null;
 }
