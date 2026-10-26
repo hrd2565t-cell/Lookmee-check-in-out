@@ -64,6 +64,8 @@ export default function StudentGradesPage() {
   const [preview, setPreview] = useState<{ url: string; title: string } | null>(null);
   const [bonusTotalState, setBonusTotalState] = useState(0);
   const [categoryWeights, setCategoryWeights] = useState<CategoryWeight[]>([]);
+  const [page, setPage] = useState(1);
+  const PAGE_SIZE = 10;
 
   useEffect(() => {
     const code = getStudentCode();
@@ -161,6 +163,10 @@ export default function StudentGradesPage() {
           r.subject.toLowerCase().includes(q)),
     );
   }, [rows, filter, query]);
+
+  const totalPages = Math.max(1, Math.ceil(shown.length / PAGE_SIZE));
+  const safePage = Math.min(page, totalPages);
+  const pageRows = shown.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE);
 
   const shellIdentity: StudentIdentity =
     identity ?? { code: "", name: "...", group: "...", hasFace: false, descriptor: null, photo: null };
@@ -286,7 +292,7 @@ export default function StudentGradesPage() {
                   <span className="sr-only">ค้นหางาน</span>
                   <input
                     value={query}
-                    onChange={(e) => setQuery(e.target.value)}
+                    onChange={(e) => { setQuery(e.target.value); setPage(1); }}
                     placeholder="ค้นหา"
                     className="h-10 w-full rounded-lg border border-[#d8e0ec] bg-white pl-3 pr-10 text-[14px] placeholder:text-[#8a97ab] focus:border-[#2474c6] focus:outline-none"
                   />
@@ -297,7 +303,7 @@ export default function StudentGradesPage() {
                   <select
                     aria-label="เลือกวิชา"
                     value={subject}
-                    onChange={(e) => changeSubject(e.target.value)}
+                    onChange={(e) => { changeSubject(e.target.value); setPage(1); }}
                     className="h-10 w-full appearance-none rounded-lg border border-[#d8e0ec] bg-white pl-3 pr-9 text-[14px] text-[#16233a] focus:border-[#2474c6] focus:outline-none"
                   >
                     <option value="">ทุกวิชา</option>
@@ -312,7 +318,7 @@ export default function StudentGradesPage() {
                   <select
                     aria-label="กรองสถานะ"
                     value={filter}
-                    onChange={(e) => setFilter(e.target.value as typeof filter)}
+                    onChange={(e) => { setFilter(e.target.value as typeof filter); setPage(1); }}
                     className="h-10 w-full appearance-none rounded-lg border border-[#d8e0ec] bg-white pl-3 pr-9 text-[14px] text-[#16233a] focus:border-[#2474c6] focus:outline-none"
                   >
                     <option value="all">ทั้งหมด</option>
@@ -328,6 +334,7 @@ export default function StudentGradesPage() {
                   {rows.length === 0 ? "ยังไม่มีงานที่ถึงกำหนดส่ง" : "ไม่พบงานตามเงื่อนไข"}
                 </p>
               ) : (
+                <>
                 <div className="slim-scroll -mx-4 overflow-x-auto px-4 sm:-mx-5 sm:px-5">
                   <table className="w-full min-w-[620px] border-collapse text-left">
                     <thead>
@@ -340,7 +347,7 @@ export default function StudentGradesPage() {
                       </tr>
                     </thead>
                     <tbody>
-                      {shown.map((r, i) => (
+                      {pageRows.map((r, i) => (
                         <tr key={`${r.title}-${i}`} className="border-t border-[#eef2f7] align-middle">
                           <td className="py-2 pr-3 text-[13.5px] font-medium text-[#16233a]">
                         {r.title}
@@ -372,6 +379,32 @@ export default function StudentGradesPage() {
                     </tbody>
                   </table>
                 </div>
+                <div className="mt-2 flex items-center gap-1 border-t border-[#eef2f7] pt-2.5 text-[13.5px] text-[#5b6b82]">
+                  <span className="font-medium text-[#16233a]">
+                    หน้าที่ {safePage} จาก {totalPages}
+                  </span>
+                  <span className="ml-auto flex gap-1">
+                    <button
+                      type="button"
+                      aria-label="ก่อนหน้า"
+                      disabled={safePage <= 1}
+                      onClick={() => setPage((p) => p - 1)}
+                      className="rounded-md p-1.5 text-[#5b6b82] hover:bg-[#eef3f9] disabled:opacity-30 disabled:hover:bg-transparent"
+                    >
+                      ‹
+                    </button>
+                    <button
+                      type="button"
+                      aria-label="ถัดไป"
+                      disabled={safePage >= totalPages}
+                      onClick={() => setPage((p) => p + 1)}
+                      className="rounded-md p-1.5 text-[#5b6b82] hover:bg-[#eef3f9] disabled:opacity-30 disabled:hover:bg-transparent"
+                    >
+                      ›
+                    </button>
+                  </span>
+                </div>
+                </>
               )}
             </Card>
           </div>
