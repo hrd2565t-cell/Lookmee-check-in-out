@@ -216,6 +216,16 @@ export function DownloadIcon({ className = "h-4 w-4" }: IconProps) {
   );
 }
 
+export function UploadIcon({ className = "h-4 w-4" }: IconProps) {
+  return (
+    <Base className={className}>
+      <path d="M12 15V3.5" />
+      <path d="m7 8.5 5-5 5 5" />
+      <path d="M4 19.5h16" />
+    </Base>
+  );
+}
+
 export function CalendarIcon({ className = "h-4 w-4" }: IconProps) {
   return (
     <Base className={className}>

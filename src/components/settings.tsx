@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { AppShell } from "@/components/layout";
-import { PencilIcon, TrashIcon, DownloadIcon } from "@/components/icons";
+import { PencilIcon, TrashIcon, DownloadIcon, UploadIcon, EyeIcon, EyeOffIcon } from "@/components/icons";
 import { Card, CardTitle, Modal, UIButton } from "@/components/ui";
 import {
   fetchLimits,
@@ -24,7 +24,15 @@ import {
 import { fetchAbsentCounts } from "@/lib/attendance";
 import { isSupabaseConfigured, supabase } from "@/lib/supabase/client";
 import { useRoster } from "@/lib/school-data";
-import { fetchFullBackup, downloadBackup, backupStats } from "@/lib/backup";
+import {
+  fetchFullBackup,
+  downloadBackup,
+  backupStats,
+  parseBackupJson,
+  restoreBackup,
+  type BackupData,
+  type RestoreResult,
+} from "@/lib/backup";
 import { cn } from "@/lib/cn";
 
 const inputCls =
@@ -41,7 +49,23 @@ export default function SettingsPage() {
   const [notice, setNotice] = useState("");
   const [backupBusy, setBackupBusy] = useState(false);
   const [backupNotice, setBackupNotice] = useState("");
-  const [backupSummary, setBackupSummary] = useState<Array<{ table: string; rows: number }>>([]);
+  const [backupSummary, setBackupSummary] = useState<Array<{ table: string; label: string; rows: number }>>([]);
+  const [restoreModal, setRestoreModal] = useState<null | {
+    data: BackupData;
+    filename: string;
+    stats: Array<{ table: string; label: string; rows: number }>;
+    totalRows: number;
+  }>(null);
+  const [restoreBusy, setRestoreBusy] = useState(false);
+  const [restoreProgress, setRestoreProgress] = useState("");
+  const [restoreResult, setRestoreResult] = useState<RestoreResult | null>(null);
+
+  const [userEmail, setUserEmail] = useState<string | null>(null);
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
+  const [passwordBusy, setPasswordBusy] = useState(false);
+  const [passwordMsg, setPasswordMsg] = useState<{ text: string; type: "success" | "error" } | null>(null);
   const [tName, setTName] = useState("");
   const [tStart, setTStart] = useState("");
   const [tEnd, setTEnd] = useState("");
@@ -88,6 +112,18 @@ export default function SettingsPage() {
     }
     if (l) setLimits(l);
   };
+  useEffect(() => {
+    supabase.auth.getUser().then(({ data }) => {
+      setUserEmail(data.user?.email ?? null);
+    });
+    const { data: sub } = supabase.auth.onAuthStateChange((_e, session) => {
+      setUserEmail(session?.user?.email ?? null);
+    });
+    return () => {
+      sub.subscription.unsubscribe();
+    };
+  }, []);
+
   useEffect(() => {
     let cancelled = false;
     (async () => {
@@ -146,7 +182,7 @@ export default function SettingsPage() {
       } finally {
         if (!cancelled) setWatchlistBusy(false);
       }
-    });
+    })();
     return () => {
       cancelled = true;
     };
@@ -282,18 +318,83 @@ export default function SettingsPage() {
     setBackupNotice(`สำรองข้อมูลแล้ว ${total} แถว`);
   };
 
-  /* ---------- สัดส่วนคะแนนรายห้อง ---------- */
-  const loadWeights = async (room: string) => {
-    if (!room) return;
-    const rows = await fetchCategoryWeights(room);
-    const map: Record<string, string> = {};
-    for (const c of CATEGORIES) {
-      const w = rows?.find((r) => r.category === c);
-      map[c] = w ? String(w.weight) : "";
+  const handleSelectBackupFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    e.target.value = "";
+    try {
+      const text = await file.text();
+      const data = parseBackupJson(text);
+      const stats = backupStats(data);
+      const totalRows = stats.reduce((acc, curr) => acc + curr.rows, 0);
+      setRestoreResult(null);
+      setRestoreProgress("");
+      setRestoreModal({
+        data,
+        filename: file.name,
+        stats,
+        totalRows,
+      });
+    } catch (err) {
+      setNotice(err instanceof Error ? `ไฟล์ไม่ถูกต้อง: ${err.message}` : "ไม่สามารถอ่านไฟล์สำรองได้");
     }
-    setWeightValues(map);
-    setWeightMsg("");
   };
+
+  const handleExecuteRestore = async () => {
+    if (!restoreModal) return;
+    setRestoreBusy(true);
+    setRestoreProgress("กำลังเริ่มต้นกู้คืนข้อมูล...");
+    const result = await restoreBackup(restoreModal.data, (tableName, cur, total) => {
+      setRestoreProgress(`กำลังกู้คืนตาราง ${tableName} (${cur}/${total})...`);
+    });
+    setRestoreBusy(false);
+    setRestoreResult(result);
+    if (result.success) {
+      setNotice(`กู้คืนข้อมูลสำเร็จทั้งหมด ${result.totalRestored} แถว`);
+      await reload();
+    } else {
+      setNotice(`กู้คืนข้อมูลบางส่วนไม่สำเร็จ: ${result.error || "โปรดตรวจสอบสถานะตาราง"}`);
+    }
+  };
+
+  const handleChangePassword = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setPasswordMsg(null);
+    if (!userEmail) {
+      setPasswordMsg({ text: "กรุณาเข้าสู่ระบบก่อนเปลี่ยนรหัสผ่าน", type: "error" });
+      return;
+    }
+    if (!newPassword) {
+      setPasswordMsg({ text: "กรุณาระบุรหัสผ่านใหม่", type: "error" });
+      return;
+    }
+    if (newPassword.length < 6) {
+      setPasswordMsg({ text: "รหัสผ่านต้องมีความยาวอย่างน้อย 6 ตัวอักษร", type: "error" });
+      return;
+    }
+    if (newPassword !== confirmPassword) {
+      setPasswordMsg({ text: "รหัสผ่านใหม่และการยืนยันรหัสผ่านไม่ตรงกัน", type: "error" });
+      return;
+    }
+    setPasswordBusy(true);
+    try {
+      const { error } = await supabase.auth.updateUser({ password: newPassword });
+      if (error) {
+        setPasswordMsg({ text: `เปลี่ยนรหัสผ่านไม่สำเร็จ: ${error.message}`, type: "error" });
+      } else {
+        setPasswordMsg({ text: "เปลี่ยนรหัสผ่านสำเร็จเรียบร้อยแล้ว", type: "success" });
+        setNewPassword("");
+        setConfirmPassword("");
+      }
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      setPasswordMsg({ text: `เกิดข้อผิดพลาด: ${msg}`, type: "error" });
+    } finally {
+      setPasswordBusy(false);
+    }
+  };
+
+  /* ---------- สัดส่วนคะแนนรายห้อง ---------- */
 
   const saveWeights = async () => {
     if (!weightRoom) return;
@@ -319,12 +420,6 @@ export default function SettingsPage() {
   };
 
   /* ---------- เกณฑ์ตัดเกรดรายห้อง ---------- */
-  const loadRoomScales = async (room: string) => {
-    if (!room) return;
-    const rows = await fetchRoomGradeScales(room);
-    setRoomScales(rows ?? []);
-    setRoomScalesMsg("");
-  };
 
   const saveRoomScales = async () => {
     if (!scaleRoom) return;
@@ -346,13 +441,36 @@ export default function SettingsPage() {
   };
 
   useEffect(() => {
-    if (weightRoom) void loadWeights(weightRoom);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    let cancelled = false;
+    if (!weightRoom) return;
+    void (async () => {
+      const rows = await fetchCategoryWeights(weightRoom);
+      if (cancelled) return;
+      const map: Record<string, string> = {};
+      for (const c of CATEGORIES) {
+        const w = rows?.find((r) => r.category === c);
+        map[c] = w ? String(w.weight) : "";
+      }
+      setWeightValues(map);
+      setWeightMsg("");
+    })();
+    return () => {
+      cancelled = true;
+    };
   }, [weightRoom]);
 
   useEffect(() => {
-    if (scaleRoom) void loadRoomScales(scaleRoom);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    let cancelled = false;
+    if (!scaleRoom) return;
+    void (async () => {
+      const rows = await fetchRoomGradeScales(scaleRoom);
+      if (cancelled) return;
+      setRoomScales(rows ?? []);
+      setRoomScalesMsg("");
+    })();
+    return () => {
+      cancelled = true;
+    };
   }, [scaleRoom]);
 
   return (
@@ -733,27 +851,141 @@ export default function SettingsPage() {
 
       {/* สำรอง/กู้คืนข้อมูล */}
       <Card className="mt-3 p-4 sm:p-5">
-        <div className="flex flex-wrap items-center gap-2">
-          <CardTitle className="mr-auto">สำรองข้อมูลทั้งระบบ (JSON)</CardTitle>
-          <p className="text-[12.5px] text-[#5b6b82]">
-            ดาวน์โหลดข้อมูลทุกตารางเป็นไฟล์ JSON หนึ่งไฟล์ ไว้กู้คืนหรือย้ายเครื่องได้
-          </p>
-          <UIButton variant="green" onClick={() => void exportBackup()} disabled={backupBusy} className="h-10 px-4 text-[13.5px] disabled:opacity-40">
-            {backupBusy ? "กำลังสำรอง..." : (<><DownloadIcon className="mr-1 h-4 w-4" /> สำรองข้อมูล</>)}
-          </UIButton>
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div>
+            <CardTitle>สำรองและกู้คืนข้อมูล (JSON)</CardTitle>
+            <p className="mt-0.5 text-[12.5px] text-[#5b6b82]">
+              ดาวน์โหลดข้อมูลทุกตารางเป็นไฟล์ JSON หรือกู้คืนข้อมูลจากไฟล์สำรองเดิมได้
+            </p>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <UIButton
+              variant="green"
+              onClick={() => void exportBackup()}
+              disabled={backupBusy}
+              className="h-10 px-4 text-[13.5px] disabled:opacity-40"
+            >
+              {backupBusy ? (
+                "กำลังสำรอง..."
+              ) : (
+                <>
+                  <DownloadIcon className="mr-1.5 h-4 w-4" /> สำรองข้อมูล
+                </>
+              )}
+            </UIButton>
+
+            <label className="inline-flex h-10 cursor-pointer items-center justify-center rounded-lg bg-[#2474c6] px-4 text-[13.5px] font-semibold text-white shadow-sm transition-colors hover:bg-[#1d5ea2]">
+              <UploadIcon className="mr-1.5 h-4 w-4" />
+              กู้คืนข้อมูล (Restore)
+              <input
+                type="file"
+                accept=".json,application/json"
+                className="hidden"
+                onChange={(e) => void handleSelectBackupFile(e)}
+                disabled={restoreBusy}
+              />
+            </label>
+          </div>
         </div>
+
         {backupNotice ? (
-          <p role="status" className="mt-2 rounded-lg bg-[#e8f1fb] px-3 py-2 text-[13.5px] font-medium text-[#1a5da3]">{backupNotice}</p>
+          <p role="status" className="mt-3 rounded-lg bg-[#e8f1fb] px-3 py-2 text-[13.5px] font-medium text-[#1a5da3]">
+            {backupNotice}
+          </p>
         ) : null}
+
         {backupSummary && backupSummary.length > 0 ? (
-          <ul className="mt-2 divide-y divide-[#eef2f7] text-[13px]">
-            {backupSummary.map((row) => (
-              <li key={row.table} className="flex justify-between py-1.5">
-                <span>{row.table}</span><span className="text-[#5b6b82]">{row.rows} แถว</span>
-              </li>
-            ))}
-          </ul>
+          <div className="mt-3 rounded-lg border border-[#eef2f7] p-3">
+            <p className="text-[12.5px] font-bold text-[#16233a] mb-1">สรุปข้อมูลที่สำรองล่าสุด:</p>
+            <ul className="divide-y divide-[#eef2f7] text-[13px]">
+              {backupSummary.map((row) => (
+                <li key={row.table} className="flex justify-between py-1.5">
+                  <span className="font-medium text-[#16233a]">{row.label} <span className="text-[11px] text-[#8a97ab]">({row.table})</span></span>
+                  <span className="text-[#5b6b82] font-semibold">{row.rows} แถว</span>
+                </li>
+              ))}
+            </ul>
+          </div>
         ) : null}
+      </Card>
+
+      {/* ความปลอดภัยและรหัสผ่านครู */}
+      <Card className="mt-3 p-4 sm:p-5">
+        <CardTitle className="mb-1">ความปลอดภัยและรหัสผ่านครู</CardTitle>
+        <p className="text-[12.5px] text-[#5b6b82]">
+          เปลี่ยนรหัสผ่านสำหรับเข้าสู่ระบบครูลูกหมี (อีเมลผู้ใช้ปัจจุบัน: <span className="font-semibold text-[#16233a]">{userEmail ?? "ยังไม่ได้เข้าสู่ระบบ"}</span>)
+        </p>
+
+        {userEmail ? (
+          <form onSubmit={(e) => void handleChangePassword(e)} className="mt-3 max-w-lg space-y-3">
+            <div>
+              <label className="block text-[13.5px] font-medium text-[#16233a]">
+                รหัสผ่านใหม่
+                <div className="relative mt-1">
+                  <input
+                    type={showPassword ? "text" : "password"}
+                    value={newPassword}
+                    onChange={(e) => setNewPassword(e.target.value)}
+                    placeholder="อย่างน้อย 6 ตัวอักษร"
+                    autoComplete="new-password"
+                    className={cn(inputCls, "pr-10")}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword((prev) => !prev)}
+                    className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[#8a97ab] hover:text-[#16233a]"
+                    aria-label={showPassword ? "ซ่อนรหัสผ่าน" : "แสดงรหัสผ่าน"}
+                  >
+                    {showPassword ? <EyeOffIcon className="h-5 w-5" /> : <EyeIcon className="h-5 w-5" />}
+                  </button>
+                </div>
+              </label>
+            </div>
+
+            <div>
+              <label className="block text-[13.5px] font-medium text-[#16233a]">
+                ยืนยันรหัสผ่านใหม่
+                <input
+                  type={showPassword ? "text" : "password"}
+                  value={confirmPassword}
+                  onChange={(e) => setConfirmPassword(e.target.value)}
+                  placeholder="กรอกรหัสผ่านใหม่อีกครั้ง"
+                  autoComplete="new-password"
+                  className={cn(inputCls, "mt-1")}
+                />
+              </label>
+            </div>
+
+            {passwordMsg ? (
+              <p
+                role="status"
+                className={cn(
+                  "rounded-lg px-3 py-2 text-[13.5px] font-medium",
+                  passwordMsg.type === "success"
+                    ? "bg-[#e6f4ea] text-[#166c2e]"
+                    : "bg-[#fdecec] text-[#c62828]",
+                )}
+              >
+                {passwordMsg.text}
+              </p>
+            ) : null}
+
+            <div>
+              <UIButton
+                variant="green"
+                type="submit"
+                disabled={passwordBusy}
+                className="h-10 px-6 text-[13.5px] disabled:opacity-50"
+              >
+                {passwordBusy ? "กำลังบันทึก..." : "บันทึกรหัสผ่านใหม่"}
+              </UIButton>
+            </div>
+          </form>
+        ) : (
+          <p className="mt-3 rounded-lg bg-[#f8fafc] p-3 text-[13px] text-[#5b6b82]">
+            คุณยังไม่ได้เข้าสู่ระบบครู กรุณาเข้าสู่ระบบผ่านหน้าระบบครูเพื่อเปลี่ยนรหัสผ่าน
+          </p>
+        )}
       </Card>
 
       {termModal ? (
@@ -793,6 +1025,127 @@ export default function SettingsPage() {
             <UIButton variant="green" onClick={() => void saveTermEdit()} className="h-10">
               บันทึก
             </UIButton>
+          </div>
+        </Modal>
+      ) : null}
+
+      {restoreModal ? (
+        <Modal
+          title={restoreResult ? "ผลการกู้คืนข้อมูล" : "ยืนยันกู้คืนข้อมูลจากไฟล์สำรอง"}
+          onClose={() => {
+            if (!restoreBusy) {
+              setRestoreModal(null);
+              setRestoreResult(null);
+            }
+          }}
+        >
+          <div className="space-y-3">
+            <div className="rounded-lg border border-[#eef2f7] bg-[#f8fafc] p-3 text-[13px] text-[#16233a]">
+              <p className="font-semibold text-[#16233a]">
+                ไฟล์: <span className="font-normal text-[#2474c6]">{restoreModal.filename}</span>
+              </p>
+              <p className="mt-1 text-[#5b6b82]">
+                วันที่สำรอง: {new Date(restoreModal.data.exportedAt).toLocaleString("th-TH")} · จำนวนข้อมูลทั้งหมด:{" "}
+                <span className="font-bold text-[#16233a]">{restoreModal.totalRows} แถว</span>
+              </p>
+            </div>
+
+            {!restoreResult ? (
+              <div className="rounded-lg border border-[#fed7aa] bg-[#fff7ed] p-3 text-[12.5px] text-[#9a3412]">
+                <p className="font-bold">⚠️ ข้อควรทราบก่อนกู้คืนข้อมูล:</p>
+                <ul className="mt-1 list-disc space-y-0.5 pl-4">
+                  <li>ระบบจะทำการอัปเดต/เพิ่มข้อมูล (Upsert) ตามรหัสเดิมในแต่ละตาราง</li>
+                  <li>ข้อมูลตารางหลัก (เทอม, เกณฑ์, ห้องเรียน) จะถูกนำเข้าก่อนข้อมูลบันทึกและคะแนน</li>
+                  <li>หากมีข้อมูลปัจจุบัน แนะนำให้กดสำรองข้อมูลปัจจุบันเก็บไว้ก่อนกู้คืน</li>
+                </ul>
+              </div>
+            ) : null}
+
+            {restoreProgress ? (
+              <div className="rounded-lg bg-[#e8f1fb] p-3 text-center">
+                <p className="text-[13.5px] font-semibold text-[#1a5da3]">{restoreProgress}</p>
+              </div>
+            ) : null}
+
+            <div className="max-h-56 overflow-y-auto rounded-lg border border-[#eef2f7]">
+              <table className="w-full text-left text-[12.5px]">
+                <thead className="sticky top-0 bg-[#f8fafc] text-[#5b6b82]">
+                  <tr>
+                    <th className="px-3 py-1.5">ตารางข้อมูล</th>
+                    <th className="px-3 py-1.5 text-right">จำนวนแถว</th>
+                    {restoreResult ? <th className="px-3 py-1.5 text-center">สถานะ</th> : null}
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-[#eef2f7]">
+                  {restoreModal.stats.map((s) => {
+                    const resultItem = restoreResult?.tableStats.find((r) => r.table === s.table);
+                    return (
+                      <tr key={s.table}>
+                        <td className="px-3 py-1.5">
+                          <span className="font-medium text-[#16233a]">{s.label}</span>
+                          <span className="ml-1 text-[11px] text-[#8a97ab]">({s.table})</span>
+                        </td>
+                        <td className="px-3 py-1.5 text-right font-semibold text-[#5b6b82]">
+                          {s.rows}
+                        </td>
+                        {restoreResult ? (
+                          <td className="px-3 py-1.5 text-center">
+                            {resultItem?.success ? (
+                              <span className="inline-block rounded bg-[#e6f4ea] px-1.5 py-0.5 text-[11px] font-bold text-[#166c2e]">
+                                สำเร็จ
+                              </span>
+                            ) : resultItem ? (
+                              <span
+                                title={resultItem.error}
+                                className="inline-block rounded bg-[#fdecec] px-1.5 py-0.5 text-[11px] font-bold text-[#c62828]"
+                              >
+                                ล้มเหลว
+                              </span>
+                            ) : (
+                              <span className="text-[#8a97ab]">-</span>
+                            )}
+                          </td>
+                        ) : null}
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+
+            <div className="mt-4 flex justify-end gap-2 border-t border-[#eef2f7] pt-2">
+              {!restoreResult ? (
+                <>
+                  <UIButton
+                    variant="blue"
+                    onClick={() => setRestoreModal(null)}
+                    disabled={restoreBusy}
+                    className="h-10 bg-[#5b6b82] text-[13.5px] hover:bg-[#465364]"
+                  >
+                    ยกเลิก
+                  </UIButton>
+                  <UIButton
+                    variant="green"
+                    onClick={() => void handleExecuteRestore()}
+                    disabled={restoreBusy}
+                    className="h-10 px-5 text-[13.5px]"
+                  >
+                    {restoreBusy ? "กำลังกู้คืนข้อมูล..." : "ยืนยันกู้คืนข้อมูล"}
+                  </UIButton>
+                </>
+              ) : (
+                <UIButton
+                  variant="green"
+                  onClick={() => {
+                    setRestoreModal(null);
+                    setRestoreResult(null);
+                  }}
+                  className="h-10 px-6 text-[13.5px]"
+                >
+                  ปิดหน้าต่าง
+                </UIButton>
+              )}
+            </div>
           </div>
         </Modal>
       ) : null}
