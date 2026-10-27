@@ -2,9 +2,10 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { AppShell } from "@/components/layout";
-import { ChevronDownIcon, CopyIcon, EyeIcon, EyeOffIcon, PencilIcon, SearchIcon, TrashIcon } from "@/components/icons";
+import { CalculatorIcon, ChevronDownIcon, CopyIcon, EyeIcon, EyeOffIcon, PencilIcon, SearchIcon, TrashIcon } from "@/components/icons";
 import { Card, FilePreviewModal, Modal, ScoreCell, UIButton } from "@/components/ui";
 import { SubjectManager } from "@/components/subject-manager";
+import { ConductModal } from "@/components/conduct-modal";
 import {
   addAssignment,
   deleteAssignment,
@@ -114,6 +115,7 @@ export default function GradingPage() {
   const [tplName, setTplName] = useState("");
   const [tplSaveWeights, setTplSaveWeights] = useState(true);
   const [saveTplSuccess, setSaveTplSuccess] = useState(false);
+  const [conductModalOpen, setConductModalOpen] = useState(false);
   const [modalMsg, setModalMsg] = useState("");
   const [colForm, setColForm] = useState({ subject: "", title: "", max: "10", due: "", category: "ใบงาน/การบ้าน" });
   const [categoryWeights, setCategoryWeights] = useState<CategoryWeight[]>([]);
@@ -664,6 +666,18 @@ export default function GradingPage() {
     }
   };
 
+  const handleApplyConductScores = (
+    scoresToApply: Array<{ assignmentId: string; studentCode: string; score: number }>,
+    summaryMessage: string,
+  ) => {
+    const nextDrafts = new Map(drafts);
+    for (const item of scoresToApply) {
+      nextDrafts.set(cellKey(item.assignmentId, item.studentCode), String(item.score));
+    }
+    setDrafts(nextDrafts);
+    setNotice(summaryMessage);
+  };
+
   const toggleVisible = async (a: (typeof assignments)[number]) => {
     const ok = await toggleAssignmentVisible(a.id, !a.visible);
     if (!ok) {
@@ -961,6 +975,15 @@ export default function GradingPage() {
             className="h-9 bg-[#166c2e] px-3 text-[13px] hover:bg-[#145c27] focus-visible:ring-[#1e8e3e]/40 disabled:opacity-40"
           >
             แม่แบบคะแนน
+          </UIButton>
+          <UIButton
+            variant="blue"
+            onClick={() => setConductModalOpen(true)}
+            disabled={!canEditActiveSubject || termId === "all"}
+            className="h-9 bg-[#6b21a8] px-3 text-[13px] hover:bg-[#581c87] focus-visible:ring-[#6b21a8]/40 disabled:opacity-40"
+            title="คำนวณคะแนนจิตพิสัยอัตโนมัติจากข้อมูลการเช็คชื่อ"
+          >
+            <CalculatorIcon className="mr-1 h-3.5 w-3.5" /> คำนวณจิตพิสัย
           </UIButton>
           <UIButton variant="blue" onClick={() => void publishFirstFive()} disabled={!canEditActiveSubject || termId === "all"} className="h-9 bg-[#00897b] px-3 text-[13px] hover:brightness-110 focus-visible:ring-[#00897b]/40 disabled:opacity-40">
             เผยแพร่ 5 งานแรก
@@ -1766,6 +1789,22 @@ export default function GradingPage() {
       ) : null}
       {previewUrl ? (
         <FilePreviewModal url={previewUrl} title="ตัวอย่างงาน" onClose={() => setPreviewUrl(null)} />
+      ) : null}
+      {conductModalOpen ? (
+        <ConductModal
+          isOpen={conductModalOpen}
+          onClose={() => setConductModalOpen(false)}
+          activeGroup={activeGroup}
+          activeSubject={activeSubject}
+          currentLevel={currentLevel}
+          sheetTerm={sheetTerm}
+          assignments={assignments}
+          students={students}
+          onApplyScores={handleApplyConductScores}
+          onReloadSheet={async () => {
+            await reloadSheet(activeGroup, activeSubject, sheetTerm);
+          }}
+        />
       ) : null}
     </AppShell>
   );
