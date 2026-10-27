@@ -14,6 +14,9 @@ import {
 import {
   fetchGradeScales,
   saveGradeScales,
+  saveGradeScalesToAllLevels,
+  STANDARD_NUMERIC_SCALES,
+  STANDARD_LETTER_SCALES,
   fetchCategoryWeights,
   saveCategoryWeights,
   fetchRoomGradeScales,
@@ -97,7 +100,10 @@ export default function SettingsPage() {
     let cancelled = false;
     (async () => {
       const rows = await fetchGradeScales(scaleLevel);
-      if (!cancelled && rows) setScales(rows);
+      if (!cancelled) {
+        if (rows && rows.length > 0) setScales(rows);
+        else setScales(STANDARD_NUMERIC_SCALES);
+      }
     })();
     return () => {
       cancelled = true;
@@ -586,8 +592,35 @@ export default function SettingsPage() {
 
         {/* เกณฑ์ตัดเกรด */}
         <Card id="grade-scales" className="h-fit p-4 sm:p-5 lg:col-span-2">
-          <CardTitle className="mb-1">เกณฑ์ตัดเกรดรายระดับชั้น (คะแนนเต็ม 100)</CardTitle>
-          <p className="mb-2 text-[12.5px] text-[#5b6b82]">ฝั่งนักเรียนเห็นเกรดตามเกณฑ์ชั้นตัวเอง</p>
+          <div className="flex flex-wrap items-center justify-between gap-2 mb-1">
+            <CardTitle>เกณฑ์ตัดเกรดรายระดับชั้น (คะแนนเต็ม 100)</CardTitle>
+            <div className="flex flex-wrap items-center gap-1.5">
+              <span className="text-[12px] font-semibold text-[#5b6b82]">ใช้ชุดแม่แบบ:</span>
+              <button
+                type="button"
+                onClick={() => {
+                  setScales(STANDARD_NUMERIC_SCALES);
+                  setScalesMsg("โหลดเกณฑ์มาตรฐาน 0 – 4 แล้ว (กดบันทึกเพื่อใช้งาน)");
+                }}
+                className="rounded-md border border-[#2474c6] bg-[#e8f1fb] px-2.5 py-1 text-[12px] font-bold text-[#1a5da3] hover:bg-[#d8e7f8] transition-colors"
+              >
+                เกณฑ์มาตรฐาน 0 – 4 (แนะนำ)
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setScales(STANDARD_LETTER_SCALES);
+                  setScalesMsg("โหลดเกณฑ์ตัวอักษร A – F แล้ว (กดบันทึกเพื่อใช้งาน)");
+                }}
+                className="rounded-md border border-[#d8e0ec] bg-white px-2.5 py-1 text-[12px] font-medium text-[#5b6b82] hover:bg-[#f8fafc] transition-colors"
+              >
+                เกณฑ์ตัวอักษร A – F
+              </button>
+            </div>
+          </div>
+          <p className="mb-2 text-[12.5px] text-[#5b6b82]">
+            ฝั่งนักเรียนและหน้าตัดเกรดจะเทียบเกรดตามเกณฑ์ระดับชั้นตัวเอง (0–49=0, 50–54=1, 55–59=1.5, 60–64=2, 65–69=2.5, 70–74=3, 75–79=3.5, 80+=4)
+          </p>
           <div className="flex flex-wrap items-end gap-2">
             <label className="block min-w-[140px] text-[13.5px] font-medium text-[#16233a]">
               ระดับชั้น
@@ -602,10 +635,10 @@ export default function SettingsPage() {
               </select>
             </label>
           </div>
-          <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-4">
+          <div className="mt-2.5 grid grid-cols-2 gap-2 sm:grid-cols-4">
             {scales.map((s) => (
-              <label key={s.grade} className="flex items-center gap-2 rounded-lg border border-[#eef2f7] px-2.5 py-2 text-[14px] font-bold text-[#16233a]">
-                <span className="w-8">{s.grade}</span>
+              <label key={s.grade} className="flex items-center gap-2 rounded-lg border border-[#eef2f7] bg-[#f8fafc]/50 px-2.5 py-2 text-[14px] font-bold text-[#16233a]">
+                <span className="w-10 text-center font-extrabold text-[#1a5da3]">{s.grade}</span>
                 <span className="font-normal text-[#8a97ab]">≥</span>
                 <input
                   value={s.min}
@@ -617,18 +650,18 @@ export default function SettingsPage() {
                     )
                   }
                   inputMode="decimal"
-                  aria-label={`เกณฑ์ ${s.grade}`}
-                  className="h-9 w-full rounded-md border border-[#d8e0ec] px-2 text-center focus:border-[#2474c6] focus:outline-none"
+                  aria-label={`เกณฑ์เกรด ${s.grade}`}
+                  className="h-9 w-full rounded-md border border-[#d8e0ec] bg-white px-2 text-center text-[14px] font-bold focus:border-[#2474c6] focus:outline-none"
                 />
               </label>
             ))}
           </div>
           {scalesMsg ? (
-            <p role="status" className="mt-2 rounded-lg bg-[#e8f1fb] px-3 py-2 text-[13.5px] font-medium text-[#1a5da3]">
+            <p role="status" className="mt-2.5 rounded-lg bg-[#e8f1fb] px-3 py-2 text-[13.5px] font-medium text-[#1a5da3]">
               {scalesMsg}
             </p>
           ) : null}
-          <div className="mt-3">
+          <div className="mt-3 flex flex-wrap gap-2">
             <UIButton
               variant="green"
               onClick={() =>
@@ -637,9 +670,25 @@ export default function SettingsPage() {
                   setScalesMsg(ok ? `บันทึกเกณฑ์ ${scaleLevel} แล้ว` : "บันทึกไม่สำเร็จ");
                 })()
               }
-              className="h-10 w-full sm:w-auto sm:px-8"
+              className="h-10 px-6 text-[13.5px]"
             >
               บันทึกเกณฑ์ {scaleLevel}
+            </UIButton>
+
+            <UIButton
+              variant="blue"
+              onClick={() =>
+                void (async () => {
+                  const allLevels = ["ม.1", "ม.2", "ม.3", "ม.4", "ม.5", "ม.6"];
+                  const ok = await saveGradeScalesToAllLevels(allLevels, scales);
+                  setScalesMsg(
+                    ok ? "บันทึกเกณฑ์นี้ให้กับทุกระดับชั้น (ม.1 – ม.6) เรียบร้อยแล้ว!" : "บันทึกไม่สำเร็จ",
+                  );
+                })()
+              }
+              className="h-10 bg-[#2474c6] px-6 text-[13.5px] hover:bg-[#1d5ea2]"
+            >
+              นำเกณฑ์นี้ไปใช้กับทุกระดับชั้น (ม.1 – ม.6)
             </UIButton>
           </div>
         </Card>

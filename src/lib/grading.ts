@@ -653,7 +653,37 @@ export function gradeOf(scales: GradeScale[] | null, pct: number): string | null
   return scales[scales.length - 1]?.grade ?? null;
 }
 
+export const STANDARD_NUMERIC_SCALES: GradeScale[] = [
+  { grade: "4", min: 80 },
+  { grade: "3.5", min: 75 },
+  { grade: "3", min: 70 },
+  { grade: "2.5", min: 65 },
+  { grade: "2", min: 60 },
+  { grade: "1.5", min: 55 },
+  { grade: "1", min: 50 },
+  { grade: "0", min: 0 },
+];
+
+export const STANDARD_LETTER_SCALES: GradeScale[] = [
+  { grade: "A", min: 80 },
+  { grade: "B+", min: 75 },
+  { grade: "B", min: 70 },
+  { grade: "C+", min: 65 },
+  { grade: "C", min: 60 },
+  { grade: "D+", min: 55 },
+  { grade: "D", min: 50 },
+  { grade: "F", min: 0 },
+];
+
 export const GRADE_POINTS: Record<string, number> = {
+  "4": 4.0,
+  "3.5": 3.5,
+  "3": 3.0,
+  "2.5": 2.5,
+  "2": 2.0,
+  "1.5": 1.5,
+  "1": 1.0,
+  "0": 0.0,
   A: 4.0,
   "B+": 3.5,
   B: 3.0,
@@ -661,20 +691,40 @@ export const GRADE_POINTS: Record<string, number> = {
   C: 2.0,
   "D+": 1.5,
   D: 1.0,
-  F: 0,
+  F: 0.0,
 };
 
 /** บันทึกเกณฑ์ทั้งแถวของระดับชั้น */
 export async function saveGradeScales(level: string, rows: GradeScale[]): Promise<boolean> {
   if (!isSupabaseConfigured) return false;
   try {
-    const { error } = await supabase
-      .from("grade_scales")
-      .upsert(
-        rows.map((r) => ({ level, grade: r.grade, min_score: r.min })),
-        { onConflict: "level,grade" },
-      );
-    return !error;
+    await supabase.from("grade_scales").delete().eq("level", level);
+    if (rows.length > 0) {
+      const { error } = await supabase
+        .from("grade_scales")
+        .insert(rows.map((r) => ({ level, grade: r.grade, min_score: r.min })));
+      return !error;
+    }
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** บันทึกเกณฑ์ตัดเกรดให้กับทุกระดับชั้นในระบบพร้อมกัน */
+export async function saveGradeScalesToAllLevels(levels: string[], rows: GradeScale[]): Promise<boolean> {
+  if (!isSupabaseConfigured || levels.length === 0) return false;
+  try {
+    for (const lvl of levels) {
+      await supabase.from("grade_scales").delete().eq("level", lvl);
+      if (rows.length > 0) {
+        const { error } = await supabase
+          .from("grade_scales")
+          .insert(rows.map((r) => ({ level: lvl, grade: r.grade, min_score: r.min })));
+        if (error) return false;
+      }
+    }
+    return true;
   } catch {
     return false;
   }

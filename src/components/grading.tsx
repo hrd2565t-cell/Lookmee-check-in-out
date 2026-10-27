@@ -1091,8 +1091,13 @@ export default function GradingPage() {
                           return w !== null ? w.toFixed(1) : rowTotal(s.code);
                         })()}
                       </td>
-                      <td className="whitespace-nowrap px-2 py-1.5 text-center text-[14px] font-bold text-[#1e8e3e]">
-                        {rowGrade(s.code) ?? "-"}
+                      <td className="whitespace-nowrap px-2 py-1.5 text-center text-[14px] font-bold">
+                        {(() => {
+                          const g = rowGrade(s.code);
+                          if (!g) return <span className="text-[#8a97ab]">-</span>;
+                          const isZero = g === "0" || g === "F";
+                          return <span className={isZero ? "text-[#c62828]" : "text-[#1e8e3e]"}>{g}</span>;
+                        })()}
                       </td>
                       <td className="whitespace-nowrap py-1.5 text-right">
                         <span

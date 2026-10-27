@@ -194,7 +194,11 @@ export default function StudentGradesPage() {
               </p>
               <p className="mt-1 text-[12.5px] text-[#5b6b82]">
                 {gradeLetter !== null && gradePoints !== null ? (
-                  <>เกรด: {gradeLetter} ({gradePoints.toFixed(1)})</>
+                  isNaN(Number(gradeLetter)) ? (
+                    <>เกรด: {gradeLetter} ({gradePoints.toFixed(1)})</>
+                  ) : (
+                    <>เกรด: {gradeLetter}</>
+                  )
                 ) : (
                   <>เกรดเฉลี่ย: –</>
                 )}
