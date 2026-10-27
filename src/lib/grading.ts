@@ -45,12 +45,12 @@ export type SubjectScopeState = {
   overrideModes: Record<string, "include" | "exclude">;
 };
 
-async function groupIdOf(name: string): Promise<string | null> {
+export async function groupIdOf(name: string): Promise<string | null> {
   const { data } = await supabase.from("class_groups").select("id").eq("name", name).single();
   return (data as { id: string } | null)?.id ?? null;
 }
 
-async function groupInfoOf(name: string): Promise<{ id: string; level: string } | null> {
+export async function groupInfoOf(name: string): Promise<{ id: string; level: string } | null> {
   const { data, error } = await supabase.from("class_groups").select("id,level").eq("name", name).single();
   if (error || !data) return null;
   return data as { id: string; level: string };

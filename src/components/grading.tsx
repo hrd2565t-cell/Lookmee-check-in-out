@@ -2,12 +2,11 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { AppShell } from "@/components/layout";
-import { ChevronDownIcon, EyeIcon, EyeOffIcon, PencilIcon, SearchIcon, TrashIcon } from "@/components/icons";
+import { ChevronDownIcon, CopyIcon, EyeIcon, EyeOffIcon, PencilIcon, SearchIcon, TrashIcon } from "@/components/icons";
 import { Card, FilePreviewModal, Modal, ScoreCell, UIButton } from "@/components/ui";
 import { SubjectManager } from "@/components/subject-manager";
 import {
   addAssignment,
-  createStandardSet,
   deleteAssignment,
   fetchSheet,
   fetchSubjects,
@@ -28,6 +27,14 @@ import {
   type SheetAssignment,
 } from "@/lib/grading";
 import { fetchTerms, levelOf, type SchoolTerm } from "@/lib/terms";
+import {
+  cloneAssignmentsToGroups,
+  applyTemplateToGroups,
+  getGradingTemplates,
+  saveGradingTemplate,
+  deleteGradingTemplate,
+  type GradingTemplate,
+} from "@/lib/grading-templates";
 import { downloadCsv, parseCsv, readCsvFile } from "@/lib/export";
 import { useRoster } from "@/lib/school-data";
 import { useTeacherGroup } from "@/lib/teacher-scope";
@@ -42,6 +49,11 @@ export default function GradingPage() {
   const groupNames = useMemo(() => rosterGroups.map((g) => g.name), [rosterGroups]);
   const { selectedGroup, setSelectedGroup } = useTeacherGroup(groupNames);
   const activeGroup = selectedGroup || (groupNames[0] ?? "");
+  const currentLevel = levelOf(activeGroup);
+  const sameLevelRooms = useMemo(
+    () => groupNames.filter((g) => levelOf(g) === currentLevel && g !== activeGroup),
+    [groupNames, currentLevel, activeGroup],
+  );
   const [subjects, setSubjects] = useState<ClassSubject[]>([]);
   const [subjectsScope, setSubjectsScope] = useState("");
   const [subjectId, setSubjectId] = useState("");
@@ -55,6 +67,10 @@ export default function GradingPage() {
     "rounded-md px-2 py-1 text-[16px] font-bold text-[#5b6b82] hover:bg-[#eef3f9] disabled:opacity-30 disabled:hover:bg-transparent";
 
   const [assignments, setAssignments] = useState<SheetAssignment[]>([]);
+  const totalMaxScore = useMemo(
+    () => assignments.filter((a) => !a.retakeOf).reduce((sum, a) => sum + a.max, 0),
+    [assignments],
+  );
   const [savedScores, setSavedScores] = useState<Map<string, number | null>>(new Map());
   const [drafts, setDrafts] = useState<Map<string, string>>(new Map());
   const [notice, setNotice] = useState("");
@@ -75,9 +91,28 @@ export default function GradingPage() {
   } | null>(null);
   const [importMsg, setImportMsg] = useState("");
   const [moveOrderBusy, setMoveOrderBusy] = useState(false);
-  const [templateModal, setTemplateModal] = useState(false);
-  const [templateDue, setTemplateDue] = useState(new Date().toISOString().slice(0, 10));
-  const [templateBusy, setTemplateBusy] = useState(false);
+  // States สำหรับ Hybrid Template & Clone ข้ามห้อง
+  const [cloneModalOpen, setCloneModalOpen] = useState(false);
+  const [selectedCloneRooms, setSelectedCloneRooms] = useState<string[]>([]);
+  const [cloneSkipDuplicates, setCloneSkipDuplicates] = useState(true);
+  const [cloneCopyWeights, setCloneCopyWeights] = useState(true);
+  const [cloneBusy, setCloneBusy] = useState(false);
+  const [cloneMsg, setCloneMsg] = useState("");
+
+  const [templateModalOpen, setTemplateModalOpen] = useState(false);
+  const [templateTab, setTemplateTab] = useState<"apply" | "save">("apply");
+  const [savedTemplates, setSavedTemplates] = useState<GradingTemplate[]>([]);
+  const [selectedTemplateId, setSelectedTemplateId] = useState<string>("");
+  const [applyTargetScope, setApplyTargetScope] = useState<"current" | "level">("current");
+  const [applyDueDate, setApplyDueDate] = useState<string>("");
+  const [applySkipDuplicates, setApplySkipDuplicates] = useState(true);
+  const [applyCopyWeights, setApplyCopyWeights] = useState(true);
+  const [applyBusy, setApplyBusy] = useState(false);
+  const [applyMsg, setApplyMsg] = useState("");
+
+  const [tplName, setTplName] = useState("");
+  const [tplSaveWeights, setTplSaveWeights] = useState(true);
+  const [saveTplSuccess, setSaveTplSuccess] = useState(false);
   const [modalMsg, setModalMsg] = useState("");
   const [colForm, setColForm] = useState({ subject: "", title: "", max: "10", due: "", category: "ใบงาน/การบ้าน" });
   const [categoryWeights, setCategoryWeights] = useState<CategoryWeight[]>([]);
@@ -462,59 +497,149 @@ export default function GradingPage() {
     setColModal(true);
   };
 
-  const openTemplate = () => {
-    setTemplateDue(new Date().toISOString().slice(0, 10));
-    setModalMsg("");
-    setTemplateModal(true);
+  // เปิด Modal คัดลอกไปห้องอื่น
+  const openCloneModal = () => {
+    setSelectedCloneRooms(sameLevelRooms);
+    setCloneSkipDuplicates(true);
+    setCloneCopyWeights(true);
+    setCloneMsg("");
+    setCloneModalOpen(true);
   };
 
-  const saveTemplate = async () => {
-    const subject = activeSubject;
-    if (!subject) {
-      setModalMsg("เลือกวิชาก่อน");
+  const handleExecuteClone = async () => {
+    if (selectedCloneRooms.length === 0) {
+      setCloneMsg("กรุณาเลือกห้องปลายทางอย่างน้อย 1 ห้อง");
       return;
     }
-    if (!canEditActiveSubject) {
-      setModalMsg("วิชานี้ไม่ได้เปิดสอนในห้อง/เทอมที่เลือก");
+    setCloneBusy(true);
+    setCloneMsg("");
+    const res = await cloneAssignmentsToGroups({
+      sourceGroupName: activeGroup,
+      targetGroupNames: selectedCloneRooms,
+      subject: activeSubject,
+      skipDuplicates: cloneSkipDuplicates,
+      copyWeights: cloneCopyWeights,
+    });
+    setCloneBusy(false);
+    if (res.success) {
+      setNotice(
+        `คัดลอกโครงสร้างคอลัมน์ไปยัง ${res.targetRoomsCount} ห้องสำเร็จ (สร้างใหม่ ${res.createdAssignmentsCount} คอลัมน์${res.skippedAssignmentsCount > 0 ? `, ข้ามที่ซ้ำ ${res.skippedAssignmentsCount} คอลัมน์` : ""})`,
+      );
+      setCloneModalOpen(false);
+    } else {
+      setCloneMsg(res.errors.join("\n") || "เกิดข้อผิดพลาดในการคัดลอก");
+    }
+  };
+
+  // เปิด Modal แม่แบบคะแนน
+  const openTemplateModal = () => {
+    const tpls = getGradingTemplates();
+    setSavedTemplates(tpls);
+    setSelectedTemplateId(tpls[0]?.id ?? "");
+    setApplyTargetScope("current");
+    setApplyDueDate(new Date().toISOString().slice(0, 10));
+    setApplySkipDuplicates(true);
+    setApplyCopyWeights(true);
+    setApplyMsg("");
+    setTplName(`แม่แบบ ${activeGroup} (${activeSubject || "รวม 100"})`);
+    setTplSaveWeights(true);
+    setSaveTplSuccess(false);
+    setTemplateTab("apply");
+    setTemplateModalOpen(true);
+  };
+
+  const handleApplyTemplate = async () => {
+    const tpl = savedTemplates.find((t) => t.id === selectedTemplateId);
+    if (!tpl) {
+      setApplyMsg("กรุณาเลือกแม่แบบ");
       return;
     }
-    if (!templateDue) {
-      setModalMsg("เลือกวันกำหนดส่ง");
+    if (!applyDueDate) {
+      setApplyMsg("กรุณาเลือกวันกำหนดส่ง");
       return;
     }
     if (termId === "all" || !activeTerm) {
-      setModalMsg("เลือกภาคเรียนก่อนสร้างชุดมาตรฐาน");
+      setApplyMsg("เลือกภาคเรียนก่อนสร้างคอลัมน์");
       return;
     }
-    if (templateDue < activeTerm.startsOn || templateDue > activeTerm.endsOn) {
-      setModalMsg("วันกำหนดส่งต้องอยู่ในภาคเรียนที่เลือก");
+    if (applyDueDate < activeTerm.startsOn || applyDueDate > activeTerm.endsOn) {
+      setApplyMsg("วันกำหนดส่งต้องอยู่ในภาคเรียนที่เลือก");
       return;
     }
-    const existing = new Set(assignments.map((a) => a.title));
-    const items = [
-      ...[1, 2, 3, 4, 5, 6, 7].map((n) => ({
-        title: `น.${n}`,
-        max: 10,
-        category: "ใบงาน/การบ้าน",
-        due: templateDue,
-      })),
-      { title: "กลางภาค", max: 10, category: "สอบกลางภาค", due: templateDue },
-      { title: "ปลายภาค", max: 20, category: "สอบปลายภาค", due: templateDue },
-    ].filter((it) => !existing.has(it.title));
-    if (items.length === 0) {
-      setModalMsg("มีครบทั้ง 9 คอลัมน์แล้ว");
+
+    const targetRooms =
+      applyTargetScope === "level"
+        ? groupNames.filter((g) => levelOf(g) === currentLevel)
+        : [activeGroup];
+
+    setApplyBusy(true);
+    setApplyMsg("");
+    const res = await applyTemplateToGroups({
+      template: tpl,
+      targetGroupNames: targetRooms,
+      subject: activeSubject,
+      dueDate: applyDueDate,
+      skipDuplicates: applySkipDuplicates,
+      copyWeights: applyCopyWeights,
+    });
+    setApplyBusy(false);
+    if (res.success) {
+      setNotice(
+        `ใช้แม่แบบ "${tpl.name}" กับ ${res.targetRoomsCount} ห้องสำเร็จ (สร้างใหม่ ${res.createdAssignmentsCount} คอลัมน์)`,
+      );
+      setTemplateModalOpen(false);
+      await reloadSheet(activeGroup, activeSubject, activeTerm);
+    } else {
+      setApplyMsg(res.errors.join("\n") || "เกิดข้อผิดพลาดในการใช้แม่แบบ");
+    }
+  };
+
+  const handleSaveAsTemplate = () => {
+    if (!tplName.trim()) {
+      setApplyMsg("กรุณาระบุชื่อแม่แบบ");
       return;
     }
-    setTemplateBusy(true);
-    const r = await createStandardSet(activeGroup, subject, items);
-    setTemplateBusy(false);
-    if (!r.ok) {
-      setModalMsg("สร้างไม่สำเร็จ — ลองอีกครั้ง");
+    const regularItems = assignments.filter((a) => !a.retakeOf);
+    if (regularItems.length === 0) {
+      setApplyMsg("ห้องนี้ยังไม่มีคอลัมน์งานที่จะบันทึกเป็นแม่แบบ");
       return;
     }
-    setTemplateModal(false);
-    setNotice(`สร้างชุดมาตรฐาน ${r.created} คอลัมน์ (รวม 100 คะแนน) แล้ว`);
-    await reloadSheet(activeGroup, subject, activeTerm);
+
+    const items = regularItems.map((a) => ({
+      title: a.title,
+      max: a.max,
+      category: a.category || "ใบงาน/การบ้าน",
+    }));
+
+    const weightsToSave = tplSaveWeights && categoryWeights.length > 0 ? categoryWeights : undefined;
+
+    const newTpl = saveGradingTemplate({
+      name: tplName.trim(),
+      level: currentLevel,
+      subject: activeSubject,
+      items,
+      weights: weightsToSave,
+    });
+
+    const updated = getGradingTemplates();
+    setSavedTemplates(updated);
+    setSelectedTemplateId(newTpl.id);
+    setSaveTplSuccess(true);
+    setNotice(`บันทึกแม่แบบ "${newTpl.name}" (${items.length} คอลัมน์) เรียบร้อยแล้ว`);
+    setTimeout(() => {
+      setSaveTplSuccess(false);
+      setTemplateTab("apply");
+    }, 900);
+  };
+
+  const handleDeleteTemplate = (id: string, name: string) => {
+    if (!window.confirm(`ต้องการลบแม่แบบ "${name}" หรือไม่?`)) return;
+    deleteGradingTemplate(id);
+    const updated = getGradingTemplates();
+    setSavedTemplates(updated);
+    if (selectedTemplateId === id) {
+      setSelectedTemplateId(updated[0]?.id ?? "");
+    }
   };
 
   const toggleVisible = async (a: (typeof assignments)[number]) => {
@@ -798,8 +923,22 @@ export default function GradingPage() {
           <UIButton variant="green" onClick={openAddColumn} disabled={!canEditActiveSubject || termId === "all"} className="h-9 px-3 text-[13px] disabled:opacity-40">
             + เพิ่มคอลัมน์งาน
           </UIButton>
-          <UIButton variant="green" onClick={openTemplate} disabled={!canEditActiveSubject || termId === "all"} className="h-9 bg-[#166c2e] px-3 text-[13px] hover:bg-[#145c27] focus-visible:ring-[#1e8e3e]/40 disabled:opacity-40">
-            สร้างชุดมาตรฐาน
+          <UIButton
+            variant="blue"
+            onClick={openCloneModal}
+            disabled={!canEditActiveSubject || termId === "all" || assignments.length === 0 || sameLevelRooms.length === 0}
+            title={sameLevelRooms.length === 0 ? "ไม่มีห้องอื่นในระดับเดียวกัน" : `คัดลอก ${assignments.length} คอลัมน์ไปยังห้องอื่นในระดับ ${currentLevel}`}
+            className="h-9 bg-[#2474c6] px-3 text-[13px] hover:bg-[#1d5ea2] focus-visible:ring-[#2474c6]/40 disabled:opacity-40"
+          >
+            <CopyIcon className="mr-1 h-3.5 w-3.5" /> คัดลอกไปห้องอื่น
+          </UIButton>
+          <UIButton
+            variant="green"
+            onClick={openTemplateModal}
+            disabled={!canEditActiveSubject || termId === "all"}
+            className="h-9 bg-[#166c2e] px-3 text-[13px] hover:bg-[#145c27] focus-visible:ring-[#1e8e3e]/40 disabled:opacity-40"
+          >
+            แม่แบบคะแนน
           </UIButton>
           <UIButton variant="blue" onClick={() => void publishFirstFive()} disabled={!canEditActiveSubject || termId === "all"} className="h-9 bg-[#00897b] px-3 text-[13px] hover:brightness-110 focus-visible:ring-[#00897b]/40 disabled:opacity-40">
             เผยแพร่ 5 งานแรก
@@ -1087,34 +1226,420 @@ export default function GradingPage() {
         </Modal>
       ) : null}
 
-      {/* modal ชุดมาตรฐาน */}
-      {templateModal ? (
-        <Modal title="สร้างชุดมาตรฐาน (รวม 100)" onClose={() => setTemplateModal(false)}>
-          <div className="grid grid-cols-2 gap-2">
-            <label className="col-span-1 block text-[14px] font-medium text-[#16233a]">
-              วิชา
-              <input value={activeSubject} readOnly className={cn(inputCls, "mt-1 bg-[#f8fafc]")} />
-            </label>
-            <label className="col-span-1 block text-[14px] font-medium text-[#16233a]">
-              กำหนดส่ง (ทุกงาน)
-              <input type="date" value={templateDue} onChange={(e) => setTemplateDue(e.target.value)} className={cn(inputCls, "mt-1")} />
-            </label>
+      {/* modal คัดลอกโครงสร้างคอลัมน์ไปห้องอื่น */}
+      {cloneModalOpen ? (
+        <Modal title={`คัดลอกโครงสร้างคอลัมน์ไปห้องอื่น (ระดับ ${currentLevel})`} onClose={() => setCloneModalOpen(false)}>
+          <div className="space-y-3">
+            <div className="rounded-lg border border-[#eef2f7] bg-[#f8fafc] p-3 text-[13px]">
+              <p className="font-semibold text-[#16233a]">
+                ห้องต้นแบบ: <span className="text-[#2474c6]">{activeGroup}</span> · วิชา: <span className="text-[#2474c6]">{activeSubject}</span>
+              </p>
+              <p className="mt-1 text-[#5b6b82]">
+                จำนวนงานที่จะคัดลอก: <span className="font-bold text-[#16233a]">{assignments.filter((a) => !a.retakeOf).length} คอลัมน์</span> (คะแนนเต็มรวม <span className="font-bold text-[#16233a]">{totalMaxScore}</span> คะแนน)
+              </p>
+              <p className="mt-0.5 text-[11.5px] text-[#8a97ab]">* คัดลอกเฉพาะหัวตารางและคะแนนเต็ม ไม่คัดลอกคะแนนของนักเรียน</p>
+            </div>
+
+            <div>
+              <div className="flex items-center justify-between mb-1.5">
+                <label className="text-[13.5px] font-bold text-[#16233a]">
+                  เลือกห้องปลายทาง (ระดับ {currentLevel}):
+                </label>
+                <button
+                  type="button"
+                  onClick={() =>
+                    setSelectedCloneRooms(
+                      selectedCloneRooms.length === sameLevelRooms.length ? [] : [...sameLevelRooms],
+                    )
+                  }
+                  className="text-[12px] font-semibold text-[#2474c6] hover:underline"
+                >
+                  {selectedCloneRooms.length === sameLevelRooms.length ? "ล้างการเลือก" : `เลือกทุกห้องใน ${currentLevel}`}
+                </button>
+              </div>
+
+              {sameLevelRooms.length === 0 ? (
+                <p className="rounded-lg bg-[#f8fafc] p-3 text-center text-[13px] text-[#5b6b82]">
+                  ไม่พบห้องอื่นในระดับ {currentLevel}
+                </p>
+              ) : (
+                <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 max-h-48 overflow-y-auto rounded-lg border border-[#eef2f7] p-2.5">
+                  {sameLevelRooms.map((room) => {
+                    const isSelected = selectedCloneRooms.includes(room);
+                    return (
+                      <label
+                        key={room}
+                        className={cn(
+                          "flex cursor-pointer items-center gap-2 rounded-lg border px-2.5 py-2 text-[13.5px] font-medium transition-colors",
+                          isSelected
+                            ? "border-[#2474c6] bg-[#e8f1fb] text-[#1a5da3]"
+                            : "border-[#eef2f7] bg-white text-[#16233a] hover:bg-[#f8fafc]",
+                        )}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={isSelected}
+                          onChange={(e) => {
+                            if (e.target.checked) {
+                              setSelectedCloneRooms((prev) => [...prev, room]);
+                            } else {
+                              setSelectedCloneRooms((prev) => prev.filter((r) => r !== room));
+                            }
+                          }}
+                          className="rounded text-[#2474c6] focus:ring-[#2474c6]"
+                        />
+                        <span>{room}</span>
+                      </label>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+
+            <div className="space-y-1.5 rounded-lg border border-[#eef2f7] bg-[#f8fafc] p-2.5 text-[12.5px] text-[#16233a]">
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={cloneSkipDuplicates}
+                  onChange={(e) => setCloneSkipDuplicates(e.target.checked)}
+                  className="rounded text-[#2474c6]"
+                />
+                <span>ข้ามคอลัมน์ที่มีชื่อซ้ำในห้องปลายทาง (ป้องกันสร้างงานซ้ำ)</span>
+              </label>
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={cloneCopyWeights}
+                  onChange={(e) => setCloneCopyWeights(e.target.checked)}
+                  className="rounded text-[#2474c6]"
+                />
+                <span>คัดลอกสัดส่วนน้ำหนักคะแนนรายห้องไปด้วย (ถ้ามี)</span>
+              </label>
+            </div>
+
+            {cloneMsg ? (
+              <p role="alert" className="whitespace-pre-line rounded-lg bg-[#fdecec] px-3 py-2 text-[13px] font-semibold text-[#c62828]">
+                {cloneMsg}
+              </p>
+            ) : null}
+
+            <div className="mt-4 flex justify-end gap-2 border-t border-[#eef2f7] pt-2">
+              <UIButton
+                variant="blue"
+                onClick={() => setCloneModalOpen(false)}
+                disabled={cloneBusy}
+                className="h-10 bg-[#5b6b82] text-[13.5px] hover:bg-[#465364]"
+              >
+                ยกเลิก
+              </UIButton>
+              <UIButton
+                variant="green"
+                onClick={() => void handleExecuteClone()}
+                disabled={cloneBusy || selectedCloneRooms.length === 0}
+                className="h-10 px-5 text-[13.5px] disabled:opacity-40"
+              >
+                {cloneBusy ? "กำลังคัดลอก..." : `ยืนยันคัดลอกไปยัง ${selectedCloneRooms.length} ห้อง`}
+              </UIButton>
+            </div>
           </div>
-          <ul className="mt-2 divide-y divide-[#eef2f7] rounded-lg border border-[#eef2f7] px-3 text-[13.5px] text-[#16233a]">
-            {[1, 2, 3, 4, 5, 6, 7].map((n) => (
-              <li key={n} className="flex justify-between py-1.5"><span>น.{n}</span><span className="font-bold">10 คะแนน</span></li>
-            ))}
-            <li className="flex justify-between py-1.5"><span>กลางภาค</span><span className="font-bold">10 คะแนน</span></li>
-            <li className="flex justify-between py-1.5"><span>ปลายภาค</span><span className="font-bold">20 คะแนน</span></li>
-          </ul>
-          {modalMsg ? (
-            <p role="alert" className="mt-2 rounded-lg bg-[#fdecec] px-3 py-2 text-[13.5px] font-semibold text-[#c62828]">{modalMsg}</p>
-          ) : null}
-          <div className="mt-3 flex justify-end gap-2">
-            <UIButton variant="blue" onClick={() => setTemplateModal(false)} className="h-10 bg-[#5b6b82] hover:bg-[#465364] focus-visible:ring-[#5b6b82]/40">ยกเลิก</UIButton>
-            <UIButton variant="green" onClick={() => void saveTemplate()} disabled={templateBusy} className="h-10 disabled:opacity-40">
-              {templateBusy ? "กำลังสร้าง..." : "สร้าง 9 คอลัมน์"}
-            </UIButton>
+        </Modal>
+      ) : null}
+
+      {/* modal แม่แบบคะแนน (Hybrid: ใช้แม่แบบ + บันทึกแม่แบบ) */}
+      {templateModalOpen ? (
+        <Modal title="แม่แบบคะแนน (Grading Templates)" onClose={() => setTemplateModalOpen(false)}>
+          <div className="space-y-3">
+            {/* แท็บสลับหน้า */}
+            <div className="flex border-b border-[#eef2f7] text-[13.5px] font-bold">
+              <button
+                type="button"
+                onClick={() => { setTemplateTab("apply"); setApplyMsg(""); }}
+                className={cn(
+                  "flex-1 pb-2 text-center transition-colors border-b-2",
+                  templateTab === "apply"
+                    ? "border-[#2474c6] text-[#2474c6]"
+                    : "border-transparent text-[#5b6b82] hover:text-[#16233a]",
+                )}
+              >
+                เรียกใช้แม่แบบ
+              </button>
+              <button
+                type="button"
+                onClick={() => { setTemplateTab("save"); setApplyMsg(""); }}
+                className={cn(
+                  "flex-1 pb-2 text-center transition-colors border-b-2",
+                  templateTab === "save"
+                    ? "border-[#2474c6] text-[#2474c6]"
+                    : "border-transparent text-[#5b6b82] hover:text-[#16233a]",
+                )}
+              >
+                บันทึกคอลัมน์เป็นแม่แบบใหม่
+              </button>
+            </div>
+
+            {templateTab === "apply" ? (
+              <div className="space-y-3">
+                <div>
+                  <label className="block text-[13.5px] font-medium text-[#16233a]">
+                    เลือกแม่แบบ
+                    <select
+                      value={selectedTemplateId}
+                      onChange={(e) => setSelectedTemplateId(e.target.value)}
+                      className={cn(inputCls, "mt-1")}
+                    >
+                      {savedTemplates.map((t) => (
+                        <option key={t.id} value={t.id}>
+                          {t.name} ({t.items.length} คอลัมน์)
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                </div>
+
+                {/* รายละเอียดแม่แบบที่เลือก */}
+                {(() => {
+                  const currentTpl = savedTemplates.find((t) => t.id === selectedTemplateId);
+                  if (!currentTpl) return null;
+                  const tplTotal = currentTpl.items.reduce((s, it) => s + it.max, 0);
+                  const isSystem = currentTpl.id.startsWith("system_");
+                  return (
+                    <div className="rounded-lg border border-[#eef2f7] bg-[#f8fafc] p-3 text-[13px]">
+                      <div className="flex items-center justify-between">
+                        <span className="font-bold text-[#16233a]">
+                          {currentTpl.name} {isSystem ? <span className="ml-1 text-[11px] font-normal text-[#8a97ab]">(แม่แบบระบบ)</span> : null}
+                        </span>
+                        {!isSystem ? (
+                          <button
+                            type="button"
+                            onClick={() => handleDeleteTemplate(currentTpl.id, currentTpl.name)}
+                            title="ลบแม่แบบนี้"
+                            className="rounded p-1 text-[#c62828] hover:bg-[#fdecec]"
+                          >
+                            <TrashIcon className="h-4 w-4" />
+                          </button>
+                        ) : null}
+                      </div>
+                      <p className="mt-1 text-[#5b6b82]">
+                        รวม {currentTpl.items.length} คอลัมน์ · คะแนนเต็มรวม: <span className="font-bold text-[#16233a]">{tplTotal}</span> คะแนน
+                      </p>
+                      <div className="mt-2 max-h-36 overflow-y-auto rounded border border-[#eef2f7] bg-white text-[12px]">
+                        <ul className="divide-y divide-[#eef2f7]">
+                          {currentTpl.items.map((it, idx) => (
+                            <li key={idx} className="flex justify-between px-2.5 py-1.5">
+                              <span className="font-medium text-[#16233a]">{it.title} <span className="text-[#8a97ab]">({it.category})</span></span>
+                              <span className="font-bold text-[#1a5da3]">{it.max} คะแนน</span>
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    </div>
+                  );
+                })()}
+
+                {/* เลือกห้องที่จะนำไปใช้ */}
+                <div>
+                  <label className="block text-[13.5px] font-medium text-[#16233a] mb-1">
+                    นำไปใช้กับห้องไหน:
+                  </label>
+                  <div className="grid grid-cols-2 gap-2 text-[13px]">
+                    <label
+                      className={cn(
+                        "flex cursor-pointer items-center gap-2 rounded-lg border p-2.5 transition-colors",
+                        applyTargetScope === "current"
+                          ? "border-[#2474c6] bg-[#e8f1fb] text-[#1a5da3] font-semibold"
+                          : "border-[#eef2f7] text-[#16233a]",
+                      )}
+                    >
+                      <input
+                        type="radio"
+                        name="applyScope"
+                        value="current"
+                        checked={applyTargetScope === "current"}
+                        onChange={() => setApplyTargetScope("current")}
+                        className="text-[#2474c6]"
+                      />
+                      <span>เฉพาะห้อง {activeGroup}</span>
+                    </label>
+                    <label
+                      className={cn(
+                        "flex cursor-pointer items-center gap-2 rounded-lg border p-2.5 transition-colors",
+                        applyTargetScope === "level"
+                          ? "border-[#2474c6] bg-[#e8f1fb] text-[#1a5da3] font-semibold"
+                          : "border-[#eef2f7] text-[#16233a]",
+                      )}
+                    >
+                      <input
+                        type="radio"
+                        name="applyScope"
+                        value="level"
+                        checked={applyTargetScope === "level"}
+                        onChange={() => setApplyTargetScope("level")}
+                        className="text-[#2474c6]"
+                      />
+                      <span>ทุกห้องในระดับ {currentLevel} ({groupNames.filter((g) => levelOf(g) === currentLevel).length} ห้อง)</span>
+                    </label>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-2">
+                  <label className="col-span-1 block text-[13.5px] font-medium text-[#16233a]">
+                    วิชา
+                    <input value={activeSubject} readOnly className={cn(inputCls, "mt-1 bg-[#f8fafc]")} />
+                  </label>
+                  <label className="col-span-1 block text-[13.5px] font-medium text-[#16233a]">
+                    วันกำหนดส่ง (ทุกงาน)
+                    <input
+                      type="date"
+                      value={applyDueDate}
+                      onChange={(e) => setApplyDueDate(e.target.value)}
+                      className={cn(inputCls, "mt-1")}
+                    />
+                  </label>
+                </div>
+
+                <div className="space-y-1 rounded-lg border border-[#eef2f7] bg-[#f8fafc] p-2.5 text-[12.5px] text-[#16233a]">
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={applySkipDuplicates}
+                      onChange={(e) => setApplySkipDuplicates(e.target.checked)}
+                      className="rounded text-[#2474c6]"
+                    />
+                    <span>ข้ามคอลัมน์ที่มีชื่อซ้ำในห้องปลายทาง</span>
+                  </label>
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={applyCopyWeights}
+                      onChange={(e) => setApplyCopyWeights(e.target.checked)}
+                      className="rounded text-[#2474c6]"
+                    />
+                    <span>นำสัดส่วนน้ำหนักคะแนนตามแม่แบบไปใช้ด้วย (ถ้ามี)</span>
+                  </label>
+                </div>
+
+                {applyMsg ? (
+                  <p role="alert" className="whitespace-pre-line rounded-lg bg-[#fdecec] px-3 py-2 text-[13px] font-semibold text-[#c62828]">
+                    {applyMsg}
+                  </p>
+                ) : null}
+
+                <div className="mt-4 flex justify-end gap-2 border-t border-[#eef2f7] pt-2">
+                  <UIButton
+                    variant="blue"
+                    onClick={() => setTemplateModalOpen(false)}
+                    disabled={applyBusy}
+                    className="h-10 bg-[#5b6b82] text-[13.5px] hover:bg-[#465364]"
+                  >
+                    ยกเลิก
+                  </UIButton>
+                  <UIButton
+                    variant="green"
+                    onClick={() => void handleApplyTemplate()}
+                    disabled={applyBusy}
+                    className="h-10 px-5 text-[13.5px] disabled:opacity-40"
+                  >
+                    {applyBusy ? "กำลังสร้างคอลัมน์..." : "สร้างคอลัมน์ตามแม่แบบ"}
+                  </UIButton>
+                </div>
+              </div>
+            ) : (
+              /* แท็บบันทึกเป็นแม่แบบใหม่ */
+              <div className="space-y-3">
+                <div className="rounded-lg border border-[#eef2f7] bg-[#f8fafc] p-3 text-[13px]">
+                  <p className="font-semibold text-[#16233a]">
+                    บันทึกคอลัมน์จากห้อง: <span className="text-[#2474c6]">{activeGroup}</span> (วิชา: {activeSubject})
+                  </p>
+                  <p className="mt-1 text-[#5b6b82]">
+                    จำนวนงานทั้งหมด: <span className="font-bold text-[#16233a]">{assignments.filter((a) => !a.retakeOf).length} คอลัมน์</span> (คะแนนเต็มรวม <span className="font-bold text-[#16233a]">{totalMaxScore}</span> คะแนน)
+                  </p>
+                </div>
+
+                <div>
+                  <label className="block text-[13.5px] font-medium text-[#16233a]">
+                    ชื่อแม่แบบ
+                    <input
+                      value={tplName}
+                      onChange={(e) => setTplName(e.target.value)}
+                      placeholder="เช่น แม่แบบ ม.3 ภาษาอังกฤษ (100 คะแนน)"
+                      className={cn(inputCls, "mt-1")}
+                    />
+                  </label>
+                </div>
+
+                <div className="rounded-lg border border-[#eef2f7] bg-[#f8fafc] p-2.5 text-[12.5px] text-[#16233a]">
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={tplSaveWeights}
+                      onChange={(e) => setTplSaveWeights(e.target.checked)}
+                      className="rounded text-[#2474c6]"
+                    />
+                    <span>
+                      บันทึกสัดส่วนน้ำหนักคะแนนรายห้องในแม่แบบด้วย{" "}
+                      {categoryWeights.length > 0 ? (
+                        <span className="font-bold text-[#166c2e]">({categoryWeights.length} หมวด)</span>
+                      ) : (
+                        <span className="text-[#8a97ab]">(ยังไม่ได้ตั้งสัดส่วน)</span>
+                      )}
+                    </span>
+                  </label>
+                </div>
+
+                <div className="max-h-40 overflow-y-auto rounded-lg border border-[#eef2f7]">
+                  <table className="w-full text-left text-[12px]">
+                    <thead className="sticky top-0 bg-[#f8fafc] text-[#5b6b82]">
+                      <tr>
+                        <th className="px-3 py-1.5">ชื่องาน</th>
+                        <th className="px-3 py-1.5">หมวด</th>
+                        <th className="px-3 py-1.5 text-right">คะแนนเต็ม</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-[#eef2f7]">
+                      {assignments
+                        .filter((a) => !a.retakeOf)
+                        .map((a) => (
+                          <tr key={a.id}>
+                            <td className="px-3 py-1.5 font-medium text-[#16233a]">{a.title}</td>
+                            <td className="px-3 py-1.5 text-[#5b6b82]">{a.category || "ใบงาน/การบ้าน"}</td>
+                            <td className="px-3 py-1.5 text-right font-bold text-[#1a5da3]">{a.max}</td>
+                          </tr>
+                        ))}
+                    </tbody>
+                  </table>
+                </div>
+
+                {saveTplSuccess ? (
+                  <p role="status" className="rounded-lg bg-[#e6f4ea] px-3 py-2 text-[13px] font-semibold text-[#166c2e]">
+                    ✓ บันทึกแม่แบบเรียบร้อยแล้ว!
+                  </p>
+                ) : null}
+
+                {applyMsg ? (
+                  <p role="alert" className="whitespace-pre-line rounded-lg bg-[#fdecec] px-3 py-2 text-[13px] font-semibold text-[#c62828]">
+                    {applyMsg}
+                  </p>
+                ) : null}
+
+                <div className="mt-4 flex justify-end gap-2 border-t border-[#eef2f7] pt-2">
+                  <UIButton
+                    variant="blue"
+                    onClick={() => setTemplateModalOpen(false)}
+                    className="h-10 bg-[#5b6b82] text-[13.5px] hover:bg-[#465364]"
+                  >
+                    ยกเลิก
+                  </UIButton>
+                  <UIButton
+                    variant="green"
+                    onClick={handleSaveAsTemplate}
+                    disabled={assignments.length === 0}
+                    className="h-10 px-6 text-[13.5px] disabled:opacity-40"
+                  >
+                    บันทึกเป็นแม่แบบ
+                  </UIButton>
+                </div>
+              </div>
+            )}
           </div>
         </Modal>
       ) : null}
