@@ -627,20 +627,20 @@ export type GradeScale = { grade: string; min: number };
 
 /** เกณฑ์ตัดเกรดของระดับชั้น (เรียงเกณฑ์สูง→ต่ำ) */
 export async function fetchGradeScales(level: string): Promise<GradeScale[] | null> {
-  if (!isSupabaseConfigured) return null;
+  if (!isSupabaseConfigured) return STANDARD_NUMERIC_SCALES;
   try {
     const { data, error } = await supabase
       .from("grade_scales")
       .select("grade,min_score")
       .eq("level", level)
       .order("min_score", { ascending: false });
-    if (error || !data) return null;
+    if (error || !data || data.length === 0) return STANDARD_NUMERIC_SCALES;
     return (data as Array<{ grade: string; min_score: number }>).map((r) => ({
       grade: r.grade,
       min: Number(r.min_score),
     }));
   } catch {
-    return null;
+    return STANDARD_NUMERIC_SCALES;
   }
 }
 

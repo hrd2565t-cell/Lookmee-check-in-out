@@ -21,6 +21,7 @@ import {
   fetchRoomGradeScales,
   fetchGradeScales,
   gradeOf,
+  STANDARD_NUMERIC_SCALES,
   type ClassSubject,
   type CategoryWeight,
   type GradeScale,
@@ -253,12 +254,31 @@ export default function GradingPage() {
     return s === null || s === undefined ? "" : String(s);
   };
 
-  const rowTotal = (code: string) =>
-    assignments.reduce((sum, a) => {
-      const d = drafts.get(cellKey(a.id, code));
-      const v = d !== undefined ? (d === "" ? 0 : Number(d)) : (savedScores.get(cellKey(a.id, code)) ?? 0);
-      return sum + (Number.isFinite(v) ? v : 0);
+  const rowTotal = (code: string) => {
+    const retakeMap = new Map<string, string>();
+    for (const a of assignments) {
+      if (a.retakeOf) retakeMap.set(a.retakeOf, a.id);
+    }
+    return assignments.reduce((sum, a) => {
+      if (a.retakeOf) return sum; // ไม่นับซ้ำคอลัมน์สอบซ่อม
+      const retakeId = retakeMap.get(a.id);
+      let v: number | null = null;
+      if (retakeId) {
+        const retakeDraft = drafts.get(cellKey(retakeId, code));
+        const retakeSaved = savedScores.get(cellKey(retakeId, code));
+        if (retakeDraft !== undefined && retakeDraft.trim() !== "") {
+          v = Number(retakeDraft);
+        } else if (retakeSaved !== null && retakeSaved !== undefined) {
+          v = retakeSaved;
+        }
+      }
+      if (v === null) {
+        const d = drafts.get(cellKey(a.id, code));
+        v = d !== undefined ? (d === "" ? 0 : Number(d)) : (savedScores.get(cellKey(a.id, code)) ?? 0);
+      }
+      return sum + (Number.isFinite(v) ? (v ?? 0) : 0);
     }, 0);
+  };
 
   const rowSaved = (code: string) =>
     assignments.length > 0 &&
@@ -283,8 +303,10 @@ export default function GradingPage() {
 
   const rowGrade = (code: string): string | null => {
     const w = rowWeighted(code);
-    if (w === null) return null;
-    return gradeOf(gradeScales, w);
+    const score = w !== null ? w : rowTotal(code);
+    if (score === null || score === undefined || !Number.isFinite(score)) return null;
+    const activeScales = gradeScales && gradeScales.length > 0 ? gradeScales : STANDARD_NUMERIC_SCALES;
+    return gradeOf(activeScales, score);
   };
 
   const addRetake = async (a: SheetAssignment) => {
@@ -968,17 +990,26 @@ export default function GradingPage() {
           </p>
         ) : (
           <div className="slim-scroll -mx-4 overflow-x-auto px-4 sm:-mx-5 sm:px-5">
-            <table className="w-full min-w-[860px] border-collapse text-left">
+            <table className="w-full min-w-[860px] border-separate border-spacing-0 text-left">
               <thead>
                 <tr className="text-[12.5px] font-bold text-[#16233a]">
-                  <th className="w-12 py-2 pr-3">ลำดับ</th>
-                  <th className="min-w-[110px] whitespace-nowrap py-2 pr-3">รหัสประจำตัว</th>
-                  <th className="min-w-[200px] whitespace-nowrap py-2 pr-3">ชื่อ-นามสกุล</th>
+                  {/* ตรึงคอลัมน์ ลำดับ */}
+                  <th className="sticky left-0 z-30 w-12 min-w-12 max-w-12 border-b border-[#eef2f7] bg-[#f8fafc] py-2.5 pl-3 pr-2 shadow-sm">
+                    ลำดับ
+                  </th>
+                  {/* ตรึงคอลัมน์ รหัสประจำตัว */}
+                  <th className="sticky left-12 z-30 w-[105px] min-w-[105px] max-w-[105px] whitespace-nowrap border-b border-[#eef2f7] bg-[#f8fafc] py-2.5 pr-3 shadow-sm">
+                    รหัสประจำตัว
+                  </th>
+                  {/* ตรึงคอลัมน์ ชื่อ-นามสกุล พร้อมเส้นขอบขวาและเงาแยกส่วน */}
+                  <th className="sticky left-[153px] z-30 min-w-[180px] max-w-[220px] whitespace-nowrap border-b border-r-2 border-[#eef2f7] border-r-[#d8e0ec] bg-[#f8fafc] py-2.5 pr-3 shadow-[4px_0_8px_-2px_rgba(0,0,0,0.06)]">
+                    ชื่อ-นามสกุล
+                  </th>
                   {assignments.map((a) => (
                     <th
                       key={a.id}
                       className={cn(
-                        "w-[110px] max-w-[110px] px-1.5 py-2 text-center",
+                        "w-[110px] max-w-[110px] border-b border-[#eef2f7] px-1.5 py-2 text-center",
                         draggedId === a.id ? "opacity-50 ring-2 ring-[#2474c6]" : "",
                       )}
                       title={`${a.title} · ส่ง ${a.due}`}
@@ -1050,29 +1081,32 @@ export default function GradingPage() {
                       </div>
                     </th>
                   ))}
-                  <th className="px-2 py-2 text-center">คะแนนรวม (100)</th>
-                  <th className="px-2 py-2 text-center">เกรด</th>
-                  <th className="py-2 text-right">สถานะ</th>
+                  <th className="whitespace-nowrap border-b border-[#eef2f7] px-2 py-2 text-center">คะแนนรวม (100)</th>
+                  <th className="whitespace-nowrap border-b border-[#eef2f7] px-2 py-2 text-center">เกรด</th>
+                  <th className="whitespace-nowrap border-b border-[#eef2f7] py-2 text-right">สถานะ</th>
                 </tr>
               </thead>
               <tbody>
                 {pageRows.map((s, ri) => {
                   const saved = rowSaved(s.code);
                   return (
-                    <tr key={s.code} className="border-t border-[#eef2f7] align-middle">
-                      <td className="w-12 py-1.5 pr-3 text-[13.5px] text-[#5b6b82]">
+                    <tr key={s.code} className="group align-middle hover:bg-[#fafbfd]">
+                      {/* ตรึงคอลัมน์ ลำดับ */}
+                      <td className="sticky left-0 z-10 w-12 min-w-12 max-w-12 border-b border-[#eef2f7] bg-white group-hover:bg-[#fafbfd] py-2 pl-3 pr-2 text-[13.5px] text-[#5b6b82]">
                         {(safePage - 1) * PAGE_SIZE + ri + 1}
                       </td>
-                      <td className="min-w-[110px] whitespace-nowrap py-1.5 pr-3 text-[13.5px] text-[#16233a]">
+                      {/* ตรึงคอลัมน์ รหัสประจำตัว */}
+                      <td className="sticky left-12 z-10 w-[105px] min-w-[105px] max-w-[105px] whitespace-nowrap border-b border-[#eef2f7] bg-white group-hover:bg-[#fafbfd] py-2 pr-3 text-[13.5px] text-[#16233a]">
                         {s.code}
                       </td>
-                      <td className="min-w-[200px] whitespace-nowrap py-1.5 pr-3 text-[13.5px] font-medium text-[#16233a]">
+                      {/* ตรึงคอลัมน์ ชื่อ-นามสกุล พร้อมเส้นขอบขวาและเงาแยกส่วน */}
+                      <td className="sticky left-[153px] z-10 min-w-[180px] max-w-[220px] whitespace-nowrap border-b border-r-2 border-[#eef2f7] border-r-[#d8e0ec] bg-white group-hover:bg-[#fafbfd] py-2 pr-3 text-[13.5px] font-medium text-[#16233a] shadow-[4px_0_8px_-2px_rgba(0,0,0,0.06)]">
                         {s.name}
                       </td>
                       {assignments.map((a, ai) => {
                         const cellIndex = ri * assignments.length + ai;
                         return (
-                          <td key={a.id} className="px-1.5 py-1.5 text-center">
+                          <td key={a.id} className="border-b border-[#eef2f7] px-1.5 py-1.5 text-center">
                             <ScoreCell
                               ref={el => { cellRefs.current[cellIndex] = el; }}
                               value={cellValue(a.id, s.code)}
@@ -1085,13 +1119,13 @@ export default function GradingPage() {
                           </td>
                         );
                       })}
-                      <td className="whitespace-nowrap px-2 py-1.5 text-center text-[14px] font-bold text-[#16233a]">
+                      <td className="whitespace-nowrap border-b border-[#eef2f7] px-2 py-1.5 text-center text-[14px] font-bold text-[#16233a]">
                         {(() => {
                           const w = rowWeighted(s.code);
                           return w !== null ? w.toFixed(1) : rowTotal(s.code);
                         })()}
                       </td>
-                      <td className="whitespace-nowrap px-2 py-1.5 text-center text-[14px] font-bold">
+                      <td className="whitespace-nowrap border-b border-[#eef2f7] px-2 py-1.5 text-center text-[14px] font-bold">
                         {(() => {
                           const g = rowGrade(s.code);
                           if (!g) return <span className="text-[#8a97ab]">-</span>;
@@ -1099,7 +1133,7 @@ export default function GradingPage() {
                           return <span className={isZero ? "text-[#c62828]" : "text-[#1e8e3e]"}>{g}</span>;
                         })()}
                       </td>
-                      <td className="whitespace-nowrap py-1.5 text-right">
+                      <td className="whitespace-nowrap border-b border-[#eef2f7] py-1.5 text-right">
                         <span
                           className={cn(
                             "inline-flex min-w-[86px] items-center justify-center rounded-md px-2 py-1 text-[12px] font-bold text-white",
