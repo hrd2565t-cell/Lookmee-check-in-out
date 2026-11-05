@@ -243,10 +243,23 @@ export default function GradingPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeGroup, activeSubject, activeSubjectItem?.termId, activeTerm?.id, sheetTerm?.startsOn, sheetTerm?.endsOn]);
 
-  const students = useMemo(
-    () => rosterStudents.filter((s) => s.group === activeGroup),
-    [rosterStudents, activeGroup],
-  );
+  const [sortKey, setSortKey] = useState<"code" | "name" | "number">("code");
+  const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
+
+  const students = useMemo(() => {
+    const list = rosterStudents.filter((s) => s.group === activeGroup);
+    return [...list].sort((a, b) => {
+      let cmp = 0;
+      if (sortKey === "code") {
+        cmp = a.code.localeCompare(b.code, "th", { numeric: true });
+      } else if (sortKey === "name") {
+        cmp = a.name.localeCompare(b.name, "th");
+      } else if (sortKey === "number") {
+        cmp = (Number(a.number) || 999) - (Number(b.number) || 999);
+      }
+      return sortDir === "asc" ? cmp : -cmp;
+    });
+  }, [rosterStudents, activeGroup, sortKey, sortDir]);
 
   const cellKey = (aId: string, code: string) => `${aId}|${code}`;
   const cellValue = (aId: string, code: string): string => {
@@ -930,19 +943,40 @@ export default function GradingPage() {
             </UIButton>
           </div>
         </div>
-        <label className="relative mt-2 block sm:max-w-[320px]">
-          <span className="sr-only">ค้นหาชื่อนักเรียน</span>
-          <input
-            value={query}
-            onChange={(e) => {
-              setQuery(e.target.value);
-              setPage(1);
-            }}
-            placeholder="ค้นหาชื่อนักเรียน..."
-            className="h-10 w-full rounded-lg border border-[#d8e0ec] bg-white pl-3 pr-10 text-[14px] placeholder:text-[#8a97ab] focus:border-[#2474c6] focus:outline-none"
-          />
-          <SearchIcon className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[#8a97ab]" />
-        </label>
+        <div className="mt-2.5 flex flex-wrap items-center justify-between gap-2">
+          <label className="relative block w-full sm:max-w-[320px]">
+            <span className="sr-only">ค้นหาชื่อหรือรหัสประจำตัวนักเรียน</span>
+            <input
+              value={query}
+              onChange={(e) => {
+                setQuery(e.target.value);
+                setPage(1);
+              }}
+              placeholder="ค้นหาชื่อ หรือ รหัสประจำตัว..."
+              className="h-10 w-full rounded-lg border border-[#d8e0ec] bg-white pl-3 pr-10 text-[14px] placeholder:text-[#8a97ab] focus:border-[#2474c6] focus:outline-none"
+            />
+            <SearchIcon className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[#8a97ab]" />
+          </label>
+
+          <div className="flex items-center gap-2">
+            <span className="text-[13px] font-medium text-[#5b6b82]">เรียงลำดับ:</span>
+            <select
+              value={`${sortKey}_${sortDir}`}
+              onChange={(e) => {
+                const [k, d] = e.target.value.split("_") as ["code" | "name" | "number", "asc" | "desc"];
+                setSortKey(k);
+                setSortDir(d);
+                setPage(1);
+              }}
+              className="h-10 rounded-lg border border-[#d8e0ec] bg-white px-3 text-[13px] font-semibold text-[#16233a] focus:border-[#2474c6] focus:outline-none"
+            >
+              <option value="code_asc">เลขประจำตัว (น้อยไปมาก)</option>
+              <option value="code_desc">เลขประจำตัว (มากไปน้อย)</option>
+              <option value="number_asc">เลขที่ (น้อยไปมาก)</option>
+              <option value="name_asc">ชื่อ-นามสกุล (ก-ฮ)</option>
+            </select>
+          </div>
+        </div>
         {notice ? (
           <p role="status" className="mt-2 rounded-lg bg-[#e8f1fb] px-3 py-2 text-[13.5px] font-medium text-[#1a5da3]">
             {notice}
@@ -1017,16 +1051,50 @@ export default function GradingPage() {
               <thead>
                 <tr className="text-[12.5px] font-bold text-[#16233a]">
                   {/* ตรึงคอลัมน์ ลำดับ */}
-                  <th className="sticky left-0 z-30 w-12 min-w-12 max-w-12 border-b border-[#eef2f7] bg-[#f8fafc] py-2.5 pl-3 pr-2 shadow-sm">
+                  <th className="sticky left-0 z-30 w-12 min-w-12 max-w-12 border-b border-[#eef2f7] bg-[#f8fafc] py-2.5 pl-3 pr-2 text-center shadow-sm">
                     ลำดับ
                   </th>
-                  {/* ตรึงคอลัมน์ รหัสประจำตัว */}
-                  <th className="sticky left-12 z-30 w-[105px] min-w-[105px] max-w-[105px] whitespace-nowrap border-b border-[#eef2f7] bg-[#f8fafc] py-2.5 pr-3 shadow-sm">
-                    รหัสประจำตัว
+                  {/* ตรึงคอลัมน์ รหัสประจำตัว (คลิกเพื่อเรียงลำดับ) */}
+                  <th
+                    onClick={() => {
+                      if (sortKey === "code") {
+                        setSortDir((d) => (d === "asc" ? "desc" : "asc"));
+                      } else {
+                        setSortKey("code");
+                        setSortDir("asc");
+                      }
+                    }}
+                    title="คลิกเพื่อสลับเรียงลำดับรหัสประจำตัว (น้อยไปมาก / มากไปน้อย)"
+                    className="sticky left-12 z-30 w-[105px] min-w-[105px] max-w-[105px] cursor-pointer select-none whitespace-nowrap border-b border-[#eef2f7] bg-[#f8fafc] py-2.5 pr-3 shadow-sm hover:text-[#2474c6] transition-colors"
+                  >
+                    <div className="flex items-center gap-1">
+                      <span>รหัสประจำตัว</span>
+                      <span className="text-[11px] font-bold text-[#2474c6]">
+                        {sortKey === "code" ? (sortDir === "asc" ? "▲" : "▼") : "↕"}
+                      </span>
+                    </div>
                   </th>
                   {/* ตรึงคอลัมน์ ชื่อ-นามสกุล พร้อมเส้นขอบขวาและเงาแยกส่วน */}
-                  <th className="sticky left-[153px] z-30 min-w-[180px] max-w-[220px] whitespace-nowrap border-b border-r-2 border-[#eef2f7] border-r-[#d8e0ec] bg-[#f8fafc] py-2.5 pr-3 shadow-[4px_0_8px_-2px_rgba(0,0,0,0.06)]">
-                    ชื่อ-นามสกุล
+                  <th
+                    onClick={() => {
+                      if (sortKey === "name") {
+                        setSortDir((d) => (d === "asc" ? "desc" : "asc"));
+                      } else {
+                        setSortKey("name");
+                        setSortDir("asc");
+                      }
+                    }}
+                    title="คลิกเพื่อเรียงตามชื่อ-นามสกุล"
+                    className="sticky left-[153px] z-30 min-w-[180px] max-w-[220px] cursor-pointer select-none whitespace-nowrap border-b border-r-2 border-[#eef2f7] border-r-[#d8e0ec] bg-[#f8fafc] py-2.5 pr-3 shadow-[4px_0_8px_-2px_rgba(0,0,0,0.06)] hover:text-[#2474c6] transition-colors"
+                  >
+                    <div className="flex items-center gap-1">
+                      <span>ชื่อ-นามสกุล</span>
+                      {sortKey === "name" ? (
+                        <span className="text-[11px] font-bold text-[#2474c6]">
+                          {sortDir === "asc" ? "▲" : "▼"}
+                        </span>
+                      ) : null}
+                    </div>
                   </th>
                   {assignments.map((a) => (
                     <th

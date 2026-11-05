@@ -55,6 +55,14 @@ for (const c of rows) {
   (inactive ? skipped : students).push(rec);
 }
 
+// เรียงลำดับนักเรียนตามห้อง และตามเลขประจำตัว (student_code) จากน้อยไปมาก
+students.sort(
+  (a, b) =>
+    a.group.localeCompare(b.group, "th", { numeric: true }) ||
+    (a.code || "").localeCompare(b.code || "", "th", { numeric: true }) ||
+    Number(a.number) - Number(b.number),
+);
+
 // กลุ่ม + จำนวน (เฉพาะ active)
 const groupMap = new Map();
 for (const s of students) groupMap.set(s.group, (groupMap.get(s.group) || 0) + 1);

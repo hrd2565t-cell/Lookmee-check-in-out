@@ -57,9 +57,15 @@ export function initialsForName(firstName: string, lastName: string) {
 
 /** ข้อมูลสำรอง (mock จากชีท) — ใช้ตอนยังไม่ต่อ DB หรือต่อไม่ติด */
 export function mockRoster(): Omit<Roster, "live"> {
+  const sorted = [...SCHOOL_STUDENTS].sort(
+    (a, b) =>
+      compareGroupNames(a.group, b.group) ||
+      a.code.localeCompare(b.code, "th", { numeric: true }) ||
+      Number(a.number) - Number(b.number),
+  );
   return {
     groups: SCHOOL_GROUPS,
-    students: SCHOOL_STUDENTS.map((s) => ({ ...s, registered: false })),
+    students: sorted.map((s) => ({ ...s, registered: false })),
   };
 }
 
@@ -113,6 +119,7 @@ async function fetchRosterFromDb(): Promise<Omit<Roster, "live"> | null> {
     .sort(
       (a, b) =>
         (order.get(a.group) ?? 99) - (order.get(b.group) ?? 99) ||
+        a.code.localeCompare(b.code, "th", { numeric: true }) ||
         Number(a.number) - Number(b.number),
     );
 

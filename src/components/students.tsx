@@ -172,6 +172,8 @@ export default function StudentsPage() {
   const [query, setQuery] = useState("");
   const group = sharedGroup || "all";
   const [status, setStatus] = useState("all");
+  const [sortKey, setSortKey] = useState<"code" | "name" | "number">("code");
+  const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
   const [page, setPage] = useState(1);
   const PAGE_SIZE = 10;
   const [groupModal, setGroupModal] = useState<{ mode: "add" } | { mode: "edit"; old: string } | null>(null);
@@ -243,7 +245,7 @@ export default function StudentsPage() {
           .sort(
             (a, b) =>
               (order.get(a.group) ?? 99) - (order.get(b.group) ?? 99) ||
-              a.studentId.localeCompare(b.studentId),
+              a.studentId.localeCompare(b.studentId, "th", { numeric: true }),
           );
         if (!cancelled) {
           setGroupIds(
@@ -270,7 +272,7 @@ export default function StudentsPage() {
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
-    return studentList.filter((s) => {
+    const rows = studentList.filter((s) => {
       if (group !== "all" && s.group !== group) return false;
       if (status === "registered" && !s.registered) return false;
       if (status === "unregistered" && s.registered) return false;
@@ -281,7 +283,18 @@ export default function StudentsPage() {
         s.studentId.includes(q)
       );
     });
-  }, [studentList, query, group, status]);
+    return rows.sort((a, b) => {
+      let cmp = 0;
+      if (sortKey === "code") {
+        cmp = a.studentId.localeCompare(b.studentId, "th", { numeric: true });
+      } else if (sortKey === "name") {
+        cmp = a.thaiName.localeCompare(b.thaiName, "th");
+      } else if (sortKey === "number") {
+        cmp = (Number(a.number) || 999) - (Number(b.number) || 999);
+      }
+      return sortDir === "asc" ? cmp : -cmp;
+    });
+  }, [studentList, query, group, status, sortKey, sortDir]);
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
   const safePage = Math.min(page, totalPages);
@@ -982,6 +995,22 @@ export default function StudentsPage() {
                 { value: "unregistered", label: "ยังไม่ลงทะเบียน" },
               ]}
             />
+            <FilterSelect
+              label="เรียงลำดับ"
+              value={`${sortKey}_${sortDir}`}
+              onChange={(v) => {
+                const [k, d] = v.split("_") as ["code" | "name" | "number", "asc" | "desc"];
+                setSortKey(k);
+                setSortDir(d);
+                setPage(1);
+              }}
+              options={[
+                { value: "code_asc", label: "เลขประจำตัว (น้อยไปมาก)" },
+                { value: "code_desc", label: "เลขประจำตัว (มากไปน้อย)" },
+                { value: "number_asc", label: "เลขที่ (น้อยไปมาก)" },
+                { value: "name_asc", label: "ชื่อ (ก-ฮ)" },
+              ]}
+            />
           </div>
 
           <p className="mt-2 text-[12.5px] text-[#5b6b82]">
@@ -994,8 +1023,46 @@ export default function StudentsPage() {
               <thead>
                 <tr className="text-[13.5px] font-bold text-[#16233a]">
                   <th className="py-2 pr-3 font-bold">Photo</th>
-                  <th className="py-2 pr-3 font-bold">ชื่อ</th>
-                  <th className="py-2 pr-3 font-bold">Student ID</th>
+                  <th
+                    onClick={() => {
+                      if (sortKey === "name") {
+                        setSortDir((d) => (d === "asc" ? "desc" : "asc"));
+                      } else {
+                        setSortKey("name");
+                        setSortDir("asc");
+                      }
+                    }}
+                    className="cursor-pointer py-2 pr-3 font-bold select-none hover:text-[#2474c6]"
+                    title="คลิกเพื่อเรียงตามชื่อ"
+                  >
+                    <span className="inline-flex items-center gap-1">
+                      <span>ชื่อ</span>
+                      {sortKey === "name" ? (
+                        <span className="text-[11px] text-[#2474c6]">
+                          {sortDir === "asc" ? "▲" : "▼"}
+                        </span>
+                      ) : null}
+                    </span>
+                  </th>
+                  <th
+                    onClick={() => {
+                      if (sortKey === "code") {
+                        setSortDir((d) => (d === "asc" ? "desc" : "asc"));
+                      } else {
+                        setSortKey("code");
+                        setSortDir("asc");
+                      }
+                    }}
+                    className="cursor-pointer py-2 pr-3 font-bold select-none hover:text-[#2474c6]"
+                    title="คลิกเพื่อเรียงตาม Student ID"
+                  >
+                    <span className="inline-flex items-center gap-1">
+                      <span>Student ID</span>
+                      <span className="text-[11px] text-[#2474c6]">
+                        {sortKey === "code" ? (sortDir === "asc" ? "▲" : "▼") : "↕"}
+                      </span>
+                    </span>
+                  </th>
                   <th className="py-2 pr-3 font-bold">Group</th>
                   <th className="py-2 pr-3 font-bold">รด.</th>
                   <th className="py-2 pr-3 font-bold">Face Scan Status</th>

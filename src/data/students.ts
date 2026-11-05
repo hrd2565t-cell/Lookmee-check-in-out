@@ -35,7 +35,9 @@ export const rightGroups: ClassGroup[] = SCHOOL_GROUPS.slice(half).map(toGroup);
 
 export const allGroups = SCHOOL_GROUPS.map((g) => g.name);
 
-export const students: Student[] = SCHOOL_STUDENTS.map((s) => ({
+export const students: Student[] = [...SCHOOL_STUDENTS]
+  .sort((a, b) => a.code.localeCompare(b.code, "th", { numeric: true }))
+  .map((s) => ({
   id: s.code,
   thaiName: `${s.title}${s.firstName}${s.lastName ? ` ${s.lastName}` : ""}`,
   studentId: s.code,

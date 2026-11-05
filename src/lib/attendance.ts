@@ -477,6 +477,7 @@ export async function fetchGroupRangeSummary(
       .map((row) => ({ ...row, days: totalDays }))
       .sort(
         (a, b) =>
+          a.code.localeCompare(b.code, "th", { numeric: true }) ||
           (Number(a.number) || 999) - (Number(b.number) || 999) ||
           a.name.localeCompare(b.name, "th"),
       );

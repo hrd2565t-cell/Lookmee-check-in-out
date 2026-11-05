@@ -158,9 +158,11 @@ export function ConductModal({
     }
   };
 
-  // คำนวณข้อมูลนักเรียนแต่ละคน
+  // คำนวณข้อมูลนักเรียนแต่ละคน (เรียงตามรหัสประจำตัว)
   const previewRows = useMemo(() => {
-    return students.map((st) => {
+    return [...students]
+      .sort((a, b) => a.code.localeCompare(b.code, "th", { numeric: true }))
+      .map((st) => {
       const sStats = stats.get(st.code);
       const absent = sStats?.absent ?? 0;
       const late = sStats?.late ?? 0;
