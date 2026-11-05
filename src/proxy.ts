@@ -1,10 +1,11 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
+import { DEFAULT_SUPABASE_ANON_KEY, DEFAULT_SUPABASE_URL } from "@/lib/supabase/client";
 
 export async function proxy(request: NextRequest) {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL ?? "";
-  const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? "";
-  // ยังไม่ตั้งค่า Supabase (โหมด Local) → ปล่อยผ่านทั้งหมด
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL || DEFAULT_SUPABASE_URL;
+  const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || DEFAULT_SUPABASE_ANON_KEY;
+
   if (!url || !anonKey) return NextResponse.next();
 
   let response = NextResponse.next({ request });

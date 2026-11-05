@@ -13,6 +13,7 @@ import { cn } from "@/lib/cn";
 import { BrandMark, FullLogo } from "@/components/logo";
 import { NotificationsButton } from "@/components/notifications";
 import { UserMenu } from "@/components/user-menu";
+import { DbStatusBadge } from "@/components/db-status";
 
 export type NavKey = "dashboard" | "scanner" | "students" | "grading" | "reports" | "timetable" | "settings";
 
@@ -192,7 +193,8 @@ export function TopBar() {
           Student Attendance System (MVP)
         </p>
       </div>
-      <div className="ml-auto flex items-center gap-3">
+      <div className="ml-auto flex items-center gap-2.5 sm:gap-3">
+        <DbStatusBadge />
         <NotificationsButton />
         <UserMenu />
       </div>

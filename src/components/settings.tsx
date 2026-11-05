@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { AppShell } from "@/components/layout";
-import { PencilIcon, TrashIcon, DownloadIcon, UploadIcon, EyeIcon, EyeOffIcon } from "@/components/icons";
+import { PencilIcon, TrashIcon, DownloadIcon, UploadIcon, EyeIcon, EyeOffIcon, RefreshIcon } from "@/components/icons";
 import { Card, CardTitle, Modal, UIButton } from "@/components/ui";
 import {
   fetchLimits,
@@ -36,6 +36,7 @@ import {
   type BackupData,
   type RestoreResult,
 } from "@/lib/backup";
+import { flushQueue, pendingCount } from "@/lib/offline-queue";
 import { cn } from "@/lib/cn";
 
 const inputCls =
@@ -95,6 +96,64 @@ export default function SettingsPage() {
   const [roomScales, setRoomScales] = useState<GradeScale[]>([]);
   const [roomScalesMsg, setRoomScalesMsg] = useState("");
   const [newRoomGrade, setNewRoomGrade] = useState("");
+
+  const [dbPingStatus, setDbPingStatus] = useState<"idle" | "testing" | "online" | "offline">("idle");
+  const [dbPingLatency, setDbPingLatency] = useState<number | null>(null);
+  const [dbPingError, setDbPingError] = useState<string | null>(null);
+  const [pendingSyncCount, setPendingSyncCount] = useState<number>(() =>
+    typeof window === "undefined" ? 0 : pendingCount(),
+  );
+  const [syncBusy, setSyncBusy] = useState<boolean>(false);
+  const [syncReport, setSyncReport] = useState<string | null>(null);
+  const [activeLocalGroup, setActiveLocalGroup] = useState<string>(() =>
+    typeof window === "undefined" ? "" : localStorage.getItem("lookmee-teacher-group") || "ม.1/1",
+  );
+
+  const testConnection = async () => {
+    setDbPingStatus("testing");
+    setDbPingError(null);
+    const t0 = performance.now();
+    try {
+      const { error } = await supabase.from("class_groups").select("id").limit(1);
+      const ms = Math.round(performance.now() - t0);
+      if (error) {
+        setDbPingStatus("offline");
+        setDbPingError(error.message);
+      } else {
+        setDbPingStatus("online");
+        setDbPingLatency(ms);
+      }
+    } catch (err: unknown) {
+      setDbPingStatus("offline");
+      setDbPingError(err instanceof Error ? err.message : String(err));
+    }
+  };
+
+  const handleManualSync = async () => {
+    setSyncBusy(true);
+    setSyncReport(null);
+    try {
+      const res = await flushQueue();
+      setPendingSyncCount(res.remaining);
+      setSyncReport(
+        `ซิงก์สำเร็จ ${res.synced} รายการ` +
+          (res.dropped > 0 ? `, คิวหมดอายุ ${res.dropped} รายการ` : "") +
+          (res.remaining > 0 ? `, คงเหลือ ${res.remaining} รายการ` : " (ข้อมูลบนคลาวด์เป็นปัจจุบันแล้ว)"),
+      );
+    } catch (err: unknown) {
+      setSyncReport(`เกิดข้อผิดพลาดในการซิงก์: ${err instanceof Error ? err.message : String(err)}`);
+    } finally {
+      setSyncBusy(false);
+    }
+  };
+
+  const handleResetLocalGroup = () => {
+    if (typeof window !== "undefined") {
+      localStorage.removeItem("lookmee-teacher-group");
+      setActiveLocalGroup("ม.1/1");
+      setNotice("รีเซ็ตห้องเรียนเริ่มต้นเรียบร้อยแล้ว (เป็น ม.1/1)");
+    }
+  };
 
   useEffect(() => {
     let cancelled = false;
@@ -896,6 +955,122 @@ export default function SettingsPage() {
             </table>
           </div>
         )}
+      </Card>
+
+      {/* สถานะฐานข้อมูลและการเชื่อมโยงข้อมูลทุกเครื่อง */}
+      <Card className="mt-3 p-4 sm:p-5">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div>
+            <CardTitle>สถานะฐานข้อมูลคลาวด์และการซิงก์ข้อมูลข้ามเครื่อง (Multi-Device Sync)</CardTitle>
+            <p className="mt-0.5 text-[12.5px] text-[#5b6b82]">
+              ตรวจสอบการเชื่อมต่อกับ Supabase Cloud, จัดการข้อมูลสแกนที่บันทึกออฟไลน์ และรีเซ็ตห้องเรียนของเครื่องนี้
+            </p>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <UIButton
+              variant="blue"
+              onClick={() => void testConnection()}
+              disabled={dbPingStatus === "testing"}
+              className="h-9 px-3 text-[13px]"
+            >
+              <RefreshIcon className={cn("mr-1.5 h-3.5 w-3.5", dbPingStatus === "testing" && "animate-spin")} />
+              {dbPingStatus === "testing" ? "กำลังทดสอบ..." : "ทดสอบการเชื่อมต่อ"}
+            </UIButton>
+          </div>
+        </div>
+
+        <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-3">
+          <div className="rounded-lg border border-[#eef2f7] bg-[#f8fafc] p-3">
+            <p className="text-[12px] font-semibold text-[#5b6b82]">สถานะ Cloud Database</p>
+            <div className="mt-1 flex items-center gap-2">
+              <span
+                className={cn(
+                  "h-2.5 w-2.5 rounded-full",
+                  dbPingStatus === "online"
+                    ? "bg-emerald-500"
+                    : dbPingStatus === "offline"
+                    ? "bg-rose-500"
+                    : isSupabaseConfigured
+                    ? "bg-emerald-500"
+                    : "bg-amber-500",
+                )}
+              />
+              <span className="text-[13.5px] font-bold text-[#16233a]">
+                {dbPingStatus === "online"
+                  ? `เชื่อมต่อปกติ (${dbPingLatency} ms)`
+                  : dbPingStatus === "offline"
+                  ? "เชื่อมต่อไม่สำเร็จ"
+                  : isSupabaseConfigured
+                  ? "พร้อมใช้งาน (Supabase Cloud)"
+                  : "ไม่ได้ตั้งค่า"}
+              </span>
+            </div>
+            {dbPingError ? (
+              <p className="mt-1 text-[11.5px] text-rose-600">{dbPingError}</p>
+            ) : null}
+            <p className="mt-1 text-[11px] text-[#8a97ab] truncate">
+              {process.env.NEXT_PUBLIC_SUPABASE_URL || "https://xpnemonyqfikyfzaejkt.supabase.co"}
+            </p>
+          </div>
+
+          <div className="rounded-lg border border-[#eef2f7] bg-[#f8fafc] p-3">
+            <p className="text-[12px] font-semibold text-[#5b6b82]">ข้อมูลสแกนค้างในเครื่องนี้ (Offline Queue)</p>
+            <div className="mt-1 flex items-center justify-between">
+              <span className="text-[13.5px] font-bold text-[#16233a]">
+                {pendingSyncCount > 0 ? (
+                  <span className="text-amber-600 font-extrabold">{pendingSyncCount} รายการ</span>
+                ) : (
+                  <span className="text-emerald-700">ไม่มีข้อมูลค้างซิงก์</span>
+                )}
+              </span>
+              {pendingSyncCount > 0 ? (
+                <UIButton
+                  variant="green"
+                  onClick={() => void handleManualSync()}
+                  disabled={syncBusy}
+                  className="h-7 px-2.5 text-[11.5px]"
+                >
+                  {syncBusy ? "กำลังส่ง..." : "ซิงก์ขึ้นคลาวด์"}
+                </UIButton>
+              ) : null}
+            </div>
+            <p className="mt-1 text-[11px] text-[#8a97ab]">
+              เมื่อเปิดแอปขณะต่อเน็ต ระบบจะซิงก์ให้อัตโนมัติ
+            </p>
+          </div>
+
+          <div className="rounded-lg border border-[#eef2f7] bg-[#f8fafc] p-3">
+            <p className="text-[12px] font-semibold text-[#5b6b82]">ห้องเรียนที่เครื่องนี้เปิดดูล่าสุด</p>
+            <div className="mt-1 flex items-center justify-between">
+              <span className="text-[13.5px] font-bold text-[#2474c6]">{activeLocalGroup || "ยังไม่ได้เลือก"}</span>
+              <button
+                type="button"
+                onClick={handleResetLocalGroup}
+                className="text-[11.5px] font-semibold text-[#5b6b82] underline hover:text-[#16233a]"
+              >
+                รีเซ็ต
+              </button>
+            </div>
+            <p className="mt-1 text-[11px] text-[#8a97ab]">
+              หากเครื่องอื่นดูคนละห้อง ให้เลือกห้องเดียวกัน
+            </p>
+          </div>
+        </div>
+
+        {syncReport ? (
+          <p role="status" className="mt-2.5 rounded-lg bg-[#e8f1fb] px-3 py-2 text-[12.5px] font-medium text-[#1a5da3]">
+            {syncReport}
+          </p>
+        ) : null}
+
+        <div className="mt-3 rounded-lg bg-[#f0f9ff] p-3 text-[12.5px] text-[#0369a1]">
+          <p className="font-bold">💡 คำแนะนำสำหรับการใช้งานหลายเครื่องร่วมกัน:</p>
+          <ul className="mt-1 list-disc space-y-0.5 pl-4 text-[12px]">
+            <li>ทุกเครื่อง (คอมพิวเตอร์, แท็บเล็ต, มือถือ) เชื่อมต่อไปยังฐานข้อมูลคลาวด์กลางก้อนเดียวกันแบบ Real-time</li>
+            <li>หากบันทึกคะแนนจากเครื่อง A แล้วเครื่อง B ยังไม่ขึ้น ให้ตรวจสอบว่าเครื่อง B เลือกห้องเรียน/วิชาตรงกันหรือไม่</li>
+            <li>หากสแกนใบหน้าขณะอินเทอร์เน็ตหลุด ข้อมูลจะรอใน Offline Queue จนกว่าจะเชื่อมต่ออินเทอร์เน็ต</li>
+          </ul>
+        </div>
       </Card>
 
       {/* สำรอง/กู้คืนข้อมูล */}
