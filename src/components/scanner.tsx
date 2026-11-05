@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { AppShell } from "@/components/layout";
-import { ChevronDownIcon, ScanIcon } from "@/components/icons";
+import { CameraSwitchIcon, ChevronDownIcon, RefreshIcon, ScanIcon } from "@/components/icons";
 import { Avatar, Card, UIButton } from "@/components/ui";
 import {
   buildCurrentMatch,
@@ -30,8 +30,10 @@ import {
   descriptorFromVideo,
   ensureFaceModels,
   findTopMatches,
+  getCameraErrorMessage,
   isAmbiguous,
   openCamera,
+  type CameraFacingMode,
   type EnrolledFace,
 } from "@/lib/face";
 import { isSupabaseConfigured, supabase } from "@/lib/supabase/client";
@@ -89,47 +91,102 @@ function ScannerViewport({
   match,
   videoRef,
   camOn,
+  facingMode,
+  onToggleCamera,
+  onRetryCamera,
+  camStatus,
 }: {
   match: CurrentMatch;
   videoRef: React.RefObject<HTMLVideoElement | null>;
   camOn: boolean;
+  facingMode: CameraFacingMode;
+  onToggleCamera: () => void;
+  onRetryCamera: () => void;
+  camStatus: string;
 }) {
+  const isFront = facingMode === "user";
+  const isCameraError = !camOn && (camStatus.includes("ไม่ได้") || camStatus.includes("ปฏิเสธ") || camStatus.includes("HTTPS"));
+
   return (
     <div className="relative overflow-hidden rounded-lg bg-[#3a4148]">
-      {/* live camera (ทับ placeholder เมื่อกล้องติด) */}
+      {/* live camera (ทับ placeholder เมื่อกล้องติด) — กล้องหน้ากลับด้านแนวนอน (-scale-x-100) ให้เหมือนกระจกเงา */}
       <video
         ref={videoRef}
         muted
         playsInline
         className={
           camOn
-            ? "absolute inset-0 h-full w-full object-cover"
+            ? `absolute inset-0 h-full w-full object-cover ${isFront ? "-scale-x-100" : ""}`
             : "hidden"
         }
       />
-      {/* simulated camera background (fallback ตอนกล้องไม่ติด) */}
+      {/* simulated camera background (fallback ตอนกล้องไม่ติด หรือเกิดข้อผิดพลาด) */}
       <div
-        aria-hidden="true"
-        className="flex aspect-[16/10] flex-col items-center justify-center bg-gradient-to-b from-[#9aa3ad] via-[#7d868f] to-[#5c646d]"
+        aria-hidden={!isCameraError}
+        className="flex aspect-[16/10] flex-col items-center justify-center bg-gradient-to-b from-[#9aa3ad] via-[#7d868f] to-[#5c646d] p-4 text-center"
       >
-        {/* subject silhouette placeholder */}
-        <svg
-          viewBox="0 0 120 120"
-          className="h-40 w-40 text-white/85 sm:h-48 sm:w-48"
-          fill="currentColor"
-          aria-hidden="true"
-        >
-          <circle cx="60" cy="42" r="24" opacity="0.95" />
-          <path
-            d="M14 118c4-26 24-40 46-40s42 14 46 40z"
-            opacity="0.95"
-          />
-        </svg>
-        <span className="mt-2 inline-flex items-center gap-2 rounded-full bg-black/35 px-3 py-1 text-[12.5px] font-medium text-white">
-          <ScanIcon className="h-4 w-4" />
-          กำลังสแกน…
-        </span>
+        {isCameraError ? (
+          <div className="z-10 flex max-w-md flex-col items-center rounded-xl bg-black/75 p-5 text-white shadow-xl backdrop-blur-xs">
+            <span className="text-3xl">📷</span>
+            <p className="mt-2 text-[14.5px] font-bold text-rose-300">
+              {camStatus}
+            </p>
+            <p className="mt-2 text-[12px] leading-relaxed text-gray-200">
+              💡 <strong>วิธีเปิดสิทธิ์กล้อง:</strong> คลิกไอคอน 🔒 (หรือไอคอนกล้อง 📷) ที่แถบ URL ด้านบนของเบราว์เซอร์ แล้วเลือก <strong>อนุญาต (Allow)</strong> หรือปิดแอปอื่นที่ใช้กล้องอยู่
+            </p>
+            <div className="mt-4 flex flex-wrap justify-center gap-2">
+              <button
+                type="button"
+                onClick={onRetryCamera}
+                className="inline-flex items-center gap-1.5 rounded-lg bg-[#2474c6] px-4 py-2 text-[13px] font-bold text-white shadow-sm hover:bg-[#1d5ea2] active:scale-95"
+              >
+                <RefreshIcon className="h-4 w-4" />
+                ลองเปิดกล้องใหม่
+              </button>
+              <button
+                type="button"
+                onClick={onToggleCamera}
+                className="inline-flex items-center gap-1.5 rounded-lg border border-white/30 bg-white/20 px-3.5 py-2 text-[13px] font-semibold text-white shadow-sm hover:bg-white/30 active:scale-95"
+              >
+                <CameraSwitchIcon className="h-4 w-4" />
+                สลับกล้อง ({isFront ? "ลองกล้องหลัง" : "ลองกล้องหน้า"})
+              </button>
+            </div>
+          </div>
+        ) : (
+          <>
+            {/* subject silhouette placeholder */}
+            <svg
+              viewBox="0 0 120 120"
+              className="h-40 w-40 text-white/85 sm:h-48 sm:w-48"
+              fill="currentColor"
+              aria-hidden="true"
+            >
+              <circle cx="60" cy="42" r="24" opacity="0.95" />
+              <path
+                d="M14 118c4-26 24-40 46-40s42 14 46 40z"
+                opacity="0.95"
+              />
+            </svg>
+            <span className="mt-2 inline-flex items-center gap-2 rounded-full bg-black/35 px-3 py-1 text-[12.5px] font-medium text-white">
+              <ScanIcon className="h-4 w-4" />
+              {camStatus || "กำลังสแกน…"}
+            </span>
+          </>
+        )}
       </div>
+
+      {/* Floating Camera Switch Button ในช่องมองกล้อง */}
+      <button
+        type="button"
+        onClick={onToggleCamera}
+        title={`คลิกเพื่อสลับเป็น${isFront ? "กล้องหลัง" : "กล้องหน้า"}`}
+        className="absolute right-3 top-3 z-20 inline-flex items-center gap-1.5 rounded-full bg-black/70 px-3 py-1.5 text-[12px] font-semibold text-white shadow-md backdrop-blur-xs transition hover:bg-black/90 active:scale-95"
+      >
+        <CameraSwitchIcon className="h-3.5 w-3.5 text-emerald-400" />
+        <span>{isFront ? "กล้องหน้า" : "กล้องหลัง"}</span>
+        <span className="rounded bg-white/25 px-1.5 py-0.5 text-[10.5px] font-medium text-white/95">สลับ</span>
+      </button>
 
       {/* face frame corners */}
       <Corner className="left-[30%] top-[12%] border-l-4 border-t-4" />
@@ -413,6 +470,38 @@ export default function ScannerPage() {
     }
   };
   const [camStatus, setCamStatus] = useState("กำลังเตรียมกล้อง...");
+  const [facingMode, setFacingMode] = useState<CameraFacingMode>("user");
+
+  const toggleCamera = async () => {
+    const nextMode: CameraFacingMode = facingMode === "user" ? "environment" : "user";
+    setFacingMode(nextMode);
+    setCamStatus(`กำลังสลับเป็น${nextMode === "user" ? "กล้องหน้า" : "กล้องหลัง"}...`);
+    const video = videoRef.current;
+    if (!video) return;
+    try {
+      await openCamera(video, nextMode);
+      setCamOn(true);
+      setCamStatus(`กำลังสแกนด้วย${nextMode === "user" ? "กล้องหน้า" : "กล้องหลัง"}อัตโนมัติ...`);
+    } catch (err) {
+      setCamOn(false);
+      setCamStatus(getCameraErrorMessage(err));
+    }
+  };
+
+  const retryCamera = async () => {
+    setCamStatus("กำลังลองเปิดกล้องใหม่...");
+    const video = videoRef.current;
+    if (!video) return;
+    try {
+      await openCamera(video, facingMode);
+      setCamOn(true);
+      setCamStatus(`กำลังสแกนด้วย${facingMode === "user" ? "กล้องหน้า" : "กล้องหลัง"}อัตโนมัติ...`);
+    } catch (err) {
+      setCamOn(false);
+      setCamStatus(getCameraErrorMessage(err));
+    }
+  };
+
   const confirmCandidate = async (code: string, label: string) => {
     const st = studentsRef.current.find((s) => s.code === code);
     if (!st) return;
@@ -530,10 +619,10 @@ export default function ScannerPage() {
         setCamStatus("กำลังโหลดโมเดลใบหน้า...");
         await ensureFaceModels();
         if (cancelled || !video) return;
-        await openCamera(video);
+        await openCamera(video, facingMode);
         if (cancelled) return;
         setCamOn(true);
-        setCamStatus("กำลังสแกนใบหน้าอัตโนมัติ...");
+        setCamStatus(`กำลังสแกนด้วย${facingMode === "user" ? "กล้องหน้า" : "กล้องหลัง"}อัตโนมัติ...`);
         timer = setInterval(() => {
           void (async () => {
             if (cancelled || enrolledRef.current.length === 0) return;
@@ -602,8 +691,11 @@ export default function ScannerPage() {
             await saveMatchRef.current(m);
           })();
         }, 1200);
-      } catch {
-        if (!cancelled) setCamStatus("เปิดกล้องไม่ได้ — ตรวจสิทธิ์กล้องของเบราว์เซอร์");
+      } catch (err) {
+        if (!cancelled) {
+          setCamOn(false);
+          setCamStatus(getCameraErrorMessage(err));
+        }
       }
     })();
     return () => {
@@ -611,6 +703,7 @@ export default function ScannerPage() {
       if (timer) clearInterval(timer);
       closeCamera(video);
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [setSelectedGroup]);
 
   const onSave = () => {
@@ -701,15 +794,34 @@ export default function ScannerPage() {
               </button>
             ))}
           </div>
-          <p role="status" className="mt-2 flex items-center justify-between gap-2 text-[12.5px] text-[#5b6b82]">
-            <span>
+          <div className="mt-2 flex flex-wrap items-center justify-between gap-2 text-[12.5px] text-[#5b6b82]">
+            <span className="flex items-center gap-1.5">
               <span className={camOn ? "font-bold text-[#1e8e3e]" : "font-bold text-[#e65100]"}>
                 ●
               </span>{" "}
-              {camStatus}
+              <span>{camStatus}</span>
+              {!camOn && (
+                <button
+                  type="button"
+                  onClick={() => void retryCamera()}
+                  className="ml-1 inline-flex items-center gap-1 rounded bg-[#e8f1fb] px-2 py-0.5 text-[11.5px] font-bold text-[#1a5da3] hover:bg-[#d8e7f8]"
+                >
+                  <RefreshIcon className="h-3 w-3" /> ลองใหม่
+                </button>
+              )}
             </span>
-            <span>ทะเบียนใบหน้า {enrolledCount} คน</span>
-          </p>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => void toggleCamera()}
+                className="inline-flex items-center gap-1 rounded-md border border-[#d8e0ec] bg-white px-2.5 py-1 text-[11.5px] font-semibold text-[#16233a] shadow-2xs hover:bg-[#f1f5fa]"
+              >
+                <CameraSwitchIcon className="h-3.5 w-3.5 text-[#2474c6]" />
+                สลับกล้อง ({facingMode === "user" ? "กล้องหน้า" : "กล้องหลัง"})
+              </button>
+              <span>ทะเบียน {enrolledCount} คน</span>
+            </div>
+          </div>
           {!online || pending > 0 ? (
             <div
               role="status"
@@ -736,7 +848,15 @@ export default function ScannerPage() {
             </div>
           ) : null}
           <div className="mt-2 overflow-hidden rounded-lg">
-            <ScannerViewport match={match} videoRef={videoRef} camOn={camOn} />
+            <ScannerViewport
+              match={match}
+              videoRef={videoRef}
+              camOn={camOn}
+              facingMode={facingMode}
+              onToggleCamera={() => void toggleCamera()}
+              onRetryCamera={() => void retryCamera()}
+              camStatus={camStatus}
+            />
             <MatchResult match={match} />
           </div>
           {candidates ? (

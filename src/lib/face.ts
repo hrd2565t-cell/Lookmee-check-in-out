@@ -87,19 +87,130 @@ export function isAmbiguous(
   return top.length >= 2 && (top[1]?.distance ?? 99) - (top[0]?.distance ?? 0) < margin;
 }
 
-/** เปิดกล้อง (กล้องหลังก่อน, ไม่ได้ค่อยกล้องหน้า) */
-export async function openCamera(video: HTMLVideoElement): Promise<void> {
-  let stream: MediaStream;
-  try {
-    stream = await navigator.mediaDevices.getUserMedia({
-      video: { facingMode: "environment", width: { ideal: 1280 }, height: { ideal: 720 } },
-      audio: false,
-    });
-  } catch {
-    stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+export type CameraFacingMode = "user" | "environment";
+
+export type OpenCameraOptions = {
+  facingMode?: CameraFacingMode;
+  deviceId?: string;
+};
+
+/** แปลง Error จาก WebRTC / getUserMedia เป็นข้อความภาษาไทยที่ระบุสาเหตุชัดเจน */
+export function getCameraErrorMessage(err: unknown): string {
+  if (!err) return "เปิดกล้องไม่สำเร็จ";
+  const name = (err as { name?: string })?.name || "";
+  const msg = (err as { message?: string })?.message || String(err);
+
+  if (name === "NotAllowedError" || name === "PermissionDeniedError") {
+    return "เบราว์เซอร์ถูกปฏิเสธสิทธิ์เข้าถึงกล้อง — โปรดคลิกไอคอน 🔒 ที่แถบ URL ด้านบนเพื่ออนุญาตกล้อง";
   }
+  if (name === "NotFoundError" || name === "DevicesNotFoundError") {
+    return "ไม่พบอุปกรณ์กล้องบนเครื่องนี้ — โปรดตรวจสอบว่าได้เชื่อมต่อกล้องเรียบร้อย";
+  }
+  if (name === "NotReadableError" || name === "TrackStartError") {
+    return "กล้องกำลังถูกใช้งานโดยแอปอื่น (เช่น Zoom, Meet, Line หรือแท็บอื่น) — โปรดปิดแอปอื่นแล้วลองใหม่";
+  }
+  if (name === "OverconstrainedError") {
+    return "กล้องไม่รองรับความละเอียดหรือโหมดที่เลือก — กำลังลองเปิดด้วยโหมดมาตรฐาน";
+  }
+  if (name === "SecurityError") {
+    return "ต้องเปิดผ่าน HTTPS หรือ localhost กล้องถึงจะทำงาน";
+  }
+  if (msg.includes("HTTPS") || msg.includes("isSecureContext")) {
+    return "ต้องเปิดผ่าน HTTPS หรือ localhost กล้องถึงจะทำงาน";
+  }
+  return `เปิดกล้องไม่ได้ (${name || "Error"}): ${msg}`;
+}
+
+/** ตรวจหาอุปกรณ์กล้องทั้งหมดที่มี */
+export async function listCameraDevices(): Promise<MediaDeviceInfo[]> {
+  if (typeof navigator === "undefined" || !navigator.mediaDevices?.enumerateDevices) {
+    return [];
+  }
+  try {
+    const devices = await navigator.mediaDevices.enumerateDevices();
+    return devices.filter((d) => d.kind === "videoinput");
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * เปิดกล้อง (ค่าเริ่มต้นคือ 'user' กล้องหน้า ตามคำขอ พร้อมรองรับสลับเป็น 'environment' กล้องหลัง)
+ */
+export async function openCamera(
+  video: HTMLVideoElement,
+  options: OpenCameraOptions | CameraFacingMode = "user",
+): Promise<{ facingMode: CameraFacingMode; stream: MediaStream }> {
+  const opts: OpenCameraOptions =
+    typeof options === "string" ? { facingMode: options } : options;
+  const targetFacing: CameraFacingMode = opts.facingMode ?? "user";
+
+  if (typeof window === "undefined" || !navigator.mediaDevices?.getUserMedia) {
+    if (typeof window !== "undefined" && !window.isSecureContext) {
+      const err = new Error("ต้องเปิดผ่าน HTTPS หรือ localhost กล้องถึงจะทำงาน");
+      err.name = "SecurityError";
+      throw err;
+    }
+    const err = new Error("เบราว์เซอร์ไม่รองรับ Camera API");
+    err.name = "NotSupportedError";
+    throw err;
+  }
+
+  // ปิด stream เก่าก่อนเปิดอันใหม่เสมอ ป้องกันกล้องค้างหรือเกิด NotReadableError
+  closeCamera(video);
+
+  let stream: MediaStream | null = null;
+
+  // 1. ลองเปิดตาม deviceId (ถ้ามีระบุ)
+  if (opts.deviceId) {
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({
+        video: { deviceId: { exact: opts.deviceId }, width: { ideal: 1280 }, height: { ideal: 720 } },
+        audio: false,
+      });
+    } catch {
+      // ข้ามไปลอง facingMode
+    }
+  }
+
+  // 2. ลองเปิดตาม facingMode พร้อม resolution
+  if (!stream) {
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: targetFacing, width: { ideal: 1280 }, height: { ideal: 720 } },
+        audio: false,
+      });
+    } catch {
+      // 3. ลองเปิดตาม facingMode แบบไม่มี resolution constraints
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: targetFacing },
+          audio: false,
+        });
+      } catch {
+        // 4. ลองเปิดแบบ video: true (กล้องใดก็ได้ที่ใช้ได้)
+        stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+      }
+    }
+  }
+
+  video.muted = true;
+  video.setAttribute("playsinline", "true");
   video.srcObject = stream;
-  await video.play();
+
+  try {
+    await video.play();
+  } catch (playErr) {
+    console.warn("Video play warning:", playErr);
+  }
+
+  // ตรวจสอบ facingMode จริงจาก track
+  const track = stream.getVideoTracks()[0];
+  const settings = track?.getSettings();
+  const actualFacing: CameraFacingMode =
+    settings?.facingMode === "environment" ? "environment" : targetFacing;
+
+  return { facingMode: actualFacing, stream };
 }
 
 export function closeCamera(video: HTMLVideoElement | null) {

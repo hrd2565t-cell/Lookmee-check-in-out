@@ -220,7 +220,7 @@ function StudentForm() {
                   ref={videoRef}
                   muted
                   playsInline
-                  className="aspect-[4/3] w-full object-cover"
+                  className="aspect-[4/3] w-full object-cover -scale-x-100"
                 />
               </div>
               <p role="status" className="mt-2 text-[13px] text-[#5b6b82]">{faceMsg}</p>

@@ -2,12 +2,15 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Modal, UIButton } from "@/components/ui";
+import { CameraSwitchIcon, RefreshIcon } from "@/components/icons";
 import {
   averageDescriptors,
   closeCamera,
   descriptorFromVideo,
   ensureFaceModels,
+  getCameraErrorMessage,
   openCamera,
+  type CameraFacingMode,
 } from "@/lib/face";
 import { isSupabaseConfigured, supabase } from "@/lib/supabase/client";
 import type { Student } from "@/data/students";
@@ -41,7 +44,38 @@ export function FaceEnrollModal({
   const [status, setStatus] = useState("กำลังเตรียมกล้อง...");
   const [shots, setShots] = useState<Float32Array[]>([]);
   const [saving, setSaving] = useState(false);
+  const [facingMode, setFacingMode] = useState<CameraFacingMode>("user");
   const videoRef = useRef<HTMLVideoElement>(null);
+
+  const toggleCamera = async () => {
+    const nextMode: CameraFacingMode = facingMode === "user" ? "environment" : "user";
+    setFacingMode(nextMode);
+    setStatus(`กำลังสลับเป็น${nextMode === "user" ? "กล้องหน้า" : "กล้องหลัง"}...`);
+    const video = videoRef.current;
+    if (!video) return;
+    try {
+      await openCamera(video, nextMode);
+      setReady(true);
+      setStatus(`${POSES[shots.length]?.label ?? ""}: ${POSES[shots.length]?.hint ?? ""}`);
+    } catch (err) {
+      setReady(false);
+      setStatus(getCameraErrorMessage(err));
+    }
+  };
+
+  const retryCamera = async () => {
+    setStatus("กำลังลองเปิดกล้องใหม่...");
+    const video = videoRef.current;
+    if (!video) return;
+    try {
+      await openCamera(video, facingMode);
+      setReady(true);
+      setStatus(`${POSES[shots.length]?.label ?? ""}: ${POSES[shots.length]?.hint ?? ""}`);
+    } catch (err) {
+      setReady(false);
+      setStatus(getCameraErrorMessage(err));
+    }
+  };
 
   const found = useMemo(
     () => students.find((s) => s.studentId === code.trim()),
@@ -125,19 +159,23 @@ export function FaceEnrollModal({
           if (!cancelled) setStatus(m);
         });
         if (cancelled || !video) return;
-        await openCamera(video);
+        await openCamera(video, facingMode);
         if (!cancelled) {
           setReady(true);
           setStatus(`${POSES[0]?.label ?? ""}: ${POSES[0]?.hint ?? ""}`);
         }
-      } catch {
-        if (!cancelled) setStatus("เปิดกล้องไม่ได้ — ตรวจสิทธิ์กล้องของเบราว์เซอร์");
+      } catch (err) {
+        if (!cancelled) {
+          setReady(false);
+          setStatus(getCameraErrorMessage(err));
+        }
       }
     })();
     return () => {
       cancelled = true;
       closeCamera(video);
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const photoRef = useRef<Blob | null>(null);
@@ -304,11 +342,41 @@ export function FaceEnrollModal({
           ref={videoRef}
           muted
           playsInline
-          className="aspect-[4/3] w-full object-cover"
+          className={`aspect-[4/3] w-full object-cover ${facingMode === "user" ? "-scale-x-100" : ""}`}
         />
+        {/* ปุ่มสลับกล้อง */}
+        <button
+          type="button"
+          onClick={() => void toggleCamera()}
+          className="absolute right-3 top-3 z-20 inline-flex items-center gap-1.5 rounded-full bg-black/70 px-3 py-1.5 text-[12px] font-semibold text-white shadow-md backdrop-blur-xs transition hover:bg-black/90 active:scale-95"
+          title={`คลิกเพื่อสลับเป็น${facingMode === "user" ? "กล้องหลัง" : "กล้องหน้า"}`}
+        >
+          <CameraSwitchIcon className="h-3.5 w-3.5 text-emerald-400" />
+          <span>{facingMode === "user" ? "กล้องหน้า" : "กล้องหลัง"}</span>
+          <span className="rounded bg-white/25 px-1.5 py-0.5 text-[10.5px]">สลับ</span>
+        </button>
         {!ready ? (
-          <div className="absolute inset-0 flex items-center justify-center bg-black/50 px-6 text-center text-[13.5px] text-white">
-            {status}
+          <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/75 p-6 text-center text-white">
+            <span className="text-2xl">📷</span>
+            <p className="mt-2 text-[13.5px] font-semibold text-rose-300">{status}</p>
+            <div className="mt-3 flex flex-wrap justify-center gap-2">
+              <button
+                type="button"
+                onClick={() => void retryCamera()}
+                className="inline-flex items-center gap-1.5 rounded-md bg-[#2474c6] px-3.5 py-1.5 text-[12.5px] font-bold text-white hover:bg-[#1d5ea2]"
+              >
+                <RefreshIcon className="h-3.5 w-3.5" />
+                ลองใหม่
+              </button>
+              <button
+                type="button"
+                onClick={() => void toggleCamera()}
+                className="inline-flex items-center gap-1.5 rounded-md bg-white/20 px-3.5 py-1.5 text-[12.5px] font-semibold text-white hover:bg-white/30"
+              >
+                <CameraSwitchIcon className="h-3.5 w-3.5" />
+                สลับกล้อง ({facingMode === "user" ? "ลองกล้องหลัง" : "ลองกล้องหน้า"})
+              </button>
+            </div>
           </div>
         ) : null}
       </div>

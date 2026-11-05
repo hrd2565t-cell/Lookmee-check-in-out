@@ -294,3 +294,26 @@ export function CalculatorIcon({ className = "h-4 w-4" }: IconProps) {
     </Base>
   );
 }
+
+export function CameraSwitchIcon({ className = "h-4 w-4" }: IconProps) {
+  return (
+    <Base className={className}>
+      <path d="M20 7h-3a2 2 0 0 1-2-2V4a2 2 0 0 0-2-2h-2a2 2 0 0 0-2 2v1a2 2 0 0 1-2 2H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2z" />
+      <path d="M9 13a3 3 0 0 1 5.2-2.1L15 12" />
+      <path d="M15 12v-3h-3" />
+      <path d="M15 13a3 3 0 0 1-5.2 2.1L9 14" />
+      <path d="M9 14v3h3" />
+    </Base>
+  );
+}
+
+export function RefreshIcon({ className = "h-4 w-4" }: IconProps) {
+  return (
+    <Base className={className}>
+      <path d="M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" />
+      <path d="M3 3v5h5" />
+      <path d="M3 12a9 9 0 0 0 9 9 9.75 9.75 0 0 0 6.74-2.74L21 16" />
+      <path d="M16 21h5v-5" />
+    </Base>
+  );
+}
