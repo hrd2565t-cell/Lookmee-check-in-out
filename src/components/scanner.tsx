@@ -13,6 +13,7 @@ import {
 } from "@/data/scanner";
 import {
   isCombinedM1,
+  bulkMarkStatus,
   closeSessionFull,
   ensureSessionFull,
   fetchRecordsByDate,
@@ -22,6 +23,8 @@ import {
   type DayRecord,
   type SessionFull,
 } from "@/lib/attendance";
+import { SessionQrModal } from "@/components/session-qr-modal";
+import { playSuccessChime } from "@/lib/sound";
 import {
   flushQueue,
   pendingCount,
@@ -282,6 +285,7 @@ export default function ScannerPage() {
   const activeGroup = selectedGroup || (groups[0] ?? "");
   const [notice, setNotice] = useState("");
   const [round, setRound] = useState<SessionFull | null>(null);
+  const [qrModalOpen, setQrModalOpen] = useState(false);
 
   useEffect(() => {
     const url = new URL(window.location.href);
@@ -818,6 +822,7 @@ export default function ScannerPage() {
     const ok = await manualCheckIn(st.group, st.code, status);
     setActingStudentCode(null);
     if (ok) {
+      playSuccessChime();
       setNotice(
         `✓ บันทึก ${status === "present" ? "มาเรียน" : "มาสาย"} ให้ เลขที่ ${st.number || "-"} ${st.name} แล้ว`,
       );
@@ -825,6 +830,25 @@ export default function ScannerPage() {
     } else {
       setNotice("บันทึกไม่สำเร็จ — ตรวจสอบการเชื่อมต่อ");
     }
+  };
+
+  const handleBulkMarkAbsent = async () => {
+    const uncheckeds = groupStudents.filter((s) => !checkedMap.has(s.code));
+    if (uncheckeds.length === 0) return;
+    if (
+      !window.confirm(
+        `ยืนยันมาร์กนักเรียนที่ยังไม่เช็กชื่อ ${uncheckeds.length} คน ของกลุ่ม ${activeGroup} เป็น "ขาดเรียน" ใช่หรือไม่?`,
+      )
+    ) {
+      return;
+    }
+    setNotice(`กำลังบันทึกขาดเรียน ${uncheckeds.length} คน...`);
+    const r = await bulkMarkStatus(
+      uncheckeds.map((s) => ({ group: s.group, code: s.code })),
+      "absent",
+    );
+    setNotice(`✓ บันทึกสถานะขาดเรียนให้ ${r.success} คน เรียบร้อยแล้ว`);
+    await reloadDayRecords();
   };
 
   return (
@@ -879,6 +903,29 @@ export default function ScannerPage() {
               >
                 ปิดรอบ
               </UIButton>
+            )}
+
+            {round && round.status !== "completed" && (
+              <div className="flex w-full flex-wrap items-center gap-2 border-t border-[#eef2f7] pt-3">
+                <button
+                  type="button"
+                  onClick={() => setQrModalOpen(true)}
+                  className="inline-flex items-center gap-1.5 rounded-lg bg-[#16233a] px-3 py-1.5 text-[12.5px] font-bold text-white shadow-2xs transition hover:bg-[#20314f] active:scale-95"
+                >
+                  <span>📺 แสดง QR Code จอใหญ่หน้าห้อง</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const shareUrl = `${window.location.origin}/student?openExternalBrowser=1${round.pin ? `&pin=${encodeURIComponent(round.pin)}` : ""}`;
+                    void navigator.clipboard.writeText(shareUrl);
+                    setNotice("✓ คัดลอกลิงก์สำหรับส่งใน LINE แล้ว (เปิดจะเด้งเข้า Chrome/Safari ทันที)");
+                  }}
+                  className="inline-flex items-center gap-1.5 rounded-lg border border-[#d8e0ec] bg-white px-3 py-1.5 text-[12.5px] font-semibold text-[#16233a] shadow-2xs transition hover:bg-[#f1f5fa] active:scale-95"
+                >
+                  <span>📋 คัดลอกลิงก์ส่งใน LINE</span>
+                </button>
+              </div>
             )}
           </Card>
           <div className="mt-2 flex gap-2" role="tablist" aria-label="โหมดสแกน">
@@ -1194,6 +1241,22 @@ export default function ScannerPage() {
               />
             </div>
 
+            {/* Quick bulk action for unchecked */}
+            {checklistFilter === "unchecked" && uncheckedStudentsCount > 0 && (
+              <div className="mt-2.5 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-[#fed7aa] bg-[#fff8f0] px-3 py-2">
+                <span className="text-[12.5px] font-semibold text-[#9a3412]">
+                  เหลือนักเรียนยังไม่เช็กชื่อ {uncheckedStudentsCount} คน
+                </span>
+                <button
+                  type="button"
+                  onClick={() => void handleBulkMarkAbsent()}
+                  className="rounded-md bg-[#c62828] px-3 py-1.5 text-[12px] font-bold text-white shadow-2xs transition hover:bg-[#b71c1c] active:scale-95"
+                >
+                  มาร์กคนที่เหลือเป็น &quot;ขาด&quot; ทั้งหมด ({uncheckedStudentsCount})
+                </button>
+              </div>
+            )}
+
             {/* Student list */}
             <div className="slim-scroll mt-3 max-h-[380px] space-y-1.5 overflow-y-auto pr-1">
               {displayedStudents.length === 0 ? (
@@ -1304,6 +1367,13 @@ export default function ScannerPage() {
           </UIButton>
         </div>
       </div>
+
+      <SessionQrModal
+        open={qrModalOpen}
+        onClose={() => setQrModalOpen(false)}
+        groupName={activeGroup}
+        pin={round?.pin ?? null}
+      />
     </AppShell>
   );
 }

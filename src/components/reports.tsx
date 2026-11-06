@@ -23,6 +23,7 @@ import {
 } from "@/data/reports";
   import {
     isCombinedM1,
+    calculateAffectiveScore,
     ensureSession,
     fetchGroupRangeSummary,
     fetchRecordsByDate,
@@ -222,17 +223,50 @@ export default function ReportsPage() {
     }
     downloadCsv(
       `summary-${group}-${rangeFrom}-${rangeTo}.csv`,
-      ["ลำดับ", "รหัสประจำตัว", "เลขที่", "ชื่อ-นามสกุล", "มาเรียน", "มาสาย", "กิจกรรม", "ขาด", "วันที่มีข้อมูล", "% มาเรียน"],
+      ["ลำดับ", "รหัสประจำตัว", "เลขที่", "ชื่อ-นามสกุล", "มาเรียน", "มาสาย", "กิจกรรม", "ขาด", "วันที่มีข้อมูล", "% มาเรียน", "คะแนนจิตพิสัย (เต็ม 10)"],
       rows.map((r, i) => {
         const attended = r.present + r.late + r.activity;
+        const score = calculateAffectiveScore(group, r.absent);
         return [
           i + 1, r.code, r.number, r.name,
           r.present, r.late, r.activity, r.absent, r.days,
           r.days ? Math.round((attended / r.days) * 100) : 0,
+          score,
         ];
       }),
     );
     setRangeNotice(`ส่งออก ${rows.length} คนแล้ว`);
+  };
+
+  const exportSeparatedM1 = () => {
+    if (!rangeRows || rangeRows.length === 0) return;
+    const meta = new Map(rosterStudents.map((s) => [s.code, s.group]));
+    const byRoom = new Map<string, RangeSummaryRow[]>();
+    for (const r of rangeRows) {
+      const room = meta.get(r.code) || "ม.1";
+      if (!byRoom.has(room)) byRoom.set(room, []);
+      byRoom.get(room)!.push(r);
+    }
+
+    let exportedCount = 0;
+    for (const [room, list] of byRoom.entries()) {
+      downloadCsv(
+        `summary-${room.replace("/", "-")}-${rangeFrom}-${rangeTo}.csv`,
+        ["ลำดับ", "รหัสประจำตัว", "เลขที่", "ชื่อ-นามสกุล", "ห้อง", "มาเรียน", "มาสาย", "กิจกรรม", "ขาด", "วันที่มีข้อมูล", "% มาเรียน", "คะแนนจิตพิสัย (เต็ม 10)"],
+        list.map((r, i) => {
+          const attended = r.present + r.late + r.activity;
+          const score = calculateAffectiveScore(room, r.absent);
+          return [
+            i + 1, r.code, r.number, r.name, room,
+            r.present, r.late, r.activity, r.absent, r.days,
+            r.days ? Math.round((attended / r.days) * 100) : 0,
+            score,
+          ];
+        }),
+      );
+      exportedCount++;
+    }
+    setRangeNotice(`ส่งออกแยกไฟล์สำเร็จ ${exportedCount} ห้องแล้ว`);
   };
 
   /* ---------- ใบลา ---------- */
@@ -747,6 +781,15 @@ export default function ReportsPage() {
               <UIButton variant="green" onClick={() => void loadRange(true)} disabled={rangeBusy} className="h-10 px-3 text-[13.5px] disabled:opacity-40">
                 ส่งออก (Excel)
               </UIButton>
+              {isCombinedM1(group) && rangeRows && rangeRows.length > 0 && (
+                <UIButton
+                  variant="blue"
+                  onClick={exportSeparatedM1}
+                  className="h-10 bg-[#16233a] px-3 text-[13.5px] hover:bg-[#20314f]"
+                >
+                  📥 แยกส่งออกรายห้องจริง (1/1 - 1/11)
+                </UIButton>
+              )}
             </div>
             {rangeNotice ? (
               <p role="status" className="mt-2 rounded-lg bg-[#e8f1fb] px-3 py-2 text-[13.5px] font-medium text-[#1a5da3]">
@@ -755,7 +798,7 @@ export default function ReportsPage() {
             ) : null}
             {rangeRows && rangeRows.length > 0 ? (
               <div className="slim-scroll mt-2 max-h-64 overflow-auto rounded-lg border border-[#eef2f7]">
-                <table className="w-full min-w-[620px] border-collapse text-left text-[13px]">
+                <table className="w-full min-w-[680px] border-collapse text-left text-[13px]">
                   <thead className="sticky top-0 bg-[#f8fafc] text-[12.5px] font-bold text-[#16233a]">
                     <tr>
                       <th className="px-2.5 py-2">ลำดับ</th>
@@ -768,12 +811,14 @@ export default function ReportsPage() {
                       <th className="px-2.5 py-2 text-center">ขาด</th>
                       <th className="px-2.5 py-2 text-center">วันที่มีข้อมูล</th>
                       <th className="px-2.5 py-2 text-center">% มาเรียน</th>
+                      <th className="px-2.5 py-2 text-center text-[#1a5da3]">จิตพิสัย (10)</th>
                     </tr>
                   </thead>
                   <tbody>
                     {rangeRows.map((r, i) => {
                       const attended = r.present + r.late + r.activity;
                       const pctAttend = r.days ? Math.round((attended / r.days) * 100) : 0;
+                      const score = calculateAffectiveScore(group, r.absent);
                       return (
                         <tr key={r.code} className="border-t border-[#eef2f7]">
                           <td className="px-2.5 py-1.5 text-[#5b6b82]">{i + 1}</td>
@@ -786,6 +831,7 @@ export default function ReportsPage() {
                           <td className="px-2.5 py-1.5 text-center text-[#c62828]">{r.absent}</td>
                           <td className="px-2.5 py-1.5 text-center text-[#5b6b82]">{r.days}</td>
                           <td className="px-2.5 py-1.5 text-center font-bold text-[#16233a]">{pctAttend}%</td>
+                          <td className="px-2.5 py-1.5 text-center font-bold text-[#1a5da3]">{score}/10</td>
                         </tr>
                       );
                     })}

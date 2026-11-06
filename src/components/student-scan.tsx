@@ -21,6 +21,8 @@ import {
   type StudentIdentity,
 } from "@/lib/student";
 import { InAppBrowserNotice } from "@/lib/in-app-browser";
+import { playSuccessChime } from "@/lib/sound";
+import { StudentSelfEnroll } from "@/components/student-self-enroll";
 
 const THRESHOLD = 0.55;
 
@@ -80,7 +82,8 @@ export default function StudentScanPage() {
     try {
       const res = await studentCheckin(code, pinRef.current || undefined);
       if (res === "saved") {
-        setNotice(`เช็กชื่อสำเร็จ — ${new Date().toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" })}`);
+        playSuccessChime();
+        setNotice(`✓ เช็กชื่อสำเร็จ — ${new Date().toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" })}`);
         setDone(true);
       } else if (res === "duplicate") {
         setNotice("เช็กชื่อวันนี้ไปแล้ว");
@@ -98,7 +101,7 @@ export default function StudentScanPage() {
     }
   }, []);
 
-  // ขั้น 1: ยืนยันตัวตน + เก็บ PIN
+  // ขั้น 1: ยืนยันตัวตน + เก็บ PIN (รองรับ ?pin=... จากการสแกน QR Code)
   useEffect(() => {
     const code = getStudentCode();
     if (!code) {
@@ -115,6 +118,20 @@ export default function StudentScanPage() {
       }
       identityRef.current = id;
       setIdentity(id);
+
+      // ตรวจสอบ query string เผื่อสแกน QR Code เข้ามา
+      if (typeof window !== "undefined") {
+        const params = new URLSearchParams(window.location.search);
+        const qPin = params.get("pin");
+        if (qPin && qPin.trim().length === 4) {
+          setPin(qPin.trim());
+          const v = await verifyPin(id.code, qPin.trim());
+          if (!cancelled && v.ok) {
+            pinRef.current = qPin.trim();
+            setPinOk(true);
+          }
+        }
+      }
     })();
     return () => {
       cancelled = true;
@@ -208,6 +225,30 @@ export default function StudentScanPage() {
     );
   }
 
+  // หากยังไม่เคยลงทะเบียนใบหน้า ให้เปิดหน้าลงทะเบียนใบหน้าด้วยตนเอง
+  if (!identity.hasFace || !identity.descriptor) {
+    return (
+      <StudentSummaryShell identity={identity} active="scan">
+        <InAppBrowserNotice />
+        <StudentSelfEnroll
+          studentCode={identity.code}
+          studentName={identity.name}
+          onEnrolled={(desc) => {
+            setIdentity({
+              ...identity,
+              hasFace: true,
+              descriptor: desc,
+            });
+            if (identityRef.current) {
+              identityRef.current.hasFace = true;
+              identityRef.current.descriptor = desc;
+            }
+          }}
+        />
+      </StudentSummaryShell>
+    );
+  }
+
   return (
     <StudentSummaryShell identity={identity} active="scan">
       <InAppBrowserNotice />
@@ -252,6 +293,12 @@ export default function StudentScanPage() {
             playsInline
             className={camOn ? `aspect-[4/3] w-full object-cover ${facingMode === "user" ? "-scale-x-100" : ""}` : "hidden"}
           />
+          {/* Oval Face Guide */}
+          {camOn && (
+            <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
+              <div className="h-[210px] w-[160px] rounded-[50%] border-2 border-dashed border-[#3ecf6f]/70 shadow-[0_0_0_9999px_rgba(0,0,0,0.25)]" />
+            </div>
+          )}
           {/* ปุ่มสลับกล้องแบบลอยบนมุมขวา */}
           <button
             type="button"

@@ -215,6 +215,77 @@ export async function manualCheckIn(
   return await checkIn(sessionId, studentCode, 1.0, { status, method: "manual" });
 }
 
+/** บันทึกสถานะให้นักเรียนพร้อมกันหลายคน เช่น มาร์กคนที่เหลือเป็นขาด หรือไปกิจกรรม */
+export async function bulkMarkStatus(
+  students: Array<{ group: string; code: string }>,
+  status: "absent" | "activity" | "present",
+  activityName?: string,
+): Promise<{ success: number; failed: number }> {
+  let success = 0;
+  let failed = 0;
+  for (const st of students) {
+    try {
+      const sessionId = await ensureSession(st.group, todayStr());
+      if (!sessionId) {
+        failed++;
+        continue;
+      }
+      if (status === "activity") {
+        const r = await markActivity(sessionId, st.code, activityName || "กิจกรรมโรงเรียน");
+        if (r === "saved") success++;
+        else failed++;
+      } else {
+        const { data: sRow } = await supabase
+          .from("students")
+          .select("id")
+          .eq("student_code", st.code)
+          .eq("status", "active")
+          .single();
+        const studentId = (sRow as { id: string } | null)?.id;
+        if (!studentId) {
+          failed++;
+          continue;
+        }
+        const { error } = await supabase.from("attendance_records").upsert(
+          {
+            session_id: sessionId,
+            student_id: studentId,
+            check_in_at: new Date().toISOString(),
+            status,
+            method: "manual",
+          },
+          { onConflict: "session_id,student_id" },
+        );
+        if (error) failed++;
+        else success++;
+      }
+    } catch {
+      failed++;
+    }
+  }
+  return { success, failed };
+}
+
+/** คำนวณคะแนนจิตพิสัย (เต็ม 10) ตามระดับชั้นและจำนวนครั้งที่ขาดเรียน */
+export function calculateAffectiveScore(groupName: string, absentCount: number): number {
+  const abs = Math.max(0, absentCount);
+  if (abs <= 3) return 10;
+
+  if (groupName.includes("ม.3")) {
+    // ม.3: ขาด 0-3 = 10, ขาด 4 = 9, ..., ขาด 12 = 1, ขาด 13 ขึ้นไป = 0
+    if (abs >= 13) return 0;
+    return Math.max(0, 10 - (abs - 3));
+  }
+
+  // ม.1 และ ม.5 (และระดับชั้นอื่นๆ):
+  // ขาด 4 = 8, ขาด 5 = 6, ขาด 6 = 4, ขาด 7 = 2, ขาด 8 ขึ้นไป = 0
+  if (abs === 4) return 8;
+  if (abs === 5) return 6;
+  if (abs === 6) return 4;
+  if (abs === 7) return 2;
+  return 0;
+}
+
 /** เปิด (หรือดึง) รอบเช็กชื่อวันนี้ของกลุ่ม — คืน session id */
 export async function ensureTodaySession(groupName: string): Promise<string | null> {
   return ensureSession(groupName, todayStr());
