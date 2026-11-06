@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { AppShell } from "@/components/layout";
 import { CameraSwitchIcon, ChevronDownIcon, RefreshIcon, ScanIcon } from "@/components/icons";
 import { Avatar, Card, UIButton } from "@/components/ui";
+import { cn } from "@/lib/cn";
 import {
   buildCurrentMatch,
   buildRecentByGroup,
@@ -11,9 +12,11 @@ import {
   type ScanEntry,
 } from "@/data/scanner";
 import {
-  closeSession,
+  isCombinedM1,
+  closeSessionFull,
   ensureSessionFull,
   fetchRecordsByDate,
+  manualCheckIn,
   nowTime,
   todayStr,
   type DayRecord,
@@ -37,7 +40,7 @@ import {
   type EnrolledFace,
 } from "@/lib/face";
 import { isSupabaseConfigured, supabase } from "@/lib/supabase/client";
-import { useRoster } from "@/lib/school-data";
+import { useRoster, type RosterStudent } from "@/lib/school-data";
 import { useTeacherGroup } from "@/lib/teacher-scope";
 
 /* ---------- Group select (styled native select) ---------- */
@@ -293,12 +296,16 @@ export default function ScannerPage() {
     if (!activeGroup) return;
     let cancelled = false;
     (async () => {
-      const { data } = await supabase
+      let query = supabase
         .from("attendance_sessions")
         .select("id,pin,status,class_groups!inner(name)")
-        .eq("session_date", todayStr())
-        .eq("class_groups.name", activeGroup)
-        .maybeSingle();
+        .eq("session_date", todayStr());
+      if (isCombinedM1(activeGroup)) {
+        query = query.eq("class_groups.name", "ม.1/1");
+      } else {
+        query = query.eq("class_groups.name", activeGroup);
+      }
+      const { data } = await query.maybeSingle();
       if (!cancelled && data) {
         const r = data as unknown as { id: string; pin: string | null; status: string };
         setRound({ id: r.id, pin: r.pin, status: r.status });
@@ -319,13 +326,17 @@ export default function ScannerPage() {
       return;
     }
     setRound(s);
-    setNotice(`เปิดรอบ ${activeGroup} แล้ว — แจ้งรหัส ${s.pin} ให้นักเรียน`);
+    setNotice(
+      isCombinedM1(activeGroup)
+        ? `เปิดรอบกลุ่มรวม ม.1 แล้ว — แจ้งรหัส PIN ${s.pin} ให้นักเรียน ม.1 ทุกห้อง (1/1 - 1/11) ใช้รหัสนี้ร่วมกันได้เลย`
+        : `เปิดรอบ ${activeGroup} แล้ว — แจ้งรหัส ${s.pin} ให้นักเรียน`,
+    );
   };
 
   const closeRound = async () => {
     if (!round) return;
     if (!window.confirm(`ปิดรอบ ${activeGroup} วันนี้? (บันทึกเพิ่มไม่ได้แล้ว)`)) return;
-    const ok = await closeSession(round.id);
+    const ok = await closeSessionFull(activeGroup, todayStr(), round.id);
     if (!ok) {
       setNotice("ปิดรอบไม่สำเร็จ — ลองอีกครั้ง");
       return;
@@ -687,7 +698,9 @@ export default function ScannerPage() {
               confidence: Math.round((1 - hit.distance) * 100),
             };
             setOverride(m);
-            setSelectedGroup(st.group);
+            if (!isCombinedM1(activeGroup)) {
+              setSelectedGroup(st.group);
+            }
             await saveMatchRef.current(m);
           })();
         }, 1200);
@@ -712,10 +725,20 @@ export default function ScannerPage() {
   };
 
   const panelEntries: ScanEntry[] = useMemo(() => {
-    if (!dayLive) return recentByGroup[activeGroup] ?? [];
+    const isMatchGroup = (grp: string) =>
+      isCombinedM1(activeGroup) ? grp.startsWith("ม.1/") : grp === activeGroup;
+    if (!dayLive) {
+      if (isCombinedM1(activeGroup)) {
+        return Object.entries(recentByGroup)
+          .filter(([grp]) => grp.startsWith("ม.1/"))
+          .flatMap(([, list]) => list)
+          .slice(0, 10);
+      }
+      return recentByGroup[activeGroup] ?? [];
+    }
     const meta = new Map(students.map((s) => [s.code, s]));
     return dayRecords
-      .filter((r) => r.group === activeGroup && r.checkInAt)
+      .filter((r) => isMatchGroup(r.group) && r.checkInAt)
       .sort((a, b) => (b.checkInAt as string).localeCompare(a.checkInAt as string))
       .map((r) => {
         const st = meta.get(r.studentCode);
@@ -729,6 +752,80 @@ export default function ScannerPage() {
         };
       });
   }, [dayLive, dayRecords, activeGroup, recentByGroup, students]);
+
+  // นักเรียนในกลุ่มที่เลือก (ถ้ารวม ม.1 จะรวมห้อง 1/1 - 1/11 ทั้งหมด)
+  const groupStudents = useMemo(() => {
+    if (isCombinedM1(activeGroup)) {
+      return students.filter((s) => s.group.startsWith("ม.1/"));
+    }
+    return students.filter((s) => s.group === activeGroup);
+  }, [activeGroup, students]);
+
+  // แมปผลการเช็กชื่อของนักเรียนวันนี้
+  const checkedMap = useMemo(() => {
+    const map = new Map<string, DayRecord>();
+    for (const r of dayRecords) {
+      if (r.checkInAt || r.status === "present" || r.status === "late" || r.status === "activity") {
+        map.set(r.studentCode, r);
+      }
+    }
+    return map;
+  }, [dayRecords]);
+
+  const totalStudentsCount = groupStudents.length;
+  const checkedStudentsCount = useMemo(
+    () => groupStudents.filter((s) => checkedMap.has(s.code)).length,
+    [groupStudents, checkedMap],
+  );
+  const uncheckedStudentsCount = Math.max(0, totalStudentsCount - checkedStudentsCount);
+
+  const [checklistFilter, setChecklistFilter] = useState<"unchecked" | "all" | "checked">("unchecked");
+  const [checklistSort, setChecklistSort] = useState<"number" | "code" | "name">("number");
+  const [checklistSearch, setChecklistSearch] = useState("");
+  const [actingStudentCode, setActingStudentCode] = useState<string | null>(null);
+
+  const displayedStudents = useMemo(() => {
+    let list = groupStudents;
+    if (checklistFilter === "unchecked") {
+      list = list.filter((s) => !checkedMap.has(s.code));
+    } else if (checklistFilter === "checked") {
+      list = list.filter((s) => checkedMap.has(s.code));
+    }
+    const q = checklistSearch.trim().toLowerCase();
+    if (q) {
+      list = list.filter(
+        (s) =>
+          s.name.toLowerCase().includes(q) ||
+          s.code.includes(q) ||
+          s.number.includes(q),
+      );
+    }
+    return [...list].sort((a, b) => {
+      if (checklistSort === "number") {
+        const numA = Number(a.number) || 999;
+        const numB = Number(b.number) || 999;
+        return numA - numB || a.code.localeCompare(b.code, "th", { numeric: true });
+      }
+      if (checklistSort === "code") {
+        return a.code.localeCompare(b.code, "th", { numeric: true });
+      }
+      return a.name.localeCompare(b.name, "th");
+    });
+  }, [groupStudents, checkedMap, checklistFilter, checklistSearch, checklistSort]);
+
+  const handleQuickCheckIn = async (st: RosterStudent, status: "present" | "late") => {
+    setActingStudentCode(st.code);
+    const ok = await manualCheckIn(st.group, st.code, status);
+    setActingStudentCode(null);
+    if (ok) {
+      setNotice(
+        `✓ บันทึก ${status === "present" ? "มาเรียน" : "มาสาย"} ให้ เลขที่ ${st.number || "-"} ${st.name} แล้ว`,
+      );
+      await reloadDayRecords();
+    } else {
+      setNotice("บันทึกไม่สำเร็จ — ตรวจสอบการเชื่อมต่อ");
+    }
+  };
 
   return (
     <AppShell active="scanner" title="เช็กชื่อเข้าเรียน">
@@ -761,6 +858,14 @@ export default function ScannerPage() {
                   เปิดรอบก่อน นักเรียนถึงจะเช็กชื่อเองได้
                 </p>
               )}
+              <p className="mt-1.5 text-[12.5px] font-medium text-[#5b6b82]">
+                เช็กชื่อแล้ว: <span className="font-bold text-[#1e8e3e]">{checkedStudentsCount}/{totalStudentsCount} คน</span>
+                {uncheckedStudentsCount > 0 ? (
+                  <span className="ml-1 text-[#e65100]">(ยังไม่เช็ก {uncheckedStudentsCount} คน)</span>
+                ) : (
+                  <span className="ml-1 text-[#1e8e3e]">✓ ครบทุกคนแล้ว</span>
+                )}
+              </p>
             </div>
             {!round || round.status === "completed" ? (
               <UIButton variant="green" onClick={() => void openRound()} className="h-10 shrink-0">
@@ -970,6 +1075,222 @@ export default function ScannerPage() {
               {notice}
             </p>
           ) : null}
+
+          {/* สถานะเช็กชื่อวันนี้ (Checklist รายบุคคล) */}
+          <Card className="mt-4 p-4 sm:p-5">
+            <div className="flex flex-wrap items-center justify-between gap-2 border-b border-[#eef2f7] pb-3">
+              <div>
+                <h3 className="text-[16px] font-bold text-[#16233a]">
+                  สถานะเช็กชื่อวันนี้ ({activeGroup})
+                </h3>
+                <p className="text-[12.5px] text-[#5b6b82]">
+                  คลิกปุ่ม &quot;✓ มาเรียน&quot; หรือ &quot;สาย&quot; เพื่อเช็กชื่อให้นักเรียนที่กล้องมีปัญหาได้ทันที
+                </p>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="inline-flex items-center gap-1 rounded-full bg-[#e3f2e6] px-2.5 py-0.5 text-[12.5px] font-bold text-[#166c2e]">
+                  มาแล้ว {checkedStudentsCount}/{totalStudentsCount}
+                </span>
+                <span className="inline-flex items-center gap-1 rounded-full bg-[#fef6ec] px-2.5 py-0.5 text-[12.5px] font-bold text-[#e65100]">
+                  ยังไม่เช็ก {uncheckedStudentsCount}
+                </span>
+              </div>
+            </div>
+
+            {/* Filter Tabs & Sort Controls */}
+            <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
+              {/* Filter Tabs */}
+              <div className="inline-flex rounded-lg border border-[#d8e0ec] bg-[#f8fafc] p-0.5 text-[13px]">
+                <button
+                  type="button"
+                  onClick={() => setChecklistFilter("unchecked")}
+                  className={cn(
+                    "rounded-md px-3 py-1 font-semibold transition-colors",
+                    checklistFilter === "unchecked"
+                      ? "bg-[#16233a] text-white shadow-xs"
+                      : "text-[#5b6b82] hover:text-[#16233a]",
+                  )}
+                >
+                  ยังไม่เช็ก ({uncheckedStudentsCount})
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setChecklistFilter("all")}
+                  className={cn(
+                    "rounded-md px-3 py-1 font-semibold transition-colors",
+                    checklistFilter === "all"
+                      ? "bg-[#16233a] text-white shadow-xs"
+                      : "text-[#5b6b82] hover:text-[#16233a]",
+                  )}
+                >
+                  ทั้งหมด ({totalStudentsCount})
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setChecklistFilter("checked")}
+                  className={cn(
+                    "rounded-md px-3 py-1 font-semibold transition-colors",
+                    checklistFilter === "checked"
+                      ? "bg-[#16233a] text-white shadow-xs"
+                      : "text-[#5b6b82] hover:text-[#16233a]",
+                  )}
+                >
+                  เช็กแล้ว ({checkedStudentsCount})
+                </button>
+              </div>
+
+              {/* Sort pills */}
+              <div className="flex items-center gap-1.5 text-[12.5px]">
+                <span className="font-medium text-[#5b6b82]">เรียงตาม:</span>
+                <div className="inline-flex rounded-md border border-[#d8e0ec] bg-white p-0.5">
+                  <button
+                    type="button"
+                    onClick={() => setChecklistSort("number")}
+                    className={cn(
+                      "rounded px-2 py-0.5 font-bold transition-colors",
+                      checklistSort === "number"
+                        ? "bg-[#2474c6] text-white"
+                        : "text-[#5b6b82] hover:bg-[#f1f5fa]",
+                    )}
+                  >
+                    เลขที่
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setChecklistSort("code")}
+                    className={cn(
+                      "rounded px-2 py-0.5 font-bold transition-colors",
+                      checklistSort === "code"
+                        ? "bg-[#2474c6] text-white"
+                        : "text-[#5b6b82] hover:bg-[#f1f5fa]",
+                    )}
+                  >
+                    รหัส
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setChecklistSort("name")}
+                    className={cn(
+                      "rounded px-2 py-0.5 font-bold transition-colors",
+                      checklistSort === "name"
+                        ? "bg-[#2474c6] text-white"
+                        : "text-[#5b6b82] hover:bg-[#f1f5fa]",
+                    )}
+                  >
+                    ชื่อ
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            {/* Quick search input */}
+            <div className="mt-2.5">
+              <input
+                type="text"
+                value={checklistSearch}
+                onChange={(e) => setChecklistSearch(e.target.value)}
+                placeholder="ค้นหาชื่อ, เลขประจำตัว, หรือเลขที่..."
+                className="h-9 w-full rounded-md border border-[#d8e0ec] bg-white px-3 text-[13.5px] text-[#16233a] placeholder:text-[#8a97ab] focus:border-[#2474c6] focus:outline-none"
+              />
+            </div>
+
+            {/* Student list */}
+            <div className="slim-scroll mt-3 max-h-[380px] space-y-1.5 overflow-y-auto pr-1">
+              {displayedStudents.length === 0 ? (
+                <div className="py-8 text-center text-[13.5px] text-[#5b6b82]">
+                  {checklistFilter === "unchecked"
+                    ? "🎉 ยอดเยี่ยม! เช็กชื่อครบทุกคนในกลุ่มนี้แล้ว"
+                    : "ไม่พบข้อมูลนักเรียนตามเงื่อนไข"}
+                </div>
+              ) : (
+                displayedStudents.map((st) => {
+                  const rec = checkedMap.get(st.code);
+                  const isChecked = !!rec;
+                  const isActing = actingStudentCode === st.code;
+
+                  return (
+                    <div
+                      key={st.code}
+                      className={cn(
+                        "flex items-center justify-between gap-3 rounded-lg border p-2.5 transition-colors",
+                        isChecked
+                          ? "border-[#d1e7dd] bg-[#f8fcf9]"
+                          : "border-[#eef2f7] bg-white hover:bg-[#fafbfe]",
+                      )}
+                    >
+                      {/* Left: number badge + avatar + name info */}
+                      <div className="flex min-w-0 items-center gap-2.5">
+                        <span
+                          className={cn(
+                            "flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-[12px] font-bold",
+                            st.number
+                              ? "bg-[#16233a] text-white"
+                              : "bg-[#e2e8f0] text-[#64748b]",
+                          )}
+                          title={`เลขที่ ${st.number || "-"}`}
+                        >
+                          {st.number || "-"}
+                        </span>
+                        <Avatar initials={st.initials} color={st.color} size="sm" />
+                        <div className="min-w-0">
+                          <p className="truncate text-[14px] font-bold text-[#16233a]">
+                            {st.name}
+                          </p>
+                          <p className="text-[12px] text-[#5b6b82]">
+                            รหัส {st.code} {isCombinedM1(activeGroup) ? `· ห้อง ${st.group}` : ""}
+                          </p>
+                        </div>
+                      </div>
+
+                      {/* Right: action buttons or status pill */}
+                      <div className="flex shrink-0 items-center gap-1.5">
+                        {isChecked ? (
+                          <div className="flex items-center gap-1.5">
+                            <span
+                              className={cn(
+                                "inline-flex items-center rounded-md px-2.5 py-1 text-[12px] font-bold text-white",
+                                rec.status === "late" ? "bg-[#ef8c1a]" : "bg-[#1e8e3e]",
+                              )}
+                            >
+                              {rec.status === "late" ? "⏱ สาย" : "✓ มาเรียน"} {rec.time ? `(${rec.time})` : ""}
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => void handleQuickCheckIn(st, rec.status === "late" ? "present" : "late")}
+                              disabled={isActing}
+                              title="สลับสถานะ มาเรียน / สาย"
+                              className="rounded border border-[#d8e0ec] bg-white px-1.5 py-1 text-[11px] font-semibold text-[#5b6b82] hover:bg-[#f1f5fa]"
+                            >
+                              {rec.status === "late" ? "แก้เป็นมา" : "แก้เป็นสาย"}
+                            </button>
+                          </div>
+                        ) : (
+                          <div className="flex items-center gap-1.5">
+                            <button
+                              type="button"
+                              onClick={() => void handleQuickCheckIn(st, "present")}
+                              disabled={isActing}
+                              className="rounded-md bg-[#1e8e3e] px-3 py-1.5 text-[12.5px] font-bold text-white shadow-2xs hover:bg-[#166c2e] active:scale-95 disabled:opacity-50"
+                            >
+                              {isActing ? "กำลังบันทึก..." : "✓ มาเรียน"}
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => void handleQuickCheckIn(st, "late")}
+                              disabled={isActing}
+                              className="rounded-md bg-[#ef8c1a] px-2.5 py-1.5 text-[12.5px] font-bold text-white shadow-2xs hover:bg-[#c97412] active:scale-95 disabled:opacity-50"
+                            >
+                              สาย
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+          </Card>
         </div>
 
         {/* right: recent + actions */}

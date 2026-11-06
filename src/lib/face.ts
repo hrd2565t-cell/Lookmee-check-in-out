@@ -101,6 +101,15 @@ export function getCameraErrorMessage(err: unknown): string {
   const msg = (err as { message?: string })?.message || String(err);
 
   if (name === "NotAllowedError" || name === "PermissionDeniedError") {
+    if (typeof window !== "undefined") {
+      const ua = window.navigator?.userAgent || "";
+      if (/Line/i.test(ua)) {
+        return "แอป LINE บล็อกสิทธิ์เข้าถึงกล้อง — โปรดแตะปุ่มจุดสามจุด (⋮) ที่มุมล่างขวา แล้วเลือก 'เปิดในเบราว์เซอร์อื่น (Chrome/Safari)'";
+      }
+      if (/FBAN|FBAV|Messenger|Instagram/i.test(ua)) {
+        return "แอปนี้บล็อกสิทธิ์เข้าถึงกล้อง — โปรดแตะเมนู ⋮ หรือแชร์ แล้วเลือก 'เปิดในเบราว์เซอร์ภายนอก (Chrome/Safari)'";
+      }
+    }
     return "เบราว์เซอร์ถูกปฏิเสธสิทธิ์เข้าถึงกล้อง — โปรดคลิกไอคอน 🔒 ที่แถบ URL ด้านบนเพื่ออนุญาตกล้อง";
   }
   if (name === "NotFoundError" || name === "DevicesNotFoundError") {

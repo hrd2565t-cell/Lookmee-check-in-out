@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { isSupabaseConfigured, supabase } from "./supabase/client";
+import { COMBINED_M1_GROUP } from "./attendance";
 import {
   ACTIVE_STUDENT_COUNT,
   SCHOOL_GROUPS,
@@ -46,6 +47,8 @@ export function colorForSeed(seed: string) {
 
 /** เรียงชื่อห้องแบบธรรมชาติ: ม.1/1, ม.1/2, ..., ม.1/10 (ไม่ใช่ 1, 10, 11, 2) */
 export function compareGroupNames(a: string, b: string): number {
+  if (a === COMBINED_M1_GROUP) return -1;
+  if (b === COMBINED_M1_GROUP) return 1;
   return a.localeCompare(b, "th", { numeric: true });
 }
 
@@ -63,8 +66,12 @@ export function mockRoster(): Omit<Roster, "live"> {
       a.code.localeCompare(b.code, "th", { numeric: true }) ||
       Number(a.number) - Number(b.number),
   );
+  const m1Count = SCHOOL_STUDENTS.filter((s) => s.group.startsWith("ม.1/")).length;
   return {
-    groups: SCHOOL_GROUPS,
+    groups: [
+      { name: COMBINED_M1_GROUP, count: m1Count },
+      ...SCHOOL_GROUPS,
+    ],
     students: sorted.map((s) => ({ ...s, registered: false })),
   };
 }
@@ -125,10 +132,14 @@ async function fetchRosterFromDb(): Promise<Omit<Roster, "live"> | null> {
 
   const counts = new Map<string, number>();
   students.forEach((s) => counts.set(s.group, (counts.get(s.group) ?? 0) + 1));
-  const groups: RosterGroup[] = names.map((name) => ({
-    name,
-    count: counts.get(name) ?? 0,
-  }));
+  const m1Count = students.filter((s) => s.group.startsWith("ม.1/")).length;
+  const groups: RosterGroup[] = [
+    ...(m1Count > 0 ? [{ name: COMBINED_M1_GROUP, count: m1Count }] : []),
+    ...names.map((name) => ({
+      name,
+      count: counts.get(name) ?? 0,
+    })),
+  ];
   return { groups, students };
 }
 

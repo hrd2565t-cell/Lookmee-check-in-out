@@ -22,6 +22,7 @@ import {
   type ReportRow,
 } from "@/data/reports";
   import {
+    isCombinedM1,
     ensureSession,
     fetchGroupRangeSummary,
     fetchRecordsByDate,
@@ -56,8 +57,16 @@ import { fetchPendingDisputes, resolveDispute, type StudentDispute } from "@/lib
 function downloadReportsCsv(filename: string, rows: ReportRow[]) {
   downloadCsv(
     filename,
-    ["ชื่อ", "รหัสประจำตัว", "กลุ่ม", "เวลา", "สถานะ"],
-    rows.map((r) => [r.name, r.id, r.group, r.time, STATUS_LABEL[r.status]]),
+    ["เลขที่", "ชื่อ-นามสกุล", "รหัสประจำตัว", "กลุ่ม", "เวลา", "สถานะ", "วิธีเช็กชื่อ"],
+    rows.map((r) => [
+      r.number ?? "-",
+      r.name,
+      r.id,
+      r.group,
+      r.time,
+      STATUS_LABEL[r.status],
+      r.method === "manual" ? "ครูยืนยัน" : "สแกนใบหน้า",
+    ]),
   );
 }
 
@@ -156,10 +165,17 @@ export default function ReportsPage() {
     };
   }, [date, refreshKey]);
 
-  const groupSize = rosterGroups.find((g) => g.name === group)?.count ?? 0;
-  const session = daySessions.find((s) => s.group === group);
+  const groupSize = isCombinedM1(group)
+    ? rosterStudents.filter((s) => s.group.startsWith("ม.1/")).length
+    : rosterGroups.find((g) => g.name === group)?.count ?? 0;
+  const session = daySessions.find((s) =>
+    isCombinedM1(group) ? s.group.startsWith("ม.1/") : s.group === group,
+  );
   const grec = useMemo(
-    () => dayRecords.filter((r) => r.group === group),
+    () =>
+      dayRecords.filter((r) =>
+        isCombinedM1(group) ? r.group.startsWith("ม.1/") : r.group === group,
+      ),
     [dayRecords, group],
   );
 
@@ -517,6 +533,7 @@ export default function ReportsPage() {
   const [draftQuery, setDraftQuery] = useState("");
   const [query, setQuery] = useState("");
   const [page, setPage] = useState(1);
+  const [reportSortBy, setReportSortBy] = useState<"number" | "code" | "name">("number");
 
   const pct = (n: number) =>
     summary.total > 0 ? Math.round((n / summary.total) * 100) : 0;
@@ -524,14 +541,23 @@ export default function ReportsPage() {
   const rows: ReportRow[] = useMemo(() => {
     const q = query.trim().toLowerCase();
     const meta = new Map(rosterStudents.map((s) => [s.code, s]));
-    return grec
-      .filter((r) => !q || r.name.toLowerCase().includes(q))
+    const mapped = grec
+      .filter((r) => {
+        if (!q) return true;
+        const st = meta.get(r.studentCode);
+        return (
+          r.name.toLowerCase().includes(q) ||
+          r.studentCode.includes(q) ||
+          Boolean(st?.number && st.number.includes(q))
+        );
+      })
       .map((r) => {
         const st = meta.get(r.studentCode);
         return {
           id: r.studentCode,
           name: r.name,
           group: r.group,
+          number: st?.number ?? "",
           time: r.periodNo !== null ? `${r.time} · คาบ ${r.periodNo}` : r.time,
           status: r.status,
           initials: st?.initials ?? "?",
@@ -539,7 +565,19 @@ export default function ReportsPage() {
           method: r.method === "manual" ? ("manual" as const) : ("face" as const),
         };
       });
-  }, [grec, query, rosterStudents]);
+
+    return mapped.sort((a, b) => {
+      if (reportSortBy === "number") {
+        const numA = Number(a.number) || 999;
+        const numB = Number(b.number) || 999;
+        return numA - numB || a.id.localeCompare(b.id, "th", { numeric: true });
+      }
+      if (reportSortBy === "name") {
+        return a.name.localeCompare(b.name, "th");
+      }
+      return a.id.localeCompare(b.id, "th", { numeric: true });
+    });
+  }, [grec, query, rosterStudents, reportSortBy]);
 
   const totalPages = Math.max(1, Math.ceil(rows.length / PAGE_SIZE));
   const safePage = Math.min(page, totalPages);
@@ -721,6 +759,7 @@ export default function ReportsPage() {
                   <thead className="sticky top-0 bg-[#f8fafc] text-[12.5px] font-bold text-[#16233a]">
                     <tr>
                       <th className="px-2.5 py-2">ลำดับ</th>
+                      <th className="px-2.5 py-2">เลขที่</th>
                       <th className="px-2.5 py-2">รหัส</th>
                       <th className="px-2.5 py-2">ชื่อ-นามสกุล</th>
                       <th className="px-2.5 py-2 text-center">มา</th>
@@ -738,6 +777,7 @@ export default function ReportsPage() {
                       return (
                         <tr key={r.code} className="border-t border-[#eef2f7]">
                           <td className="px-2.5 py-1.5 text-[#5b6b82]">{i + 1}</td>
+                          <td className="px-2.5 py-1.5 font-bold text-[#2474c6]">{r.number || "-"}</td>
                           <td className="px-2.5 py-1.5">{r.code}</td>
                           <td className="whitespace-nowrap px-2.5 py-1.5 font-medium text-[#16233a]">{r.name}</td>
                           <td className="px-2.5 py-1.5 text-center text-[#1e8e3e]">{r.present}</td>
@@ -803,13 +843,71 @@ export default function ReportsPage() {
               </p>
             ) : null}
 
-            <div className="slim-scroll -mx-4 mt-1 overflow-x-auto px-4 sm:-mx-5 sm:px-5">
-              <table className="w-full min-w-[680px] border-collapse text-left">
+            <div className="mt-3 flex flex-wrap items-center justify-between gap-2 border-t border-[#eef2f7] pt-2.5">
+              <div className="flex items-center gap-1.5 text-[12.5px]">
+                <span className="font-medium text-[#5b6b82]">เรียงตาม:</span>
+                <div className="inline-flex rounded-md border border-[#d8e0ec] bg-white p-0.5">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setReportSortBy("number");
+                      setPage(1);
+                    }}
+                    className={cn(
+                      "rounded px-2.5 py-1 font-bold transition-colors",
+                      reportSortBy === "number"
+                        ? "bg-[#16233a] text-white"
+                        : "text-[#5b6b82] hover:bg-[#f1f5fa]",
+                    )}
+                  >
+                    เลขที่
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setReportSortBy("code");
+                      setPage(1);
+                    }}
+                    className={cn(
+                      "rounded px-2.5 py-1 font-bold transition-colors",
+                      reportSortBy === "code"
+                        ? "bg-[#16233a] text-white"
+                        : "text-[#5b6b82] hover:bg-[#f1f5fa]",
+                    )}
+                  >
+                    รหัสประจำตัว
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setReportSortBy("name");
+                      setPage(1);
+                    }}
+                    className={cn(
+                      "rounded px-2.5 py-1 font-bold transition-colors",
+                      reportSortBy === "name"
+                        ? "bg-[#16233a] text-white"
+                        : "text-[#5b6b82] hover:bg-[#f1f5fa]",
+                    )}
+                  >
+                    ชื่อ-นามสกุล
+                  </button>
+                </div>
+              </div>
+              <span className="text-[12.5px] text-[#5b6b82]">
+                แสดง {rows.length} คน
+              </span>
+            </div>
+
+            <div className="slim-scroll -mx-4 mt-2 overflow-x-auto px-4 sm:-mx-5 sm:px-5">
+              <table className="w-full min-w-[720px] border-collapse text-left">
                 <thead>
                   <tr className="text-[13.5px] font-bold text-[#16233a]">
                     <th className="py-2 pr-3 font-bold">Photo</th>
-                    <th className="py-2 pr-3 font-bold">ชื่อ</th>
+                    <th className="py-2 pr-3 font-bold">เลขที่</th>
+                    <th className="py-2 pr-3 font-bold">ชื่อ-นามสกุล</th>
                     <th className="py-2 pr-3 font-bold">Student ID</th>
+                    <th className="py-2 pr-3 font-bold">กลุ่ม</th>
                     <th className="py-2 pr-3 font-bold">Time</th>
                     <th className="py-2 pr-3 font-bold">Status</th>
                     <th className="py-2 text-right font-bold">Actions</th>
@@ -828,6 +926,9 @@ export default function ReportsPage() {
                           size="sm"
                         />
                       </td>
+                      <td className="whitespace-nowrap py-1.5 pr-3 text-[14px] font-bold text-[#2474c6]">
+                        {r.number || "-"}
+                      </td>
                       <td className="whitespace-nowrap py-1.5 pr-3 text-[14px] font-medium text-[#16233a]">
                         <button
                           type="button"
@@ -837,6 +938,9 @@ export default function ReportsPage() {
                         >
                           {r.name}
                         </button>
+                      </td>
+                      <td className="whitespace-nowrap py-1.5 pr-3 font-mono text-[13.5px] text-[#5b6b82]">
+                        {r.id}
                       </td>
                       <td className="whitespace-nowrap py-1.5 pr-3 text-[14px] text-[#16233a]">
                         {r.group}
@@ -887,7 +991,7 @@ export default function ReportsPage() {
                   {pageRows.length === 0 ? (
                     <tr>
                       <td
-                        colSpan={6}
+                        colSpan={8}
                         className="py-8 text-center text-[14px] text-[#5b6b82]"
                       >
                         {session

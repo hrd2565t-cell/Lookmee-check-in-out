@@ -5,6 +5,7 @@ export type ReportRow = {
   id: string;
   name: string;
   group: string;
+  number?: string;
   time: string;
   status: AttendanceStatus;
   initials: string;

@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Card, UIButton } from "@/components/ui";
 import { BrandMark } from "@/components/logo";
+import { InAppBrowserNotice } from "@/lib/in-app-browser";
 import { EyeIcon, EyeOffIcon } from "@/components/icons";
 import { isSupabaseConfigured, supabase } from "@/lib/supabase/client";
 import {
@@ -268,6 +269,7 @@ export function LoginForm() {
 
   return (
     <div>
+      <InAppBrowserNotice />
       <div className="mb-4 flex flex-col items-center gap-2 text-center">
         <BrandMark size={64} />
         <p className="text-[20px] font-bold text-[#16233a]">LOOKMEE Check In-Out</p>

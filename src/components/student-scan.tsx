@@ -20,6 +20,7 @@ import {
   verifyPin,
   type StudentIdentity,
 } from "@/lib/student";
+import { InAppBrowserNotice } from "@/lib/in-app-browser";
 
 const THRESHOLD = 0.55;
 
@@ -36,6 +37,7 @@ export default function StudentScanPage() {
   const [facingMode, setFacingMode] = useState<CameraFacingMode>("user");
   const [notice, setNotice] = useState("");
   const [done, setDone] = useState(false);
+  const [isCheckingIn, setIsCheckingIn] = useState(false);
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const identityRef = useRef<StudentIdentity | null>(null);
   const cooldownRef = useRef(0);
@@ -73,21 +75,26 @@ export default function StudentScanPage() {
   const doCheckin = useCallback(async () => {
     const code = identityRef.current?.code;
     if (!code) return;
+    setIsCheckingIn(true);
     setNotice("กำลังบันทึก...");
-    const res = await studentCheckin(code, pinRef.current || undefined);
-    if (res === "saved") {
-      setNotice(`เช็กชื่อสำเร็จ — ${new Date().toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" })}`);
-      setDone(true);
-    } else if (res === "duplicate") {
-      setNotice("เช็กชื่อวันนี้ไปแล้ว");
-      setDone(true);
-    } else if (res === "no_session") {
-      setNotice("ครูยังไม่เปิดรอบวันนี้ — รอครูเปิดรอบก่อน");
-    } else if (res === "bad_pin") {
-      setNotice("รหัสประจำรอบไม่ถูกต้อง — ขอใหม่จากครู");
-      setPinOk(false);
-    } else {
-      setNotice("บันทึกไม่ได้ — ลองอีกครั้ง");
+    try {
+      const res = await studentCheckin(code, pinRef.current || undefined);
+      if (res === "saved") {
+        setNotice(`เช็กชื่อสำเร็จ — ${new Date().toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" })}`);
+        setDone(true);
+      } else if (res === "duplicate") {
+        setNotice("เช็กชื่อวันนี้ไปแล้ว");
+        setDone(true);
+      } else if (res === "no_session") {
+        setNotice("ครูยังไม่เปิดรอบวันนี้ — รอครูเปิดรอบก่อน");
+      } else if (res === "bad_pin") {
+        setNotice("รหัสประจำรอบไม่ถูกต้อง — ขอใหม่จากครู");
+        setPinOk(false);
+      } else {
+        setNotice("บันทึกไม่ได้ — ลองอีกครั้ง");
+      }
+    } finally {
+      setIsCheckingIn(false);
     }
   }, []);
 
@@ -203,6 +210,7 @@ export default function StudentScanPage() {
 
   return (
     <StudentSummaryShell identity={identity} active="scan">
+      <InAppBrowserNotice />
       {!pinOk ? (
         <Card className="p-5">
           <CardTitle className="mb-1">รหัสประจำรอบจากครู</CardTitle>
@@ -294,16 +302,36 @@ export default function StudentScanPage() {
               {notice}
             </p>
           ) : null}
-          <UIButton
-            variant="green"
-            onClick={() => void doCheckin()}
-            disabled={!identity || done}
-            className="mt-3 h-11 w-full disabled:opacity-40"
-          >
-            {done ? "เช็กชื่อวันนี้แล้ว" : "ยืนยันตัวฉัน — เช็กชื่อ"}
-          </UIButton>
+          <div className="mt-3">
+            {done ? (
+              <div className="flex h-12 w-full items-center justify-center gap-2 rounded-xl bg-emerald-600 text-[15px] font-bold text-white shadow-sm">
+                <span>✓</span>
+                <span>เช็กชื่อเรียบร้อยแล้ว</span>
+              </div>
+            ) : isCheckingIn ? (
+              <div className="flex h-12 w-full items-center justify-center gap-2 rounded-xl bg-[#2474c6] text-[15px] font-bold text-white shadow-sm">
+                <RefreshIcon className="h-4 w-4 animate-spin" />
+                <span>ตรวจพบใบหน้าตรงกัน — กำลังบันทึก...</span>
+              </div>
+            ) : camOn ? (
+              <div className="flex h-12 w-full items-center justify-center gap-2 rounded-xl bg-[#16233a] text-[14px] font-semibold text-white">
+                <span className="relative flex h-2.5 w-2.5">
+                  <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75" />
+                  <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-emerald-500" />
+                </span>
+                <span>กำลังสแกนใบหน้า... กรุณามองตรงที่กล้อง</span>
+              </div>
+            ) : (
+              <div className="rounded-xl border border-rose-200 bg-rose-50 p-3 text-center text-[13px] text-rose-800">
+                <p className="font-bold">⚠️ กล้องไม่พร้อมใช้งาน</p>
+                <p className="mt-0.5 text-[12px] text-rose-600">
+                  เพื่อป้องกันการเช็กชื่อแทนกัน ระบบต้องสแกนใบหน้าเท่านั้น — หากกล้องมีปัญหา โปรดแจ้งให้ครูผู้สอนกดเช็กชื่อให้ที่หน้าจอครู
+                </p>
+              </div>
+            )}
+          </div>
           <p className="mt-2 text-center text-[12px] text-[#8a97ab]">
-            ใบหน้าตรงกับที่ลงทะเบียน ระบบจะบันทึกให้อัตโนมัติ
+            เมื่อใบหน้าตรงกับที่ลงทะเบียน ระบบจะบันทึกให้อัตโนมัติทันที
           </p>
         </div>
       </Card>

@@ -30,6 +30,25 @@ export const nowTime = () => {
 
 export const randomPin = () => String(Math.floor(1000 + Math.random() * 9000));
 
+export const COMBINED_M1_GROUP = "รวม ม.1 (ห้อง 1/1 - 1/11)";
+export const M1_SUBGROUPS = [
+  "ม.1/1",
+  "ม.1/2",
+  "ม.1/3",
+  "ม.1/4",
+  "ม.1/5",
+  "ม.1/6",
+  "ม.1/7",
+  "ม.1/8",
+  "ม.1/9",
+  "ม.1/10",
+  "ม.1/11",
+];
+
+export function isCombinedM1(name: string): boolean {
+  return name === COMBINED_M1_GROUP || name === "รวม ม.1" || name.startsWith("รวม ม.1");
+}
+
 /** เปิด (หรือดึง) รอบเช็กชื่อของกลุ่มในวันที่กำหนด — คืน session id */
 export async function ensureSession(groupName: string, date: string): Promise<string | null> {
   const s = await ensureSessionFull(groupName, date);
@@ -38,10 +57,59 @@ export async function ensureSession(groupName: string, date: string): Promise<st
 
 export type SessionFull = { id: string; pin: string | null; status: string };
 
-/** เปิดรอบพร้อม PIN (รอบเก่าที่ไม่มี PIN จะเติมให้) + ผูกครูผู้เปิด */
+/** เปิดรอบพร้อม PIN (รอบเก่าที่ไม่มี PIN จะเติมให้) + ผูกครูผู้เปิด (รองรับกลุ่มรวม ม.1) */
 export async function ensureSessionFull(groupName: string, date: string): Promise<SessionFull | null> {
   if (!isSupabaseConfigured) return null;
   try {
+    if (isCombinedM1(groupName)) {
+      const { data: gList } = await supabase
+        .from("class_groups")
+        .select("id,name")
+        .in("name", M1_SUBGROUPS);
+      if (!gList || gList.length === 0) return null;
+
+      const gIds = gList.map((g) => g.id);
+      const { data: existingSessions } = await supabase
+        .from("attendance_sessions")
+        .select("id,pin,status,group_id")
+        .in("group_id", gIds)
+        .eq("session_date", date);
+
+      const sharedPin = existingSessions?.find((s) => s.pin)?.pin || randomPin();
+      const { data: auth } = await supabase.auth.getUser();
+
+      let primarySession: SessionFull | null = null;
+      for (const g of gList) {
+        const found = existingSessions?.find((s) => s.group_id === g.id);
+        if (found) {
+          if (found.pin !== sharedPin || found.status !== "open") {
+            await supabase
+              .from("attendance_sessions")
+              .update({ pin: sharedPin, status: "open" })
+              .eq("id", found.id);
+          }
+          if (!primarySession) primarySession = { id: found.id, pin: sharedPin, status: "open" };
+        } else {
+          const { data: created } = await supabase
+            .from("attendance_sessions")
+            .insert({
+              group_id: g.id,
+              session_date: date,
+              status: "open",
+              opened_at: new Date().toISOString(),
+              pin: sharedPin,
+              opened_by: auth.user?.id ?? null,
+            })
+            .select("id,pin,status")
+            .single();
+          if (created && !primarySession) {
+            primarySession = created as SessionFull;
+          }
+        }
+      }
+      return primarySession || { id: "m1-combined", pin: sharedPin, status: "open" };
+    }
+
     const { data: g } = await supabase
       .from("class_groups")
       .select("id")
@@ -96,6 +164,55 @@ export async function closeSession(sessionId: string): Promise<boolean> {
   } catch {
     return false;
   }
+}
+
+/** ปิดรอบแบบรองรับกลุ่มรวม ม.1 */
+export async function closeSessionFull(groupName: string, date: string, sessionId?: string): Promise<boolean> {
+  if (!isSupabaseConfigured) return false;
+  try {
+    if (isCombinedM1(groupName)) {
+      const { data: gList } = await supabase
+        .from("class_groups")
+        .select("id")
+        .in("name", M1_SUBGROUPS);
+      if (!gList) return false;
+      const gIds = gList.map((g) => g.id);
+      const { error } = await supabase
+        .from("attendance_sessions")
+        .update({ status: "completed", closed_at: new Date().toISOString() })
+        .in("group_id", gIds)
+        .eq("session_date", date);
+      return !error;
+    }
+    if (sessionId) {
+      return await closeSession(sessionId);
+    }
+    const { data: g } = await supabase
+      .from("class_groups")
+      .select("id")
+      .eq("name", groupName)
+      .single();
+    if (!g) return false;
+    const { error } = await supabase
+      .from("attendance_sessions")
+      .update({ status: "completed", closed_at: new Date().toISOString() })
+      .eq("group_id", g.id)
+      .eq("session_date", date);
+    return !error;
+  } catch {
+    return false;
+  }
+}
+
+/** ครูเช็กชื่อให้นักเรียนด้วยตนเอง (Manual Override) เช่น เด็กเปิดกล้องไม่ได้ */
+export async function manualCheckIn(
+  studentGroup: string,
+  studentCode: string,
+  status: "present" | "late" = "present",
+): Promise<CheckInResult> {
+  const sessionId = await ensureSession(studentGroup, todayStr());
+  if (!sessionId) return "failed";
+  return await checkIn(sessionId, studentCode, 1.0, { status, method: "manual" });
 }
 
 /** เปิด (หรือดึง) รอบเช็กชื่อวันนี้ของกลุ่ม — คืน session id */
@@ -427,13 +544,20 @@ export async function fetchGroupRangeSummary(
 ): Promise<RangeSummaryRow[] | null> {
   if (!isSupabaseConfigured) return null;
   try {
-    const { data, error } = await supabase
+    let query = supabase
       .from("attendance_sessions")
       .select("session_date,class_groups!inner(name),attendance_records(status,students!inner(student_code,prefix,first_name,last_name,class_no))")
-      .eq("class_groups.name", groupName)
       .gte("session_date", from)
       .lte("session_date", to)
       .order("session_date");
+
+    if (isCombinedM1(groupName)) {
+      query = query.in("class_groups.name", M1_SUBGROUPS);
+    } else {
+      query = query.eq("class_groups.name", groupName);
+    }
+
+    const { data, error } = await query;
     if (error || !data) return null;
     const days = new Set<string>();
     const map = new Map<string, RangeSummaryRow>();
