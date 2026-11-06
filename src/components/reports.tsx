@@ -24,6 +24,8 @@ import {
   import {
     isCombinedM1,
     calculateAffectiveScore,
+    checkIn,
+    bulkMarkStatus,
     ensureSession,
     fetchGroupRangeSummary,
     fetchRecordsByDate,
@@ -113,26 +115,46 @@ function SummaryBox({
   value,
   pct,
   className,
+  active,
+  onClick,
 }: {
   label: string;
   value: string;
   pct: number;
   className: string;
+  active?: boolean;
+  onClick?: () => void;
 }) {
   return (
-    <div
+    <button
+      type="button"
+      onClick={onClick}
       className={cn(
-        "flex items-center justify-between gap-2 rounded-lg px-3.5 py-3 text-white",
+        "flex w-full cursor-pointer items-center justify-between gap-2 rounded-lg px-3.5 py-3 text-left text-white shadow-xs transition-all duration-150 hover:brightness-110 active:scale-[0.98]",
         className,
+        active
+          ? "ring-4 ring-[#16233a] ring-offset-2 ring-offset-white brightness-105 scale-[1.02]"
+          : "opacity-95 hover:opacity-100",
       )}
+      title={`คลิกเพื่อกรองดูรายชื่อนักเรียน: ${label}`}
     >
       <div>
-        <p className="text-[14px] font-medium">{label}</p>
+        <p className="flex items-center gap-1.5 text-[14px] font-medium">
+          <span>{label}</span>
+          {active && (
+            <span className="rounded bg-white/35 px-1.5 py-0.2 text-[10.5px] font-bold tracking-tight text-white shadow-xs">
+              เลือกอยู่
+            </span>
+          )}
+        </p>
         <p className="text-[21px] font-bold leading-tight">{value}</p>
-        <p className="text-[13.5px] font-medium">({pct}%)</p>
+        <p className="text-[13.5px] font-medium opacity-90">({pct}%)</p>
+        <span className="mt-1 block text-[11px] underline opacity-85 hover:opacity-100">
+          {active ? "คลิกเพื่อดูทั้งหมด" : "คลิกดูรายชื่อ"}
+        </span>
       </div>
       <Donut pct={pct} />
-    </div>
+    </button>
   );
 }
 
@@ -166,9 +188,13 @@ export default function ReportsPage() {
     };
   }, [date, refreshKey]);
 
-  const groupSize = isCombinedM1(group)
-    ? rosterStudents.filter((s) => s.group.startsWith("ม.1/")).length
-    : rosterGroups.find((g) => g.name === group)?.count ?? 0;
+  const groupStudents = useMemo(() => {
+    if (isCombinedM1(group)) {
+      return rosterStudents.filter((s) => s.group.startsWith("ม.1/"));
+    }
+    return rosterStudents.filter((s) => s.group === group);
+  }, [group, rosterStudents]);
+
   const session = daySessions.find((s) =>
     isCombinedM1(group) ? s.group.startsWith("ม.1/") : s.group === group,
   );
@@ -180,16 +206,38 @@ export default function ReportsPage() {
     [dayRecords, group],
   );
 
+  const [statusFilter, setStatusFilter] = useState<AttendanceStatus | null>(null);
+
   const summary = useMemo(() => {
-    const present = grec.filter((r) => r.status === "present").length;
-    const late = grec.filter((r) => r.status === "late").length;
-    const activity = grec.filter((r) => r.status === "activity").length;
-    const absentRecs = grec.filter((r) => r.status === "absent").length;
-    const missing = groupSize - (present + late + activity + absentRecs);
-    // ยังไม่ปิดรอบ: คนที่ไม่มีแถว = ยังไม่สแกน (ไม่ใช่ขาด)
-    const absent = absentRecs + (session?.status === "completed" ? Math.max(0, missing) : 0);
-    return { present, absent, late, activity, total: groupSize };
-  }, [grec, groupSize, session]);
+    const recordMap = new Map(grec.map((r) => [r.studentCode, r]));
+    let present = 0;
+    let late = 0;
+    let activity = 0;
+    let absent = 0;
+
+    for (const st of groupStudents) {
+      const r = recordMap.get(st.code);
+      if (!r) {
+        absent++;
+      } else if (r.status === "present") {
+        present++;
+      } else if (r.status === "late") {
+        late++;
+      } else if (r.status === "activity") {
+        activity++;
+      } else if (r.status === "absent") {
+        absent++;
+      }
+    }
+
+    return {
+      present,
+      absent,
+      late,
+      activity,
+      total: groupStudents.length,
+    };
+  }, [grec, groupStudents]);
 
   /* ---------- สรุปช่วงวันที่ (ทั้งเทอม/เดือน) ---------- */
   const monthStart = (() => {
@@ -378,21 +426,58 @@ export default function ReportsPage() {
 
   const openEditRecord = (studentCode: string) => {
     const d = grec.find((x) => x.studentCode === studentCode);
-    if (!d) return;
-    setEditRecord(d);
-    setEditStatus(d.status);
-    setEditCheckIn(d.checkInAt ? d.checkInAt.slice(0, 16) : "");
+    if (d) {
+      setEditRecord(d);
+      setEditStatus(d.status);
+      setEditCheckIn(d.checkInAt ? d.checkInAt.slice(0, 16) : "");
+    } else {
+      const st = groupStudents.find((s) => s.code === studentCode);
+      if (!st) return;
+      const fakeRec: DayRecord = {
+        id: `new-${studentCode}`,
+        studentCode,
+        name: st.name,
+        group: st.group,
+        time: "-",
+        checkInAt: null,
+        status: "absent",
+        method: "manual",
+        periodNo: null,
+        sessionId: "",
+        sessionStatus: "open",
+      };
+      setEditRecord(fakeRec);
+      setEditStatus("present");
+      setEditCheckIn(new Date().toISOString().slice(0, 16));
+    }
   };
 
   const saveEditRecord = async () => {
     if (!editRecord) return;
     setEditSaving(true);
-    const ok = await updateAttendanceRecord(editRecord.id, {
-      status: editStatus,
-      check_in_at: editCheckIn ? editCheckIn + ":00" : null,
-    });
+    if (editRecord.id.startsWith("new-")) {
+      const sessionId = await ensureSession(editRecord.group, date);
+      if (!sessionId) {
+        setEditSaving(false);
+        return;
+      }
+      if (editStatus === "activity") {
+        await markActivity(sessionId, editRecord.studentCode, "กิจกรรมโรงเรียน");
+      } else if (editStatus === "absent") {
+        await bulkMarkStatus([{ group: editRecord.group, code: editRecord.studentCode }], "absent");
+      } else {
+        await checkIn(sessionId, editRecord.studentCode, 1.0, {
+          status: editStatus,
+          method: "manual",
+        });
+      }
+    } else {
+      await updateAttendanceRecord(editRecord.id, {
+        status: editStatus,
+        check_in_at: editCheckIn ? editCheckIn + ":00" : null,
+      });
+    }
     setEditSaving(false);
-    if (!ok) return;
     setEditRecord(null);
     setRefreshKey((k) => k + 1);
   };
@@ -574,33 +659,47 @@ export default function ReportsPage() {
 
   const rows: ReportRow[] = useMemo(() => {
     const q = query.trim().toLowerCase();
-    const meta = new Map(rosterStudents.map((s) => [s.code, s]));
-    const mapped = grec
-      .filter((r) => {
-        if (!q) return true;
-        const st = meta.get(r.studentCode);
-        return (
-          r.name.toLowerCase().includes(q) ||
-          r.studentCode.includes(q) ||
-          Boolean(st?.number && st.number.includes(q))
-        );
-      })
-      .map((r) => {
-        const st = meta.get(r.studentCode);
+    const recordMap = new Map(grec.map((r) => [r.studentCode, r]));
+
+    const allMapped: ReportRow[] = groupStudents.map((st) => {
+      const r = recordMap.get(st.code);
+      if (r) {
         return {
-          id: r.studentCode,
-          name: r.name,
-          group: r.group,
-          number: st?.number ?? "",
+          id: st.code,
+          name: st.name,
+          group: st.group,
+          number: st.number || "",
           time: r.periodNo !== null ? `${r.time} · คาบ ${r.periodNo}` : r.time,
           status: r.status,
-          initials: st?.initials ?? "?",
-          color: st?.color ?? "bg-[#dbe7f5] text-[#1a5da3]",
+          initials: st.initials,
+          color: st.color,
           method: r.method === "manual" ? ("manual" as const) : ("face" as const),
         };
-      });
+      }
+      return {
+        id: st.code,
+        name: st.name,
+        group: st.group,
+        number: st.number || "",
+        time: "-",
+        status: "absent" as AttendanceStatus,
+        initials: st.initials,
+        color: st.color,
+        method: "manual" as const,
+      };
+    });
 
-    return mapped.sort((a, b) => {
+    const filtered = allMapped.filter((row) => {
+      if (statusFilter && row.status !== statusFilter) return false;
+      if (!q) return true;
+      return (
+        row.name.toLowerCase().includes(q) ||
+        row.id.includes(q) ||
+        Boolean(row.number && row.number.includes(q))
+      );
+    });
+
+    return filtered.sort((a, b) => {
       if (reportSortBy === "number") {
         const numA = Number(a.number) || 999;
         const numB = Number(b.number) || 999;
@@ -611,7 +710,7 @@ export default function ReportsPage() {
       }
       return a.id.localeCompare(b.id, "th", { numeric: true });
     });
-  }, [grec, query, rosterStudents, reportSortBy]);
+  }, [groupStudents, grec, query, statusFilter, reportSortBy]);
 
   const totalPages = Math.max(1, Math.ceil(rows.length / PAGE_SIZE));
   const safePage = Math.min(page, totalPages);
@@ -722,31 +821,56 @@ export default function ReportsPage() {
         {/* right column */}
         <div className="min-w-0 space-y-3 sm:space-y-4">
           <Card className="p-4 sm:p-5">
-            <CardTitle className="mb-2.5">ภาพรวมรายวัน</CardTitle>
+            <div className="mb-2.5 flex flex-wrap items-center justify-between gap-2">
+              <CardTitle>ภาพรวมรายวัน</CardTitle>
+              <span className="text-[12.5px] font-medium text-[#5b6b82]">
+                💡 แตะที่การ์ดเพื่อดูรายชื่อนักเรียนกลุ่มนั้นทันที
+              </span>
+            </div>
             <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-4">
               <SummaryBox
                 label="มาเรียน"
                 value={`${summary.present}/${summary.total}`}
                 pct={pct(summary.present)}
                 className="bg-[#1e8e3e]"
+                active={statusFilter === "present"}
+                onClick={() => {
+                  setStatusFilter((prev) => (prev === "present" ? null : "present"));
+                  setPage(1);
+                }}
               />
               <SummaryBox
                 label="ขาดเรียน"
                 value={`${summary.absent}/${summary.total}`}
                 pct={pct(summary.absent)}
                 className="bg-[#c62828]"
+                active={statusFilter === "absent"}
+                onClick={() => {
+                  setStatusFilter((prev) => (prev === "absent" ? null : "absent"));
+                  setPage(1);
+                }}
               />
               <SummaryBox
                 label="มาสาย"
                 value={`${summary.late}/${summary.total}`}
                 pct={pct(summary.late)}
                 className="bg-[#ef8c1a]"
+                active={statusFilter === "late"}
+                onClick={() => {
+                  setStatusFilter((prev) => (prev === "late" ? null : "late"));
+                  setPage(1);
+                }}
               />
               <SummaryBox
                 label="กิจกรรม"
                 value={`${summary.activity}/${summary.total}`}
                 pct={pct(summary.activity)}
                 className="bg-[#00897b]"
+                active={statusFilter === "activity"}
+                onClick={() => {
+                  setStatusFilter((prev) => (prev === "activity" ? null : "activity"));
+                  setPage(1);
+                }}
               />
             </div>
           </Card>
@@ -889,55 +1013,159 @@ export default function ReportsPage() {
               </p>
             ) : null}
 
+            {statusFilter && (
+              <div className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-[#d8e0ec] bg-[#f8fafc] px-3.5 py-2">
+                <span className="flex items-center gap-2 text-[13px] font-semibold text-[#16233a]">
+                  <span>กำลังกรองแสดงเฉพาะ:</span>
+                  <span
+                    className={cn(
+                      "rounded px-2.5 py-0.5 text-[12px] font-bold text-white",
+                      statusFilter === "present" && "bg-[#1e8e3e]",
+                      statusFilter === "absent" && "bg-[#c62828]",
+                      statusFilter === "late" && "bg-[#ef8c1a]",
+                      statusFilter === "activity" && "bg-[#00897b]",
+                    )}
+                  >
+                    {statusFilter === "present"
+                      ? "✓ มาเรียน"
+                      : statusFilter === "absent"
+                        ? "✗ ขาดเรียน"
+                        : statusFilter === "late"
+                          ? "⏱ มาสาย"
+                          : "★ กิจกรรม"}{" "}
+                    ({rows.length} คน)
+                  </span>
+                </span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setStatusFilter(null);
+                    setPage(1);
+                  }}
+                  className="rounded-md border border-[#d8e0ec] bg-white px-2.5 py-1 text-[12px] font-semibold text-[#5b6b82] shadow-2xs hover:bg-[#eef2f7]"
+                >
+                  ✕ แสดงนักเรียนทั้งหมด ({groupStudents.length} คน)
+                </button>
+              </div>
+            )}
+
             <div className="mt-3 flex flex-wrap items-center justify-between gap-2 border-t border-[#eef2f7] pt-2.5">
-              <div className="flex items-center gap-1.5 text-[12.5px]">
-                <span className="font-medium text-[#5b6b82]">เรียงตาม:</span>
-                <div className="inline-flex rounded-md border border-[#d8e0ec] bg-white p-0.5">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setReportSortBy("number");
-                      setPage(1);
-                    }}
-                    className={cn(
-                      "rounded px-2.5 py-1 font-bold transition-colors",
-                      reportSortBy === "number"
-                        ? "bg-[#16233a] text-white"
-                        : "text-[#5b6b82] hover:bg-[#f1f5fa]",
-                    )}
-                  >
-                    เลขที่
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setReportSortBy("code");
-                      setPage(1);
-                    }}
-                    className={cn(
-                      "rounded px-2.5 py-1 font-bold transition-colors",
-                      reportSortBy === "code"
-                        ? "bg-[#16233a] text-white"
-                        : "text-[#5b6b82] hover:bg-[#f1f5fa]",
-                    )}
-                  >
-                    รหัสประจำตัว
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setReportSortBy("name");
-                      setPage(1);
-                    }}
-                    className={cn(
-                      "rounded px-2.5 py-1 font-bold transition-colors",
-                      reportSortBy === "name"
-                        ? "bg-[#16233a] text-white"
-                        : "text-[#5b6b82] hover:bg-[#f1f5fa]",
-                    )}
-                  >
-                    ชื่อ-นามสกุล
-                  </button>
+              <div className="flex flex-wrap items-center gap-3">
+                <div className="flex items-center gap-1.5 text-[12.5px]">
+                  <span className="font-medium text-[#5b6b82]">สถานะ:</span>
+                  <div className="inline-flex rounded-md border border-[#d8e0ec] bg-white p-0.5">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setStatusFilter(null);
+                        setPage(1);
+                      }}
+                      className={cn(
+                        "rounded px-2 py-0.5 font-bold transition-colors",
+                        statusFilter === null
+                          ? "bg-[#16233a] text-white"
+                          : "text-[#5b6b82] hover:bg-[#f1f5fa]",
+                      )}
+                    >
+                      ทั้งหมด ({groupStudents.length})
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setStatusFilter("present");
+                        setPage(1);
+                      }}
+                      className={cn(
+                        "rounded px-2 py-0.5 font-bold transition-colors",
+                        statusFilter === "present"
+                          ? "bg-[#1e8e3e] text-white"
+                          : "text-[#1e8e3e] hover:bg-[#e3f2e6]",
+                      )}
+                    >
+                      มาเรียน ({summary.present})
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setStatusFilter("absent");
+                        setPage(1);
+                      }}
+                      className={cn(
+                        "rounded px-2 py-0.5 font-bold transition-colors",
+                        statusFilter === "absent"
+                          ? "bg-[#c62828] text-white"
+                          : "text-[#c62828] hover:bg-[#fdecec]",
+                      )}
+                    >
+                      ขาดเรียน ({summary.absent})
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setStatusFilter("late");
+                        setPage(1);
+                      }}
+                      className={cn(
+                        "rounded px-2 py-0.5 font-bold transition-colors",
+                        statusFilter === "late"
+                          ? "bg-[#ef8c1a] text-white"
+                          : "text-[#ef8c1a] hover:bg-[#fef6ec]",
+                      )}
+                    >
+                      สาย ({summary.late})
+                    </button>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-1.5 text-[12.5px]">
+                  <span className="font-medium text-[#5b6b82]">เรียงตาม:</span>
+                  <div className="inline-flex rounded-md border border-[#d8e0ec] bg-white p-0.5">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setReportSortBy("number");
+                        setPage(1);
+                      }}
+                      className={cn(
+                        "rounded px-2 py-0.5 font-bold transition-colors",
+                        reportSortBy === "number"
+                          ? "bg-[#16233a] text-white"
+                          : "text-[#5b6b82] hover:bg-[#f1f5fa]",
+                      )}
+                    >
+                      เลขที่
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setReportSortBy("code");
+                        setPage(1);
+                      }}
+                      className={cn(
+                        "rounded px-2 py-0.5 font-bold transition-colors",
+                        reportSortBy === "code"
+                          ? "bg-[#16233a] text-white"
+                          : "text-[#5b6b82] hover:bg-[#f1f5fa]",
+                      )}
+                    >
+                      รหัส
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setReportSortBy("name");
+                        setPage(1);
+                      }}
+                      className={cn(
+                        "rounded px-2 py-0.5 font-bold transition-colors",
+                        reportSortBy === "name"
+                          ? "bg-[#16233a] text-white"
+                          : "text-[#5b6b82] hover:bg-[#f1f5fa]",
+                      )}
+                    >
+                      ชื่อ
+                    </button>
+                  </div>
                 </div>
               </div>
               <span className="text-[12.5px] text-[#5b6b82]">
