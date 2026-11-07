@@ -805,6 +805,10 @@ export default function ScannerPage() {
       );
     }
     return [...list].sort((a, b) => {
+      if (isCombinedM1(activeGroup)) {
+        const roomCmp = a.group.localeCompare(b.group, "th", { numeric: true });
+        if (roomCmp !== 0) return roomCmp;
+      }
       if (checklistSort === "number") {
         const numA = Number(a.number) || 999;
         const numB = Number(b.number) || 999;
@@ -815,7 +819,7 @@ export default function ScannerPage() {
       }
       return a.name.localeCompare(b.name, "th");
     });
-  }, [groupStudents, checkedMap, checklistFilter, checklistSearch, checklistSort]);
+  }, [groupStudents, checkedMap, checklistFilter, checklistSearch, checklistSort, activeGroup]);
 
   const handleQuickCheckIn = async (st: RosterStudent, status: "present" | "late") => {
     setActingStudentCode(st.code);

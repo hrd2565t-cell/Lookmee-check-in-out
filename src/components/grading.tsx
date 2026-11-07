@@ -38,8 +38,9 @@ import {
   type GradingTemplate,
 } from "@/lib/grading-templates";
 import { downloadCsv, parseCsv, readCsvFile } from "@/lib/export";
-import { useRoster } from "@/lib/school-data";
+import { useRoster, compareGroupNames } from "@/lib/school-data";
 import { useTeacherGroup } from "@/lib/teacher-scope";
+import { isCombinedM1, M1_SUBGROUPS } from "@/lib/attendance";
 import { cn } from "@/lib/cn";
 
 const inputCls =
@@ -120,6 +121,8 @@ export default function GradingPage() {
   const [colForm, setColForm] = useState({ subject: "", title: "", max: "10", due: "", category: "ใบงาน/การบ้าน" });
   const [categoryWeights, setCategoryWeights] = useState<CategoryWeight[]>([]);
   const [gradeScales, setGradeScales] = useState<GradeScale[] | null>(null);
+  const [m1RoomFilter, setM1RoomFilter] = useState<string>("all");
+  const [exportModalOpen, setExportModalOpen] = useState(false);
 
   const activeSubjectScope = `${activeGroup}|${termId}`;
   const activeSubjectItem = subjectsScope === activeSubjectScope
@@ -247,8 +250,19 @@ export default function GradingPage() {
   const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
 
   const students = useMemo(() => {
-    const list = rosterStudents.filter((s) => s.group === activeGroup);
+    let list: typeof rosterStudents;
+    if (isCombinedM1(activeGroup)) {
+      const allM1 = rosterStudents.filter((s) => s.group.startsWith("ม.1/"));
+      list = m1RoomFilter === "all" ? allM1 : allM1.filter((s) => s.group === m1RoomFilter);
+    } else {
+      list = rosterStudents.filter((s) => s.group === activeGroup);
+    }
+
     return [...list].sort((a, b) => {
+      if (isCombinedM1(activeGroup) && m1RoomFilter === "all") {
+        const roomCmp = compareGroupNames(a.group, b.group);
+        if (roomCmp !== 0) return roomCmp;
+      }
       let cmp = 0;
       if (sortKey === "code") {
         cmp = a.code.localeCompare(b.code, "th", { numeric: true });
@@ -259,7 +273,7 @@ export default function GradingPage() {
       }
       return sortDir === "asc" ? cmp : -cmp;
     });
-  }, [rosterStudents, activeGroup, sortKey, sortDir]);
+  }, [rosterStudents, activeGroup, m1RoomFilter, sortKey, sortDir]);
 
   const cellKey = (aId: string, code: string) => `${aId}|${code}`;
   const cellValue = (aId: string, code: string): string => {
@@ -412,18 +426,56 @@ export default function GradingPage() {
     await reloadSheet();
   };
 
-  const exportCsv = () => {
-    const header = ["ลำดับ", "รหัสประจำตัว", "ชื่อ", ...assignments.map((a) => `${a.title} (${a.max})`), "รวม"];
-    const rows = filteredStudents.map((s, i) => {
-      const total = rowTotal(s.code);
+  const exportCsvSingle = (targetGroupLabel: string, targetStudents: typeof filteredStudents) => {
+    const isM1 = isCombinedM1(activeGroup);
+    const header = [
+      "ลำดับ",
+      ...(isM1 ? ["ห้อง", "เลขที่"] : ["เลขที่"]),
+      "รหัสประจำตัว",
+      "ชื่อ-นามสกุล",
+      ...assignments.map((a) => `${a.title} (${a.max})`),
+      "รวม (100)",
+      "เกรด",
+    ];
+    const rows = targetStudents.map((s, i) => {
+      const w = rowWeighted(s.code);
+      const total = w !== null ? w.toFixed(1) : String(rowTotal(s.code));
+      const grade = rowGrade(s.code) || "-";
       const cells = assignments.map((a) => {
         const d = drafts.get(cellKey(a.id, s.code));
         const v = d !== undefined ? d : (savedScores.get(cellKey(a.id, s.code)) ?? "");
         return v === null ? "" : String(v);
       });
-      return [i + 1, s.code, s.name, ...cells, total];
+      return [
+        i + 1,
+        ...(isM1 ? [s.group, s.number || "-"] : [s.number || "-"]),
+        s.code,
+        s.name,
+        ...cells,
+        total,
+        grade,
+      ];
     });
-    downloadCsv(`grades-${activeGroup}-${activeSubject}.csv`, header, rows);
+    downloadCsv(`grades-${targetGroupLabel}-${activeSubject || "all"}.csv`, header, rows);
+  };
+
+  const exportAllSeparatedM1 = () => {
+    for (const rm of M1_SUBGROUPS) {
+      const roomStudents = rosterStudents
+        .filter((s) => s.group === rm)
+        .sort((a, b) => (Number(a.number) || 999) - (Number(b.number) || 999) || a.code.localeCompare(b.code, "th", { numeric: true }));
+      if (roomStudents.length > 0) {
+        exportCsvSingle(rm.replace("/", "-"), roomStudents);
+      }
+    }
+  };
+
+  const exportCsv = () => {
+    if (isCombinedM1(activeGroup)) {
+      setExportModalOpen(true);
+    } else {
+      exportCsvSingle(activeGroup, filteredStudents);
+    }
   };
 
   const importScores = async (file: File) => {
@@ -878,7 +930,10 @@ export default function GradingPage() {
             <span className="relative mt-1 block">
               <select
                 value={activeGroup}
-                onChange={(e) => setSelectedGroup(e.target.value)}
+                onChange={(e) => {
+                  setSelectedGroup(e.target.value);
+                  setM1RoomFilter("all");
+                }}
                 className="h-10 w-full appearance-none rounded-lg border border-[#d8e0ec] bg-white pl-3 pr-9 text-[14px] focus:border-[#2474c6] focus:outline-none"
               >
                 {groupNames.map((g) => (
@@ -1029,6 +1084,50 @@ export default function GradingPage() {
             ส่งออก (Excel)
           </UIButton>
         </div>
+
+        {isCombinedM1(activeGroup) && (
+          <div className="mb-3 flex flex-wrap items-center gap-1.5 rounded-lg border border-[#d8e0ec] bg-[#f8fafc] p-2.5">
+            <span className="mr-1 text-[12.5px] font-bold text-[#16233a]">
+              ห้องเรียน:
+            </span>
+            <button
+              type="button"
+              onClick={() => {
+                setM1RoomFilter("all");
+                setPage(1);
+              }}
+              className={cn(
+                "rounded-md px-2.5 py-1 text-[12px] font-bold transition-colors",
+                m1RoomFilter === "all"
+                  ? "bg-[#16233a] text-white shadow-xs"
+                  : "border border-[#d8e0ec] bg-white text-[#5b6b82] hover:bg-[#eef2f7]",
+              )}
+            >
+              ทั้งหมด ({rosterStudents.filter((s) => s.group.startsWith("ม.1/")).length} คน)
+            </button>
+            {M1_SUBGROUPS.map((rm) => {
+              const count = rosterStudents.filter((s) => s.group === rm).length;
+              return (
+                <button
+                  key={rm}
+                  type="button"
+                  onClick={() => {
+                    setM1RoomFilter(rm);
+                    setPage(1);
+                  }}
+                  className={cn(
+                    "rounded-md px-2.5 py-1 text-[12px] font-bold transition-colors",
+                    m1RoomFilter === rm
+                      ? "bg-[#2474c6] text-white shadow-xs"
+                      : "border border-[#d8e0ec] bg-white text-[#5b6b82] hover:bg-[#eef2f7]",
+                  )}
+                >
+                  {rm} ({count})
+                </button>
+              );
+            })}
+          </div>
+        )}
         {subjectsScope !== activeSubjectScope ? (
           <p className="py-8 text-center text-[14px] text-[#5b6b82]">กำลังโหลดวิชาและคะแนนของห้องนี้...</p>
         ) : subjectLoadError ? (
@@ -1192,7 +1291,14 @@ export default function GradingPage() {
                       </td>
                       {/* ตรึงคอลัมน์ ชื่อ-นามสกุล พร้อมเส้นขอบขวาและเงาแยกส่วน */}
                       <td className="sticky left-[153px] z-10 min-w-[180px] max-w-[220px] whitespace-nowrap border-b border-r-2 border-[#eef2f7] border-r-[#d8e0ec] bg-white group-hover:bg-[#fafbfd] py-2 pr-3 text-[13.5px] font-medium text-[#16233a] shadow-[4px_0_8px_-2px_rgba(0,0,0,0.06)]">
-                        {s.name}
+                        <div className="flex flex-col">
+                          <span>{s.name}</span>
+                          {isCombinedM1(activeGroup) && (
+                            <span className="text-[11px] font-bold text-[#2474c6]">
+                              {s.group} {s.number ? `· เลขที่ ${s.number}` : ""}
+                            </span>
+                          )}
+                        </div>
                       </td>
                       {assignments.map((a, ai) => {
                         const cellIndex = ri * assignments.length + ai;
@@ -1873,6 +1979,103 @@ export default function GradingPage() {
             await reloadSheet(activeGroup, activeSubject, sheetTerm);
           }}
         />
+      ) : null}
+
+      {/* โมดอลเลือกรูปแบบส่งออก Excel สำหรับ ม.1 */}
+      {exportModalOpen ? (
+        <Modal title="ส่งออกคะแนน (Excel / CSV) - ระดับชั้น ม.1" onClose={() => setExportModalOpen(false)}>
+          <p className="text-[14px] text-[#5b6b82]">
+            เนื่องจากระดับชั้น ม.1 มีนักเรียนจากหลายห้องเรียน ครูสามารถเลือกรูปแบบไฟล์ส่งออกได้ตามต้องการ:
+          </p>
+
+          <div className="mt-4 space-y-3">
+            <button
+              type="button"
+              onClick={() => {
+                const allM1 = rosterStudents
+                  .filter((s) => s.group.startsWith("ม.1/"))
+                  .sort(
+                    (a, b) =>
+                      compareGroupNames(a.group, b.group) ||
+                      (Number(a.number) || 999) - (Number(b.number) || 999) ||
+                      a.code.localeCompare(b.code, "th", { numeric: true }),
+                  );
+                exportCsvSingle("รวม-ม.1", allM1);
+                setExportModalOpen(false);
+              }}
+              className="flex w-full items-start gap-3 rounded-xl border border-[#d8e0ec] bg-white p-3.5 text-left transition-all hover:border-[#1e8e3e] hover:bg-[#f6fbf7] hover:shadow-xs"
+            >
+              <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-[#e3f2e6] text-[20px] text-[#1e8e3e]">
+                📊
+              </span>
+              <div className="flex-1">
+                <p className="text-[14.5px] font-bold text-[#16233a]">
+                  1. ส่งออกรวมทั้งระดับชั้น ม.1 (ไฟล์เดียว ครบทุกห้อง)
+                </p>
+                <p className="mt-0.5 text-[12.5px] text-[#5b6b82]">
+                  รวมนักเรียน ม.1/1 ถึง ม.1/11 ในชีทเดียว มีคอลัมน์ระบุห้องและเลขที่ชัดเจน ({rosterStudents.filter((s) => s.group.startsWith("ม.1/")).length} คน)
+                </p>
+              </div>
+            </button>
+
+            {m1RoomFilter !== "all" && (
+              <button
+                type="button"
+                onClick={() => {
+                  const roomStudents = rosterStudents
+                    .filter((s) => s.group === m1RoomFilter)
+                    .sort(
+                      (a, b) =>
+                        (Number(a.number) || 999) - (Number(b.number) || 999) ||
+                        a.code.localeCompare(b.code, "th", { numeric: true }),
+                    );
+                  exportCsvSingle(m1RoomFilter.replace("/", "-"), roomStudents);
+                  setExportModalOpen(false);
+                }}
+                className="flex w-full items-start gap-3 rounded-xl border border-[#d8e0ec] bg-white p-3.5 text-left transition-all hover:border-[#2474c6] hover:bg-[#f2f7fc] hover:shadow-xs"
+              >
+                <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-[#e8f1fb] text-[20px] text-[#2474c6]">
+                  🎯
+                </span>
+                <div className="flex-1">
+                  <p className="text-[14.5px] font-bold text-[#16233a]">
+                    2. ส่งออกเฉพาะห้อง {m1RoomFilter} ที่เลือกอยู่
+                  </p>
+                  <p className="mt-0.5 text-[12.5px] text-[#5b6b82]">
+                    ดาวน์โหลดเฉพาะรายชื่อและคะแนนของห้อง {m1RoomFilter} ({rosterStudents.filter((s) => s.group === m1RoomFilter).length} คน)
+                  </p>
+                </div>
+              </button>
+            )}
+
+            <button
+              type="button"
+              onClick={() => {
+                exportAllSeparatedM1();
+                setExportModalOpen(false);
+              }}
+              className="flex w-full items-start gap-3 rounded-xl border border-[#d8e0ec] bg-white p-3.5 text-left transition-all hover:border-[#6b21a8] hover:bg-[#faf5ff] hover:shadow-xs"
+            >
+              <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-[#f3e8f5] text-[20px] text-[#6b21a8]">
+                🗂️
+              </span>
+              <div className="flex-1">
+                <p className="text-[14.5px] font-bold text-[#16233a]">
+                  3. ส่งออกแยกไฟล์ทีละห้องครบทุกห้อง (11 ไฟล์)
+                </p>
+                <p className="mt-0.5 text-[12.5px] text-[#5b6b82]">
+                  ระบบจะดาวน์โหลดไฟล์ CSV ของแต่ละห้อง (ม.1/1 ถึง ม.1/11) แยกทีละห้องให้โดยอัตโนมัติ สำหรับส่งงานวิชาการ
+                </p>
+              </div>
+            </button>
+          </div>
+
+          <div className="mt-4 flex justify-end">
+            <UIButton variant="blue" onClick={() => setExportModalOpen(false)} className="h-9 bg-[#5b6b82] px-4 text-[13px] hover:bg-[#465364]">
+              ปิด
+            </UIButton>
+          </div>
+        </Modal>
       ) : null}
     </AppShell>
   );

@@ -23,6 +23,7 @@ import {
 } from "@/data/reports";
   import {
     isCombinedM1,
+    M1_SUBGROUPS,
     calculateAffectiveScore,
     checkIn,
     bulkMarkStatus,
@@ -188,12 +189,15 @@ export default function ReportsPage() {
     };
   }, [date, refreshKey]);
 
+  const [m1SubgroupFilter, setM1SubgroupFilter] = useState<string>("all");
+
   const groupStudents = useMemo(() => {
     if (isCombinedM1(group)) {
-      return rosterStudents.filter((s) => s.group.startsWith("ม.1/"));
+      const allM1 = rosterStudents.filter((s) => s.group.startsWith("ม.1/"));
+      return m1SubgroupFilter === "all" ? allM1 : allM1.filter((s) => s.group === m1SubgroupFilter);
     }
     return rosterStudents.filter((s) => s.group === group);
-  }, [group, rosterStudents]);
+  }, [group, rosterStudents, m1SubgroupFilter]);
 
   const session = daySessions.find((s) =>
     isCombinedM1(group) ? s.group.startsWith("ม.1/") : s.group === group,
@@ -757,6 +761,7 @@ export default function ReportsPage() {
                 value={group}
                 onChange={(e) => {
                   setSelectedGroup(e.target.value);
+                  setM1SubgroupFilter("all");
                   setPage(1);
                   setRangeRows(null);
                   setRangeNotice("");
@@ -1046,6 +1051,50 @@ export default function ReportsPage() {
                 >
                   ✕ แสดงนักเรียนทั้งหมด ({groupStudents.length} คน)
                 </button>
+              </div>
+            )}
+
+            {isCombinedM1(group) && (
+              <div className="mt-3 flex flex-wrap items-center gap-1.5 rounded-lg border border-[#d8e0ec] bg-[#f8fafc] p-2.5">
+                <span className="mr-1 text-[12.5px] font-bold text-[#16233a]">
+                  ห้องเรียน:
+                </span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setM1SubgroupFilter("all");
+                    setPage(1);
+                  }}
+                  className={cn(
+                    "rounded-md px-2.5 py-1 text-[12px] font-bold transition-colors",
+                    m1SubgroupFilter === "all"
+                      ? "bg-[#16233a] text-white shadow-xs"
+                      : "border border-[#d8e0ec] bg-white text-[#5b6b82] hover:bg-[#eef2f7]",
+                  )}
+                >
+                  ทั้งหมด ({rosterStudents.filter((s) => s.group.startsWith("ม.1/")).length} คน)
+                </button>
+                {M1_SUBGROUPS.map((rm) => {
+                  const count = rosterStudents.filter((s) => s.group === rm).length;
+                  return (
+                    <button
+                      key={rm}
+                      type="button"
+                      onClick={() => {
+                        setM1SubgroupFilter(rm);
+                        setPage(1);
+                      }}
+                      className={cn(
+                        "rounded-md px-2.5 py-1 text-[12px] font-bold transition-colors",
+                        m1SubgroupFilter === rm
+                          ? "bg-[#2474c6] text-white shadow-xs"
+                          : "border border-[#d8e0ec] bg-white text-[#5b6b82] hover:bg-[#eef2f7]",
+                      )}
+                    >
+                      {rm} ({count})
+                    </button>
+                  );
+                })}
               </div>
             )}
 

@@ -73,7 +73,8 @@ export async function fetchAbsencesInRange(
   }
 }
 
-/** ระดับชั้นจากชื่อกลุ่ม เช่น "ม.1/1" → "ม.1" */
+/** ระดับชั้นจากชื่อกลุ่ม เช่น "ม.1/1" หรือ "รวม ม.1 (ห้อง 1/1 - 1/11)" → "ม.1" */
 export function levelOf(groupName: string): string {
+  if (groupName.startsWith("รวม ม.1")) return "ม.1";
   return groupName.includes("/") ? (groupName.split("/")[0] as string) : groupName;
 }

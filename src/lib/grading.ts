@@ -1,4 +1,5 @@
 import { isSupabaseConfigured, supabase } from "./supabase/client";
+import { COMBINED_M1_GROUP, isCombinedM1 } from "./attendance";
 
 export type SheetAssignment = {
   id: string;
@@ -46,14 +47,33 @@ export type SubjectScopeState = {
 };
 
 export async function groupIdOf(name: string): Promise<string | null> {
-  const { data } = await supabase.from("class_groups").select("id").eq("name", name).single();
-  return (data as { id: string } | null)?.id ?? null;
+  const targetName = isCombinedM1(name) ? COMBINED_M1_GROUP : name;
+  const { data } = await supabase.from("class_groups").select("id").eq("name", targetName).maybeSingle();
+  if (data?.id) return data.id;
+
+  if (isCombinedM1(name)) {
+    const { data: created } = await supabase
+      .from("class_groups")
+      .insert({ name: COMBINED_M1_GROUP, level: "ม.1", room: "รวม", is_active: true })
+      .select("id")
+      .maybeSingle();
+    if (created?.id) return created.id;
+
+    const { data: firstM1 } = await supabase.from("class_groups").select("id").eq("name", "ม.1/1").maybeSingle();
+    return firstM1?.id ?? null;
+  }
+  return null;
 }
 
 export async function groupInfoOf(name: string): Promise<{ id: string; level: string } | null> {
-  const { data, error } = await supabase.from("class_groups").select("id,level").eq("name", name).single();
-  if (error || !data) return null;
-  return data as { id: string; level: string };
+  const targetName = isCombinedM1(name) ? COMBINED_M1_GROUP : name;
+  const { data, error } = await supabase.from("class_groups").select("id,level").eq("name", targetName).maybeSingle();
+  if (!error && data?.id) return data as { id: string; level: string };
+  if (isCombinedM1(name)) {
+    const gid = await groupIdOf(name);
+    return gid ? { id: gid, level: "ม.1" } : null;
+  }
+  return null;
 }
 
 export async function fetchSubjectCatalog(termId: string): Promise<SubjectCatalogItem[] | null> {
@@ -847,11 +867,23 @@ export async function fetchCategoryWeights(groupName: string): Promise<CategoryW
   try {
     const gid = await groupIdOf(groupName);
     if (!gid) return null;
-    const { data, error } = await supabase
+    let { data, error } = await supabase
       .from("category_weights")
       .select("category,weight")
       .eq("group_id", gid)
       .order("category");
+    if ((!data || data.length === 0) && groupName.startsWith("ม.1/")) {
+      const combinedGid = await groupIdOf(COMBINED_M1_GROUP);
+      if (combinedGid && combinedGid !== gid) {
+        const res = await supabase
+          .from("category_weights")
+          .select("category,weight")
+          .eq("group_id", combinedGid)
+          .order("category");
+        data = res.data;
+        error = res.error;
+      }
+    }
     if (error || !data) return null;
     return (data as Array<{ category: string; weight: number }>).map((r) => ({
       category: r.category,
@@ -887,11 +919,23 @@ export async function fetchRoomGradeScales(groupName: string): Promise<GradeScal
   try {
     const gid = await groupIdOf(groupName);
     if (!gid) return null;
-    const { data, error } = await supabase
+    let { data, error } = await supabase
       .from("room_grade_scales")
       .select("grade,min_score")
       .eq("group_id", gid)
       .order("min_score", { ascending: false });
+    if ((!data || data.length === 0) && groupName.startsWith("ม.1/")) {
+      const combinedGid = await groupIdOf(COMBINED_M1_GROUP);
+      if (combinedGid && combinedGid !== gid) {
+        const res = await supabase
+          .from("room_grade_scales")
+          .select("grade,min_score")
+          .eq("group_id", combinedGid)
+          .order("min_score", { ascending: false });
+        data = res.data;
+        error = res.error;
+      }
+    }
     if (error || !data) return null;
     return (data as Array<{ grade: string; min_score: number }>).map((r) => ({
       grade: r.grade,

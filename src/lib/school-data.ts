@@ -67,10 +67,11 @@ export function mockRoster(): Omit<Roster, "live"> {
       Number(a.number) - Number(b.number),
   );
   const m1Count = SCHOOL_STUDENTS.filter((s) => s.group.startsWith("ม.1/")).length;
+  const nonM1Groups = SCHOOL_GROUPS.filter((g) => !g.name.startsWith("ม.1/"));
   return {
     groups: [
-      { name: COMBINED_M1_GROUP, count: m1Count },
-      ...SCHOOL_GROUPS,
+      ...(m1Count > 0 ? [{ name: COMBINED_M1_GROUP, count: m1Count }] : []),
+      ...nonM1Groups,
     ],
     students: sorted.map((s) => ({ ...s, registered: false })),
   };
@@ -133,9 +134,10 @@ async function fetchRosterFromDb(): Promise<Omit<Roster, "live"> | null> {
   const counts = new Map<string, number>();
   students.forEach((s) => counts.set(s.group, (counts.get(s.group) ?? 0) + 1));
   const m1Count = students.filter((s) => s.group.startsWith("ม.1/")).length;
+  const nonM1Names = names.filter((name) => !name.startsWith("ม.1/"));
   const groups: RosterGroup[] = [
     ...(m1Count > 0 ? [{ name: COMBINED_M1_GROUP, count: m1Count }] : []),
-    ...names.map((name) => ({
+    ...nonM1Names.map((name) => ({
       name,
       count: counts.get(name) ?? 0,
     })),

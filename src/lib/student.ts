@@ -120,9 +120,49 @@ export type AssignmentRow = {
 /** สรุปงาน/คะแนนของฉัน (กรองวิชาได้, ว่าง = ทุกวิชา) */
 export async function fetchAssignmentSummary(code: string, subject?: string): Promise<AssignmentSummary | null> {
   try {
-    const { data, error } = await supabase.rpc("my_assignment_summary", { p_code: code, p_subject: subject ?? null });
-    if (error || !data) return null;
-    return data as AssignmentSummary;
+    const assignments = await fetchAssignments(code, subject);
+    if (!assignments) return null;
+
+    let submitted = 0;
+    let missing = 0;
+    let pending = 0;
+    let earned = 0;
+    let max = 0;
+    const catMap = new Map<string, { earned: number; max: number }>();
+
+    for (const a of assignments) {
+      max += a.max_score;
+      const cat = a.category || "ทั่วไป";
+      const curCat = catMap.get(cat) ?? { earned: 0, max: 0 };
+      curCat.max += a.max_score;
+
+      if (a.score !== null && a.score !== undefined) {
+        submitted++;
+        earned += a.score;
+        curCat.earned += a.score;
+      } else if (a.st === "missing") {
+        missing++;
+      } else {
+        pending++;
+      }
+      catMap.set(cat, curCat);
+    }
+
+    const cats = [...catMap.entries()].map(([category, vals]) => ({
+      category,
+      earned: vals.earned,
+      max: vals.max,
+    }));
+
+    return {
+      total: assignments.length,
+      submitted,
+      missing,
+      pending,
+      earned,
+      max,
+      cats,
+    };
   } catch {
     return null;
   }
@@ -132,8 +172,69 @@ export async function fetchAssignmentSummary(code: string, subject?: string): Pr
 export async function fetchAssignments(code: string, subject?: string): Promise<AssignmentRow[] | null> {
   try {
     const { data, error } = await supabase.rpc("my_assignments", { p_code: code, p_subject: subject ?? null });
-    if (error || !data) return null;
-    return data as AssignmentRow[];
+    const list = (!error && Array.isArray(data)) ? (data as AssignmentRow[]) : [];
+
+    // หากนักเรียนสังกัด ม.1 ให้ดึงงานของ "รวม ม.1" เพิ่มเติมด้วยหากยังไม่มีในรายการ
+    const { data: stRow } = await supabase
+      .from("students")
+      .select("id, class_groups!inner(name)")
+      .eq("student_code", code.trim())
+      .single();
+
+    const groupName = (stRow as unknown as { class_groups: { name: string } } | null)?.class_groups?.name;
+    if (groupName && groupName.startsWith("ม.1/")) {
+      const { data: combinedG } = await supabase
+        .from("class_groups")
+        .select("id")
+        .eq("name", "รวม ม.1 (ห้อง 1/1 - 1/11)")
+        .maybeSingle();
+
+      if (combinedG?.id) {
+        let q = supabase
+          .from("assignments")
+          .select("id,title,subject,category,due_date,max_score,visible")
+          .eq("group_id", combinedG.id)
+          .eq("visible", true)
+          .is("retake_of", null);
+        if (subject) q = q.eq("subject", subject);
+        const { data: m1Assigns } = await q;
+
+        if (m1Assigns && m1Assigns.length > 0) {
+          const studentId = (stRow as { id: string }).id;
+          const { data: subs } = await supabase
+            .from("v_submission_latest")
+            .select("assignment_id,score")
+            .in("assignment_id", m1Assigns.map((a) => a.id))
+            .eq("student_id", studentId);
+          const subMap = new Map((subs ?? []).map((s: { assignment_id: string; score: number | null }) => [s.assignment_id, s.score]));
+
+          const existingTitles = new Set(list.map((r) => `${r.subject}|${r.title}`));
+          const today = new Date().toISOString().slice(0, 10);
+
+          for (const a of m1Assigns as Array<{ id: string; title: string; subject: string; category: string | null; due_date: string; max_score: number }>) {
+            if (!existingTitles.has(`${a.subject}|${a.title}`)) {
+              const score = subMap.has(a.id) ? subMap.get(a.id) ?? null : null;
+              let st: "submitted" | "missing" | "pending" | "upcoming" = "upcoming";
+              if (score !== null && score !== undefined) st = "submitted";
+              else if (a.due_date < today) st = "missing";
+
+              list.push({
+                title: a.title,
+                subject: a.subject,
+                category: a.category || "ใบงาน/การบ้าน",
+                due: a.due_date,
+                max_score: Number(a.max_score),
+                score: score !== undefined ? score : null,
+                st,
+                attachment: null,
+              });
+            }
+          }
+        }
+      }
+    }
+
+    return list.sort((a, b) => b.due.localeCompare(a.due));
   } catch {
     return null;
   }
