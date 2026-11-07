@@ -245,6 +245,7 @@ export default function StudentsPage() {
           .sort(
             (a, b) =>
               (order.get(a.group) ?? 99) - (order.get(b.group) ?? 99) ||
+              (Number(a.number) || 999) - (Number(b.number) || 999) ||
               a.studentId.localeCompare(b.studentId, "th", { numeric: true }),
           );
         if (!cancelled) {
@@ -563,20 +564,27 @@ export default function StudentsPage() {
       }
       const thaiName = `${form.prefix}${form.first.trim()}${form.last.trim() ? ` ${form.last.trim()}` : ""}`;
       setStudentList((list) =>
-        list.map((x) =>
-          x.studentId === editingCode
-            ? {
-                ...x,
-                thaiName,
-                group: form.group,
-                initials: initialsFor(`${form.first.trim()} ${form.last.trim()}`.trim()),
-                prefix: form.prefix,
-                firstName: form.first.trim(),
-                lastName: form.last.trim(),
-                number: form.number.trim(),
-              }
-            : x,
-        ),
+        list
+          .map((x) =>
+            x.studentId === editingCode
+              ? {
+                  ...x,
+                  thaiName,
+                  group: form.group,
+                  initials: initialsFor(`${form.first.trim()} ${form.last.trim()}`.trim()),
+                  prefix: form.prefix,
+                  firstName: form.first.trim(),
+                  lastName: form.last.trim(),
+                  number: form.number.trim(),
+                }
+              : x,
+          )
+          .sort(
+            (a, b) =>
+              compareGroupNames(a.group, b.group) ||
+              (Number(a.number) || 999) - (Number(b.number) || 999) ||
+              a.studentId.localeCompare(b.studentId, "th", { numeric: true }),
+          ),
       );
       setStudentModal(false);
       setEditingCode(null);
@@ -634,7 +642,12 @@ export default function StudentsPage() {
         lastName: form.last.trim(),
         number: form.number.trim(),
       },
-    ]);
+    ].sort(
+      (a, b) =>
+        compareGroupNames(a.group, b.group) ||
+        (Number(a.number) || 999) - (Number(b.number) || 999) ||
+        a.studentId.localeCompare(b.studentId, "th", { numeric: true }),
+    ));
     // โหมดกรอกรวด: ไม่ปิดฟอร์ม ล้างเฉพาะช่องที่เปลี่ยนทุกครั้ง
     setAddedCount((n) => n + 1);
     setForm((f) => ({ ...f, code: "", first: "", last: "", number: "" }));

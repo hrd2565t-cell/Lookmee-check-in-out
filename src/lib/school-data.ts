@@ -63,8 +63,8 @@ export function mockRoster(): Omit<Roster, "live"> {
   const sorted = [...SCHOOL_STUDENTS].sort(
     (a, b) =>
       compareGroupNames(a.group, b.group) ||
-      a.code.localeCompare(b.code, "th", { numeric: true }) ||
-      Number(a.number) - Number(b.number),
+      (Number(a.number) || 999) - (Number(b.number) || 999) ||
+      a.code.localeCompare(b.code, "th", { numeric: true }),
   );
   const m1Count = SCHOOL_STUDENTS.filter((s) => s.group.startsWith("ม.1/")).length;
   const nonM1Groups = SCHOOL_GROUPS.filter((g) => !g.name.startsWith("ม.1/"));
@@ -127,8 +127,8 @@ async function fetchRosterFromDb(): Promise<Omit<Roster, "live"> | null> {
     .sort(
       (a, b) =>
         (order.get(a.group) ?? 99) - (order.get(b.group) ?? 99) ||
-        a.code.localeCompare(b.code, "th", { numeric: true }) ||
-        Number(a.number) - Number(b.number),
+        (Number(a.number) || 999) - (Number(b.number) || 999) ||
+        a.code.localeCompare(b.code, "th", { numeric: true }),
     );
 
   const counts = new Map<string, number>();

@@ -6,6 +6,7 @@ import { CalculatorIcon, ChevronDownIcon, CopyIcon, EyeIcon, EyeOffIcon, PencilI
 import { Card, FilePreviewModal, Modal, ScoreCell, UIButton } from "@/components/ui";
 import { SubjectManager } from "@/components/subject-manager";
 import { ConductModal } from "@/components/conduct-modal";
+import { StudentDetail } from "@/components/student-detail";
 import {
   addAssignment,
   deleteAssignment,
@@ -123,6 +124,7 @@ export default function GradingPage() {
   const [gradeScales, setGradeScales] = useState<GradeScale[] | null>(null);
   const [m1RoomFilter, setM1RoomFilter] = useState<string>("all");
   const [exportModalOpen, setExportModalOpen] = useState(false);
+  const [detailCode, setDetailCode] = useState<string | null>(null);
 
   const activeSubjectScope = `${activeGroup}|${termId}`;
   const activeSubjectItem = subjectsScope === activeSubjectScope
@@ -246,7 +248,7 @@ export default function GradingPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeGroup, activeSubject, activeSubjectItem?.termId, activeTerm?.id, sheetTerm?.startsOn, sheetTerm?.endsOn]);
 
-  const [sortKey, setSortKey] = useState<"code" | "name" | "number">("code");
+  const [sortKey, setSortKey] = useState<"code" | "name" | "number">("number");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
 
   const students = useMemo(() => {
@@ -1025,9 +1027,9 @@ export default function GradingPage() {
               }}
               className="h-10 rounded-lg border border-[#d8e0ec] bg-white px-3 text-[13px] font-semibold text-[#16233a] focus:border-[#2474c6] focus:outline-none"
             >
+              <option value="number_asc">เลขที่ (น้อยไปมาก)</option>
               <option value="code_asc">เลขประจำตัว (น้อยไปมาก)</option>
               <option value="code_desc">เลขประจำตัว (มากไปน้อย)</option>
-              <option value="number_asc">เลขที่ (น้อยไปมาก)</option>
               <option value="name_asc">ชื่อ-นามสกุล (ก-ฮ)</option>
             </select>
           </div>
@@ -1291,13 +1293,19 @@ export default function GradingPage() {
                       </td>
                       {/* ตรึงคอลัมน์ ชื่อ-นามสกุล พร้อมเส้นขอบขวาและเงาแยกส่วน */}
                       <td className="sticky left-[153px] z-10 min-w-[180px] max-w-[220px] whitespace-nowrap border-b border-r-2 border-[#eef2f7] border-r-[#d8e0ec] bg-white group-hover:bg-[#fafbfd] py-2 pr-3 text-[13.5px] font-medium text-[#16233a] shadow-[4px_0_8px_-2px_rgba(0,0,0,0.06)]">
-                        <div className="flex flex-col">
-                          <span>{s.name}</span>
-                          {isCombinedM1(activeGroup) && (
-                            <span className="text-[11px] font-bold text-[#2474c6]">
-                              {s.group} {s.number ? `· เลขที่ ${s.number}` : ""}
-                            </span>
-                          )}
+                        <div className="flex flex-col text-left">
+                          <button
+                            type="button"
+                            title="คลิกเพื่อดูประวัติและแก้ไขเลขที่"
+                            onClick={() => setDetailCode(s.code)}
+                            className="text-left font-medium text-[#16233a] hover:text-[#2474c6] hover:underline"
+                          >
+                            {s.name}
+                          </button>
+                          <span className="text-[11px] font-bold text-[#2474c6]">
+                            {isCombinedM1(activeGroup) ? `${s.group} · ` : ""}
+                            {s.number ? `เลขที่ ${s.number}` : "ยังไม่มีเลขที่"}
+                          </span>
                         </div>
                       </td>
                       {assignments.map((a, ai) => {
@@ -2077,6 +2085,18 @@ export default function GradingPage() {
           </div>
         </Modal>
       ) : null}
+
+      {detailCode && (() => {
+        const st = rosterStudents.find((s) => s.code === detailCode);
+        return st ? (
+          <StudentDetail
+            code={st.code}
+            name={st.name}
+            group={st.group}
+            onClose={() => setDetailCode(null)}
+          />
+        ) : null;
+      })()}
     </AppShell>
   );
 }

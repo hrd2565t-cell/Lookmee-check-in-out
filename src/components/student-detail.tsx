@@ -99,6 +99,11 @@ export function StudentDetail({
   const [bonusScore, setBonusScore] = useState("");
   const [bonusReason, setBonusReason] = useState("");
   const [bonusNotice, setBonusNotice] = useState("");
+  const [studentNumber, setStudentNumber] = useState<string>("");
+  const [editingNumber, setEditingNumber] = useState(false);
+  const [draftNumber, setDraftNumber] = useState("");
+  const [numberBusy, setNumberBusy] = useState(false);
+  const [numberNotice, setNumberNotice] = useState("");
 
   useEffect(() => {
     let cancelled = false;
@@ -113,13 +118,14 @@ export function StudentDetail({
       }
       const { data } = await supabase
         .from("students")
-        .select("photo_url,face_status,twin_flag")
+        .select("photo_url,face_status,twin_flag,class_no")
         .eq("student_code", code)
         .single();
       if (cancelled) return;
-      const row = data as { photo_url: string | null; face_status: string; twin_flag: boolean | null } | null;
+      const row = data as { photo_url: string | null; face_status: string; twin_flag: boolean | null; class_no: string | null } | null;
       setFacePhoto(row?.face_status === "registered" ? (row.photo_url ?? null) : null);
       setTwinFlag(row?.twin_flag === true);
+      setStudentNumber(row?.class_no ?? "");
 
       // โหลดคะแนนพิเศษ
       const bonus = await fetchBonusScores(code);
@@ -336,15 +342,95 @@ export function StudentDetail({
     onFaceDeleted?.(code);
   };
 
+  const saveStudentNumber = async () => {
+    if (!draftNumber.trim()) return;
+    setNumberBusy(true);
+    setNumberNotice("");
+    if (isSupabaseConfigured) {
+      const { error } = await supabase
+        .from("students")
+        .update({ class_no: draftNumber.trim() })
+        .eq("student_code", code);
+      if (error) {
+        setNumberBusy(false);
+        setNumberNotice("บันทึกเลขที่ไม่สำเร็จ");
+        return;
+      }
+    }
+    setStudentNumber(draftNumber.trim());
+    setEditingNumber(false);
+    setNumberBusy(false);
+    setNumberNotice("✓ บันทึกเลขที่แล้ว (ระบบจะเรียงลำดับให้อัตโนมัติ)");
+  };
+
   const loading = attendance === null || leaves === null || retakes === null;
 
   return (
     <Modal title="ประวัตินักเรียน" onClose={onClose}>
-      <div className="rounded-lg bg-[#f1f5fa] px-3 py-2.5">
+      <div className="rounded-lg bg-[#f1f5fa] px-3.5 py-3">
         <p className="text-[15px] font-bold text-[#16233a]">{name}</p>
-        <p className="text-[13px] text-[#5b6b82]">
-          รหัส {code} · กลุ่ม {group}
+        <p className="mt-0.5 flex flex-wrap items-center gap-2 text-[13px] text-[#5b6b82]">
+          <span>
+            รหัส <span className="font-mono font-semibold text-[#16233a]">{code}</span>
+          </span>
+          <span>·</span>
+          <span>
+            กลุ่ม <span className="font-semibold text-[#16233a]">{group}</span>
+          </span>
+          <span>·</span>
+          <span className="flex items-center gap-1">
+            <span>เลขที่:</span>
+            {editingNumber ? (
+              <span className="inline-flex items-center gap-1">
+                <input
+                  type="number"
+                  min="1"
+                  max="99"
+                  value={draftNumber}
+                  onChange={(e) => setDraftNumber(e.target.value)}
+                  className="h-7 w-16 rounded border border-[#2474c6] bg-white px-1.5 text-center text-[13px] font-bold text-[#16233a] focus:outline-none"
+                  autoFocus
+                />
+                <button
+                  type="button"
+                  onClick={() => void saveStudentNumber()}
+                  disabled={numberBusy}
+                  className="rounded bg-[#1e8e3e] px-2 py-0.5 text-[11.5px] font-bold text-white hover:brightness-110 disabled:opacity-40"
+                >
+                  {numberBusy ? "..." : "บันทึก"}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setEditingNumber(false)}
+                  className="rounded bg-[#5b6b82] px-1.5 py-0.5 text-[11.5px] font-semibold text-white hover:bg-[#465364]"
+                >
+                  ยกเลิก
+                </button>
+              </span>
+            ) : (
+              <span className="inline-flex items-center gap-1 font-bold text-[#2474c6]">
+                <span>{studentNumber || "-"}</span>
+                <button
+                  type="button"
+                  title="แก้ไขเลขที่"
+                  onClick={() => {
+                    setDraftNumber(studentNumber);
+                    setEditingNumber(true);
+                    setNumberNotice("");
+                  }}
+                  className="ml-0.5 rounded p-0.5 text-[#5b6b82] hover:bg-white hover:text-[#2474c6]"
+                >
+                  <PencilIcon className="h-3.5 w-3.5" />
+                </button>
+              </span>
+            )}
+          </span>
         </p>
+        {numberNotice && (
+          <p className="mt-1 text-[12px] font-medium text-[#1e8e3e]">
+            {numberNotice}
+          </p>
+        )}
       </div>
 
       <h4 className="mb-1.5 mt-4 text-[14.5px] font-bold text-[#16233a]">
