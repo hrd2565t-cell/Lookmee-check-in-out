@@ -56,6 +56,7 @@ import {
 } from "@/lib/leaves";
 import { cn } from "@/lib/cn";
 import { fetchPendingDisputes, resolveDispute, type StudentDispute } from "@/lib/disputes";
+import { playSuccessChime } from "@/lib/sound";
 
 /* ---------- CSV export (เปิดใน Excel ได้, รองรับภาษาไทย) ---------- */
 function downloadReportsCsv(filename: string, rows: ReportRow[]) {
@@ -118,6 +119,7 @@ function SummaryBox({
   className,
   active,
   onClick,
+  onOpenModal,
 }: {
   label: string;
   value: string;
@@ -125,37 +127,63 @@ function SummaryBox({
   className: string;
   active?: boolean;
   onClick?: () => void;
+  onOpenModal?: () => void;
 }) {
   return (
-    <button
-      type="button"
+    <div
+      role="button"
+      tabIndex={0}
       onClick={onClick}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          onClick?.();
+        }
+      }}
       className={cn(
-        "flex w-full cursor-pointer items-center justify-between gap-2 rounded-lg px-3.5 py-3 text-left text-white shadow-xs transition-all duration-150 hover:brightness-110 active:scale-[0.98]",
+        "group flex w-full cursor-pointer flex-col justify-between rounded-xl p-3.5 text-left text-white shadow-xs transition-all duration-150 hover:brightness-105 active:scale-[0.98]",
         className,
         active
           ? "ring-4 ring-[#16233a] ring-offset-2 ring-offset-white brightness-105 scale-[1.02]"
           : "opacity-95 hover:opacity-100",
       )}
-      title={`คลิกเพื่อกรองดูรายชื่อนักเรียน: ${label}`}
+      title={`คลิกเพื่อดูรายชื่อนักเรียน: ${label} (เปิดป๊อปอัป + กรองตาราง)`}
     >
-      <div>
-        <p className="flex items-center gap-1.5 text-[14px] font-medium">
-          <span>{label}</span>
-          {active && (
-            <span className="rounded bg-white/35 px-1.5 py-0.2 text-[10.5px] font-bold tracking-tight text-white shadow-xs">
-              เลือกอยู่
-            </span>
-          )}
-        </p>
-        <p className="text-[21px] font-bold leading-tight">{value}</p>
-        <p className="text-[13.5px] font-medium opacity-90">({pct}%)</p>
-        <span className="mt-1 block text-[11px] underline opacity-85 hover:opacity-100">
-          {active ? "คลิกเพื่อดูทั้งหมด" : "คลิกดูรายชื่อ"}
-        </span>
+      <div className="flex items-start justify-between gap-2">
+        <div>
+          <p className="flex items-center gap-1.5 text-[14px] font-bold">
+            <span>{label}</span>
+            {active && (
+              <span className="rounded bg-white/35 px-1.5 py-0.2 text-[10px] font-bold tracking-tight text-white shadow-xs">
+                เลือกอยู่
+              </span>
+            )}
+          </p>
+          <p className="mt-1 text-[22px] font-extrabold leading-none">{value}</p>
+          <p className="mt-0.5 text-[13px] font-medium opacity-90">({pct}%)</p>
+        </div>
+        <Donut pct={pct} />
       </div>
-      <Donut pct={pct} />
-    </button>
+
+      <div className="mt-2.5 flex items-center justify-between border-t border-white/20 pt-2 text-[11px]">
+        <span className="font-semibold underline opacity-90 group-hover:opacity-100">
+          {active ? "✕ ล้างตัวกรอง" : "คลิกดูรายชื่อ"}
+        </span>
+        {onOpenModal && (
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              onOpenModal();
+            }}
+            className="rounded bg-white/25 px-2 py-0.5 font-bold text-white shadow-2xs backdrop-blur-xs transition hover:bg-white hover:text-[#16233a]"
+            title={`เปิดป๊อปอัปดูรายชื่อ ${label}`}
+          >
+            🔍 ป๊อปอัป
+          </button>
+        )}
+      </div>
+    </div>
   );
 }
 
@@ -211,6 +239,9 @@ export default function ReportsPage() {
   );
 
   const [statusFilter, setStatusFilter] = useState<AttendanceStatus | null>(null);
+  const [statusModal, setStatusModal] = useState<AttendanceStatus | null>(null);
+  const [modalSearch, setModalSearch] = useState("");
+  const [modalRoomFilter, setModalRoomFilter] = useState("all");
 
   const summary = useMemo(() => {
     const recordMap = new Map(grec.map((r) => [r.studentCode, r]));
@@ -661,11 +692,10 @@ export default function ReportsPage() {
   const pct = (n: number) =>
     summary.total > 0 ? Math.round((n / summary.total) * 100) : 0;
 
-  const rows: ReportRow[] = useMemo(() => {
-    const q = query.trim().toLowerCase();
+  /* ---------- ข้อมูลนักเรียนทั้งหมดพร้อมสถานะของวันนั้น ---------- */
+  const allRosterRows = useMemo<ReportRow[]>(() => {
     const recordMap = new Map(grec.map((r) => [r.studentCode, r]));
-
-    const allMapped: ReportRow[] = groupStudents.map((st) => {
+    return groupStudents.map((st) => {
       const r = recordMap.get(st.code);
       if (r) {
         return {
@@ -692,8 +722,12 @@ export default function ReportsPage() {
         method: "manual" as const,
       };
     });
+  }, [groupStudents, grec]);
 
-    const filtered = allMapped.filter((row) => {
+  /* ---------- รายชื่อนักเรียนสำหรับตารางหลัก ---------- */
+  const rows = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    const filtered = allRosterRows.filter((row) => {
       if (statusFilter && row.status !== statusFilter) return false;
       if (!q) return true;
       return (
@@ -714,7 +748,62 @@ export default function ReportsPage() {
       }
       return a.id.localeCompare(b.id, "th", { numeric: true });
     });
-  }, [groupStudents, grec, query, statusFilter, reportSortBy]);
+  }, [allRosterRows, query, statusFilter, reportSortBy]);
+
+  /* ---------- รายชื่อนักเรียนสำหรับ Quick View Modal ป๊อปอัป ---------- */
+  const statusModalRows = useMemo(() => {
+    if (!statusModal) return [];
+    const q = modalSearch.trim().toLowerCase();
+    const filtered = allRosterRows.filter((row) => {
+      if (row.status !== statusModal) return false;
+      if (modalRoomFilter !== "all" && row.group !== modalRoomFilter) return false;
+      if (!q) return true;
+      return (
+        row.name.toLowerCase().includes(q) ||
+        row.id.includes(q) ||
+        Boolean(row.number && row.number.includes(q))
+      );
+    });
+
+    return filtered.sort((a, b) => {
+      const numA = Number(a.number) || 999;
+      const numB = Number(b.number) || 999;
+      return numA - numB || a.id.localeCompare(b.id, "th", { numeric: true });
+    });
+  }, [allRosterRows, statusModal, modalSearch, modalRoomFilter]);
+
+  /* ---------- ฟังก์ชันเปลี่ยนสถานะด่วนในคลิกเดียว (Quick Check-in) ---------- */
+  const handleQuickMarkStatus = async (studentCode: string, targetStatus: AttendanceStatus) => {
+    const existingRec = grec.find((x) => x.studentCode === studentCode);
+    const st = groupStudents.find((s) => s.code === studentCode);
+    if (!st) return;
+
+    if (!existingRec) {
+      const sessionId = await ensureSession(st.group, date);
+      if (!sessionId) return;
+      if (targetStatus === "activity") {
+        await markActivity(sessionId, studentCode, "กิจกรรมโรงเรียน");
+      } else if (targetStatus === "absent") {
+        await bulkMarkStatus([{ group: st.group, code: studentCode }], "absent");
+      } else {
+        await checkIn(sessionId, studentCode, 1.0, {
+          status: targetStatus,
+          method: "manual",
+        });
+      }
+    } else {
+      await updateAttendanceRecord(existingRec.id, {
+        status: targetStatus,
+        check_in_at: targetStatus === "absent" ? null : (existingRec.checkInAt || new Date().toISOString()),
+      });
+    }
+    try {
+      playSuccessChime();
+    } catch {
+      // ignore
+    }
+    setRefreshKey((k) => k + 1);
+  };
 
   const totalPages = Math.max(1, Math.ceil(rows.length / PAGE_SIZE));
   const safePage = Math.min(page, totalPages);
@@ -829,7 +918,7 @@ export default function ReportsPage() {
             <div className="mb-2.5 flex flex-wrap items-center justify-between gap-2">
               <CardTitle>ภาพรวมรายวัน</CardTitle>
               <span className="text-[12.5px] font-medium text-[#5b6b82]">
-                💡 แตะที่การ์ดเพื่อดูรายชื่อนักเรียนกลุ่มนั้นทันที
+                💡 คลิกที่การ์ดเพื่อดูรายชื่อนักเรียนกลุ่มนั้น (เปิดป๊อปอัป + กรองตารางทันที)
               </span>
             </div>
             <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-4">
@@ -841,8 +930,11 @@ export default function ReportsPage() {
                 active={statusFilter === "present"}
                 onClick={() => {
                   setStatusFilter((prev) => (prev === "present" ? null : "present"));
+                  setStatusModal("present");
                   setPage(1);
+                  document.getElementById("daily-roster-section")?.scrollIntoView({ behavior: "smooth" });
                 }}
+                onOpenModal={() => setStatusModal("present")}
               />
               <SummaryBox
                 label="ขาดเรียน"
@@ -852,8 +944,11 @@ export default function ReportsPage() {
                 active={statusFilter === "absent"}
                 onClick={() => {
                   setStatusFilter((prev) => (prev === "absent" ? null : "absent"));
+                  setStatusModal("absent");
                   setPage(1);
+                  document.getElementById("daily-roster-section")?.scrollIntoView({ behavior: "smooth" });
                 }}
+                onOpenModal={() => setStatusModal("absent")}
               />
               <SummaryBox
                 label="มาสาย"
@@ -863,8 +958,11 @@ export default function ReportsPage() {
                 active={statusFilter === "late"}
                 onClick={() => {
                   setStatusFilter((prev) => (prev === "late" ? null : "late"));
+                  setStatusModal("late");
                   setPage(1);
+                  document.getElementById("daily-roster-section")?.scrollIntoView({ behavior: "smooth" });
                 }}
+                onOpenModal={() => setStatusModal("late")}
               />
               <SummaryBox
                 label="กิจกรรม"
@@ -874,103 +972,16 @@ export default function ReportsPage() {
                 active={statusFilter === "activity"}
                 onClick={() => {
                   setStatusFilter((prev) => (prev === "activity" ? null : "activity"));
+                  setStatusModal("activity");
                   setPage(1);
+                  document.getElementById("daily-roster-section")?.scrollIntoView({ behavior: "smooth" });
                 }}
+                onOpenModal={() => setStatusModal("activity")}
               />
             </div>
           </Card>
 
-          <Card className="p-4 sm:p-5">
-            <CardTitle className="mb-0.5">สรุปการมาเรียนช่วงวันที่</CardTitle>
-            <p className="mb-2 text-[12.5px] text-[#5b6b82]">
-              รวมยอดมา/สาย/กิจกรรม/ขาดรายคนของห้อง {group} — ใช้ส่งฝ่ายวิชาการหรือเก็บเป็นหลักฐาน
-            </p>
-            <div className="flex flex-wrap items-end gap-2">
-              <label className="block text-[13.5px] font-medium text-[#16233a]">
-                ตั้งแต่วันที่
-                <input
-                  type="date"
-                  value={rangeFrom}
-                  onChange={(e) => setRangeFrom(e.target.value)}
-                  className="mt-1 h-10 rounded-lg border border-[#d8e0ec] bg-white px-3 text-[14px] focus:border-[#2474c6] focus:outline-none"
-                />
-              </label>
-              <label className="block text-[13.5px] font-medium text-[#16233a]">
-                ถึงวันที่
-                <input
-                  type="date"
-                  value={rangeTo}
-                  onChange={(e) => setRangeTo(e.target.value)}
-                  className="mt-1 h-10 rounded-lg border border-[#d8e0ec] bg-white px-3 text-[14px] focus:border-[#2474c6] focus:outline-none"
-                />
-              </label>
-              <UIButton variant="blue" onClick={() => void loadRange(false)} disabled={rangeBusy} className="h-10 bg-[#5b6b82] px-3 text-[13.5px] hover:bg-[#465364] focus-visible:ring-[#5b6b82]/40 disabled:opacity-40">
-                {rangeBusy ? "กำลังโหลด..." : "ดูสรุป"}
-              </UIButton>
-              <UIButton variant="green" onClick={() => void loadRange(true)} disabled={rangeBusy} className="h-10 px-3 text-[13.5px] disabled:opacity-40">
-                ส่งออก (Excel)
-              </UIButton>
-              {isCombinedM1(group) && rangeRows && rangeRows.length > 0 && (
-                <UIButton
-                  variant="blue"
-                  onClick={exportSeparatedM1}
-                  className="h-10 bg-[#16233a] px-3 text-[13.5px] hover:bg-[#20314f]"
-                >
-                  📥 แยกส่งออกรายห้องจริง (1/1 - 1/11)
-                </UIButton>
-              )}
-            </div>
-            {rangeNotice ? (
-              <p role="status" className="mt-2 rounded-lg bg-[#e8f1fb] px-3 py-2 text-[13.5px] font-medium text-[#1a5da3]">
-                {rangeNotice}
-              </p>
-            ) : null}
-            {rangeRows && rangeRows.length > 0 ? (
-              <div className="slim-scroll mt-2 max-h-64 overflow-auto rounded-lg border border-[#eef2f7]">
-                <table className="w-full min-w-[680px] border-collapse text-left text-[13px]">
-                  <thead className="sticky top-0 bg-[#f8fafc] text-[12.5px] font-bold text-[#16233a]">
-                    <tr>
-                      <th className="px-2.5 py-2">ลำดับ</th>
-                      <th className="px-2.5 py-2">เลขที่</th>
-                      <th className="px-2.5 py-2">รหัส</th>
-                      <th className="px-2.5 py-2">ชื่อ-นามสกุล</th>
-                      <th className="px-2.5 py-2 text-center">มา</th>
-                      <th className="px-2.5 py-2 text-center">สาย</th>
-                      <th className="px-2.5 py-2 text-center">กิจกรรม</th>
-                      <th className="px-2.5 py-2 text-center">ขาด</th>
-                      <th className="px-2.5 py-2 text-center">วันที่มีข้อมูล</th>
-                      <th className="px-2.5 py-2 text-center">% มาเรียน</th>
-                      <th className="px-2.5 py-2 text-center text-[#1a5da3]">จิตพิสัย (10)</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {rangeRows.map((r, i) => {
-                      const attended = r.present + r.late + r.activity;
-                      const pctAttend = r.days ? Math.round((attended / r.days) * 100) : 0;
-                      const score = calculateAffectiveScore(group, r.absent);
-                      return (
-                        <tr key={r.code} className="border-t border-[#eef2f7]">
-                          <td className="px-2.5 py-1.5 text-[#5b6b82]">{i + 1}</td>
-                          <td className="px-2.5 py-1.5 font-bold text-[#2474c6]">{r.number || "-"}</td>
-                          <td className="px-2.5 py-1.5">{r.code}</td>
-                          <td className="whitespace-nowrap px-2.5 py-1.5 font-medium text-[#16233a]">{r.name}</td>
-                          <td className="px-2.5 py-1.5 text-center text-[#1e8e3e]">{r.present}</td>
-                          <td className="px-2.5 py-1.5 text-center text-[#ef8c1a]">{r.late}</td>
-                          <td className="px-2.5 py-1.5 text-center text-[#00897b]">{r.activity}</td>
-                          <td className="px-2.5 py-1.5 text-center text-[#c62828]">{r.absent}</td>
-                          <td className="px-2.5 py-1.5 text-center text-[#5b6b82]">{r.days}</td>
-                          <td className="px-2.5 py-1.5 text-center font-bold text-[#16233a]">{pctAttend}%</td>
-                          <td className="px-2.5 py-1.5 text-center font-bold text-[#1a5da3]">{score}/10</td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
-            ) : null}
-          </Card>
-
-          <Card className="p-4 sm:p-5">
+          <Card id="daily-roster-section" className="p-4 sm:p-5">
             <div className="flex flex-wrap items-center gap-2">
               <h2 className="mr-auto text-[16px] font-bold text-[#16233a]">
                 รายชื่อนักเรียน {group} ({fmtDate(date)})
@@ -1041,16 +1052,25 @@ export default function ReportsPage() {
                     ({rows.length} คน)
                   </span>
                 </span>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setStatusFilter(null);
-                    setPage(1);
-                  }}
-                  className="rounded-md border border-[#d8e0ec] bg-white px-2.5 py-1 text-[12px] font-semibold text-[#5b6b82] shadow-2xs hover:bg-[#eef2f7]"
-                >
-                  ✕ แสดงนักเรียนทั้งหมด ({groupStudents.length} คน)
-                </button>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setStatusModal(statusFilter)}
+                    className="rounded-md bg-[#16233a] px-2.5 py-1 text-[12px] font-bold text-white shadow-2xs hover:bg-[#20314f]"
+                  >
+                    👁️ เปิดป๊อปอัปรายชื่อ
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setStatusFilter(null);
+                      setPage(1);
+                    }}
+                    className="rounded-md border border-[#d8e0ec] bg-white px-2.5 py-1 text-[12px] font-semibold text-[#5b6b82] shadow-2xs hover:bg-[#eef2f7]"
+                  >
+                    ✕ แสดงนักเรียนทั้งหมด ({groupStudents.length} คน)
+                  </button>
+                </div>
               </div>
             )}
 
@@ -1278,6 +1298,16 @@ export default function ReportsPage() {
                         </span>
                       </td>
                       <td className="whitespace-nowrap py-1.5 text-right">
+                        {r.status === "absent" && (
+                          <button
+                            type="button"
+                            onClick={() => void handleQuickMarkStatus(r.id, "present")}
+                            className="mr-1.5 rounded bg-[#1e8e3e] px-2 py-1 text-[11px] font-bold text-white shadow-2xs transition hover:brightness-110 active:scale-95"
+                            title="เช็คชื่อให้นักเรียน (มาเรียน)"
+                          >
+                            ✓ เช็คชื่อให้
+                          </button>
+                        )}
                         <button
                           type="button"
                           aria-label={`แก้ไข ${r.name}`}
@@ -1369,6 +1399,96 @@ export default function ReportsPage() {
                 <PageLastIcon />
               </button>
             </div>
+          </Card>
+
+          <Card className="p-4 sm:p-5">
+            <CardTitle className="mb-0.5">สรุปการมาเรียนช่วงวันที่</CardTitle>
+            <p className="mb-2 text-[12.5px] text-[#5b6b82]">
+              รวมยอดมา/สาย/กิจกรรม/ขาดรายคนของห้อง {group} — ใช้ส่งฝ่ายวิชาการหรือเก็บเป็นหลักฐาน
+            </p>
+            <div className="flex flex-wrap items-end gap-2">
+              <label className="block text-[13.5px] font-medium text-[#16233a]">
+                ตั้งแต่วันที่
+                <input
+                  type="date"
+                  value={rangeFrom}
+                  onChange={(e) => setRangeFrom(e.target.value)}
+                  className="mt-1 h-10 rounded-lg border border-[#d8e0ec] bg-white px-3 text-[14px] focus:border-[#2474c6] focus:outline-none"
+                />
+              </label>
+              <label className="block text-[13.5px] font-medium text-[#16233a]">
+                ถึงวันที่
+                <input
+                  type="date"
+                  value={rangeTo}
+                  onChange={(e) => setRangeTo(e.target.value)}
+                  className="mt-1 h-10 rounded-lg border border-[#d8e0ec] bg-white px-3 text-[14px] focus:border-[#2474c6] focus:outline-none"
+                />
+              </label>
+              <UIButton variant="blue" onClick={() => void loadRange(false)} disabled={rangeBusy} className="h-10 bg-[#5b6b82] px-3 text-[13.5px] hover:bg-[#465364] focus-visible:ring-[#5b6b82]/40 disabled:opacity-40">
+                {rangeBusy ? "กำลังโหลด..." : "ดูสรุป"}
+              </UIButton>
+              <UIButton variant="green" onClick={() => void loadRange(true)} disabled={rangeBusy} className="h-10 px-3 text-[13.5px] disabled:opacity-40">
+                ส่งออก (Excel)
+              </UIButton>
+              {isCombinedM1(group) && rangeRows && rangeRows.length > 0 && (
+                <UIButton
+                  variant="blue"
+                  onClick={exportSeparatedM1}
+                  className="h-10 bg-[#16233a] px-3 text-[13.5px] hover:bg-[#20314f]"
+                >
+                  📥 แยกส่งออกรายห้องจริง (1/1 - 1/11)
+                </UIButton>
+              )}
+            </div>
+            {rangeNotice ? (
+              <p role="status" className="mt-2 rounded-lg bg-[#e8f1fb] px-3 py-2 text-[13.5px] font-medium text-[#1a5da3]">
+                {rangeNotice}
+              </p>
+            ) : null}
+            {rangeRows && rangeRows.length > 0 ? (
+              <div className="slim-scroll mt-2 max-h-64 overflow-auto rounded-lg border border-[#eef2f7]">
+                <table className="w-full min-w-[680px] border-collapse text-left text-[13px]">
+                  <thead className="sticky top-0 bg-[#f8fafc] text-[12.5px] font-bold text-[#16233a]">
+                    <tr>
+                      <th className="px-2.5 py-2">ลำดับ</th>
+                      <th className="px-2.5 py-2">เลขที่</th>
+                      <th className="px-2.5 py-2">รหัส</th>
+                      <th className="px-2.5 py-2">ชื่อ-นามสกุล</th>
+                      <th className="px-2.5 py-2 text-center">มา</th>
+                      <th className="px-2.5 py-2 text-center">สาย</th>
+                      <th className="px-2.5 py-2 text-center">กิจกรรม</th>
+                      <th className="px-2.5 py-2 text-center">ขาด</th>
+                      <th className="px-2.5 py-2 text-center">วันที่มีข้อมูล</th>
+                      <th className="px-2.5 py-2 text-center">% มาเรียน</th>
+                      <th className="px-2.5 py-2 text-center text-[#1a5da3]">จิตพิสัย (10)</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {rangeRows.map((r, i) => {
+                      const attended = r.present + r.late + r.activity;
+                      const pctAttend = r.days ? Math.round((attended / r.days) * 100) : 0;
+                      const score = calculateAffectiveScore(group, r.absent);
+                      return (
+                        <tr key={r.code} className="border-t border-[#eef2f7]">
+                          <td className="px-2.5 py-1.5 text-[#5b6b82]">{i + 1}</td>
+                          <td className="px-2.5 py-1.5 font-bold text-[#2474c6]">{r.number || "-"}</td>
+                          <td className="px-2.5 py-1.5">{r.code}</td>
+                          <td className="whitespace-nowrap px-2.5 py-1.5 font-medium text-[#16233a]">{r.name}</td>
+                          <td className="px-2.5 py-1.5 text-center text-[#1e8e3e]">{r.present}</td>
+                          <td className="px-2.5 py-1.5 text-center text-[#ef8c1a]">{r.late}</td>
+                          <td className="px-2.5 py-1.5 text-center text-[#00897b]">{r.activity}</td>
+                          <td className="px-2.5 py-1.5 text-center text-[#c62828]">{r.absent}</td>
+                          <td className="px-2.5 py-1.5 text-center text-[#5b6b82]">{r.days}</td>
+                          <td className="px-2.5 py-1.5 text-center font-bold text-[#16233a]">{pctAttend}%</td>
+                          <td className="px-2.5 py-1.5 text-center font-bold text-[#1a5da3]">{score}/10</td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            ) : null}
           </Card>
 
           {/* ใบลารออนุมัติ */}
@@ -1837,6 +1957,196 @@ export default function ReportsPage() {
           </div>
         </Modal>
       ) : null}
+      {/* Quick View Modal สรุปรายชื่อตามสถานะ */}
+      {statusModal && (
+        <Modal
+          title={`รายชื่อนักเรียน: ${
+            statusModal === "present"
+              ? "✓ มาเรียน"
+              : statusModal === "absent"
+                ? "✗ ขาดเรียน"
+                : statusModal === "late"
+                  ? "⏱ มาสาย"
+                  : "★ ร่วมกิจกรรม"
+          } (${statusModalRows.length} คน)`}
+          maxWidth="max-w-2xl"
+          onClose={() => {
+            setStatusModal(null);
+            setModalSearch("");
+            setModalRoomFilter("all");
+          }}
+        >
+          <div className="space-y-3">
+            {/* Context Subtitle */}
+            <div className="flex flex-wrap items-center justify-between gap-2 border-b border-[#eef2f7] pb-2 text-[13px] text-[#5b6b82]">
+              <div>
+                <span>ประจำวันที่: </span>
+                <span className="font-bold text-[#16233a]">{fmtDate(date)}</span>
+                <span className="mx-2">·</span>
+                <span>กลุ่ม: </span>
+                <span className="font-bold text-[#16233a]">{group}</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() =>
+                    downloadReportsCsv(
+                      `report-${group}-${date}-${statusModal}.csv`,
+                      statusModalRows,
+                    )
+                  }
+                  className="rounded-md bg-[#1e8e3e] px-2.5 py-1 text-[12px] font-bold text-white shadow-2xs hover:brightness-110"
+                >
+                  📥 ส่งออก Excel (${statusModalRows.length})
+                </button>
+              </div>
+            </div>
+
+            {/* Filter controls inside modal */}
+            <div className="flex flex-wrap items-center gap-2">
+              <div className="relative min-w-[200px] flex-1">
+                <input
+                  type="text"
+                  value={modalSearch}
+                  onChange={(e) => setModalSearch(e.target.value)}
+                  placeholder="ค้นหาชื่อ, รหัส, เลขที่..."
+                  className="h-9 w-full rounded-md border border-[#d8e0ec] bg-white pl-3 pr-8 text-[13.5px] text-[#16233a] placeholder:text-[#8a97ab] focus:border-[#2474c6] focus:outline-none"
+                />
+                {modalSearch && (
+                  <button
+                    type="button"
+                    onClick={() => setModalSearch("")}
+                    className="absolute right-2 top-1/2 -translate-y-1/2 text-[14px] text-[#8a97ab] hover:text-[#16233a]"
+                  >
+                    ×
+                  </button>
+                )}
+              </div>
+
+              {isCombinedM1(group) && (
+                <select
+                  value={modalRoomFilter}
+                  onChange={(e) => setModalRoomFilter(e.target.value)}
+                  className="h-9 rounded-md border border-[#d8e0ec] bg-white px-2.5 text-[13px] font-medium text-[#16233a] focus:border-[#2474c6] focus:outline-none"
+                >
+                  <option value="all">ทุกห้อง (1/1 - 1/11)</option>
+                  {M1_SUBGROUPS.map((rm) => (
+                    <option key={rm} value={rm}>
+                      {rm}
+                    </option>
+                  ))}
+                </select>
+              )}
+            </div>
+
+            {/* Student list */}
+            {statusModalRows.length === 0 ? (
+              <div className="py-8 text-center text-[14px] text-[#5b6b82]">
+                {modalSearch || modalRoomFilter !== "all"
+                  ? "ไม่พบนักเรียนตามเงื่อนไขที่ค้นหา"
+                  : statusModal === "absent"
+                    ? "🎉 ยอดเยี่ยม! ไม่มีนักเรียนขาดเรียนในวันนี้ (มาครบ 100%)"
+                    : statusModal === "present"
+                      ? "ยังไม่มีนักเรียนที่มาเรียนในกลุ่มนี้"
+                      : "ไม่มีข้อมูลนักเรียนในสถานะนี้"}
+              </div>
+            ) : (
+              <div className="slim-scroll max-h-[380px] divide-y divide-[#eef2f7] overflow-y-auto rounded-lg border border-[#eef2f7] bg-white pr-1">
+                {statusModalRows.map((r, i) => (
+                  <div
+                    key={r.id}
+                    className="flex flex-wrap items-center justify-between gap-2.5 p-2.5 transition hover:bg-[#f8fafc]"
+                  >
+                    <div className="flex items-center gap-3">
+                      <span className="w-5 text-center text-[12px] font-semibold text-[#8a97ab]">
+                        {i + 1}
+                      </span>
+                      <Avatar initials={r.initials} color={r.color} size="sm" />
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <span className="rounded bg-[#f1f5fa] px-1.5 py-0.2 text-[12px] font-bold text-[#2474c6]">
+                            เลขที่ {r.number || "-"}
+                          </span>
+                          <span className="text-[14px] font-bold text-[#16233a]">
+                            {r.name}
+                          </span>
+                        </div>
+                        <p className="text-[12.5px] text-[#5b6b82]">
+                          รหัส: <span className="font-mono font-medium">{r.id}</span> · {r.group}
+                          {r.time !== "-" ? ` · เวลา ${r.time} น.` : ""}
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-1.5">
+                      {statusModal === "absent" ? (
+                        <>
+                          <button
+                            type="button"
+                            onClick={() => void handleQuickMarkStatus(r.id, "present")}
+                            className="rounded-md bg-[#1e8e3e] px-2.5 py-1 text-[12px] font-bold text-white shadow-2xs transition hover:brightness-110 active:scale-95"
+                            title="เช็คชื่อให้นักเรียนเป็นมาเรียน"
+                          >
+                            ✓ เช็คชื่อให้ (มา)
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => void handleQuickMarkStatus(r.id, "late")}
+                            className="rounded-md bg-[#ef8c1a] px-2 py-1 text-[12px] font-bold text-white shadow-2xs transition hover:brightness-110 active:scale-95"
+                            title="เช็คชื่อให้นักเรียนเป็นมาสาย"
+                          >
+                            ⏱ สาย
+                          </button>
+                        </>
+                      ) : (
+                        <>
+                          <button
+                            type="button"
+                            onClick={() => void handleQuickMarkStatus(r.id, "absent")}
+                            className="rounded-md border border-[#fed7d7] bg-[#fff5f5] px-2 py-1 text-[12px] font-bold text-[#c62828] shadow-2xs transition hover:bg-[#fdecec] active:scale-95"
+                            title="เปลี่ยนสถานะเป็นขาดเรียน"
+                          >
+                            ✗ ขาด
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setStatusModal(null);
+                              void openEditRecord(r.id);
+                            }}
+                            className="rounded-md border border-[#d8e0ec] bg-white px-2 py-1 text-[12px] font-semibold text-[#5b6b82] shadow-2xs hover:bg-[#eef2f7]"
+                            title="แก้ไขรายละเอียด"
+                          >
+                            ✏️ แก้ไข
+                          </button>
+                        </>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* Modal footer */}
+            <div className="flex items-center justify-between border-t border-[#eef2f7] pt-2.5">
+              <span className="text-[12.5px] font-medium text-[#5b6b82]">
+                รวม ${statusModalRows.length} คน
+              </span>
+              <button
+                type="button"
+                onClick={() => {
+                  setStatusModal(null);
+                  setModalSearch("");
+                  setModalRoomFilter("all");
+                }}
+                className="rounded-md bg-[#16233a] px-4 py-1.5 text-[13px] font-bold text-white shadow-2xs hover:bg-[#20314f]"
+              >
+                ปิดหน้าต่าง
+              </button>
+            </div>
+          </div>
+        </Modal>
+      )}
     </AppShell>
   );
 }

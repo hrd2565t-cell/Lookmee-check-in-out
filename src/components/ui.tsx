@@ -88,10 +88,12 @@ export function Modal({
   title,
   onClose,
   children,
+  maxWidth = "max-w-md",
 }: {
   title: string;
   onClose: () => void;
   children: ReactNode;
+  maxWidth?: string;
 }) {
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
@@ -101,7 +103,12 @@ export function Modal({
         onClick={onClose}
         className="absolute inset-0 cursor-default bg-black/40"
       />
-      <div className="relative max-h-[90vh] w-full max-w-md overflow-y-auto rounded-xl bg-white p-5 shadow-xl">
+      <div
+        className={cn(
+          "relative max-h-[90vh] w-full overflow-y-auto rounded-xl bg-white p-5 shadow-xl",
+          maxWidth,
+        )}
+      >
         <div className="mb-3 flex items-center justify-between">
           <h3 className="text-[17px] font-bold text-[#16233a]">{title}</h3>
           <button
