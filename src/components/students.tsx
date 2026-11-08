@@ -27,7 +27,7 @@ import { compareGroupNames } from "@/lib/school-data";
 import { downloadCsv, exportStamp } from "@/lib/export";
 import { readTeacherGroup, useTeacherGroup } from "@/lib/teacher-scope";
 import { cn } from "@/lib/cn";
-import { todayStr as attendanceToday } from "@/lib/attendance";
+import { todayStr as attendanceToday, COMBINED_M1_GROUP, isCombinedM1, M1_SUBGROUPS } from "@/lib/attendance";
 
 const PALETTE = [
   "bg-[#dbe7f5] text-[#1a5da3]",
@@ -172,6 +172,7 @@ export default function StudentsPage() {
   const [query, setQuery] = useState("");
   const group = sharedGroup || "all";
   const [status, setStatus] = useState("all");
+  const [m1SubgroupFilter, setM1SubgroupFilter] = useState("all");
   const [sortKey, setSortKey] = useState<"code" | "name" | "number">("code");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
   const [page, setPage] = useState(1);
@@ -248,11 +249,20 @@ export default function StudentsPage() {
               (Number(a.number) || 999) - (Number(b.number) || 999) ||
               a.studentId.localeCompare(b.studentId, "th", { numeric: true }),
           );
+        const hasM1 = mapped.some((s) => s.group.startsWith("ม.1/"));
+        const nonM1Names = names.filter((n) => !n.startsWith("ม.1/") && !isCombinedM1(n));
+        const consolidatedGroups = [
+          ...(hasM1 ? [COMBINED_M1_GROUP] : []),
+          ...nonM1Names,
+        ];
+        const seenGroups = new Set<string>();
+        const uniqueGroupList = consolidatedGroups.filter((g) => !seenGroups.has(g) && seenGroups.add(g));
+
         if (!cancelled) {
           setGroupIds(
             Object.fromEntries([...idToName.entries()].map(([id, name]) => [name, id])),
           );
-          setGroupList(names);
+          setGroupList(uniqueGroupList);
           setStudentList(mapped);
           setDbLive(true);
         }
@@ -274,14 +284,25 @@ export default function StudentsPage() {
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
     const rows = studentList.filter((s) => {
-      if (group !== "all" && s.group !== group) return false;
+      if (group !== "all") {
+        if (isCombinedM1(group)) {
+          if (m1SubgroupFilter === "all") {
+            if (!s.group.startsWith("ม.1/")) return false;
+          } else {
+            if (s.group !== m1SubgroupFilter) return false;
+          }
+        } else if (s.group !== group) {
+          return false;
+        }
+      }
       if (status === "registered" && !s.registered) return false;
       if (status === "unregistered" && s.registered) return false;
       if (!q) return true;
       return (
         s.thaiName.toLowerCase().includes(q) ||
         (s.engName ?? "").toLowerCase().includes(q) ||
-        s.studentId.includes(q)
+        s.studentId.includes(q) ||
+        Boolean(s.number && s.number.includes(q))
       );
     });
     return rows.sort((a, b) => {
@@ -295,7 +316,7 @@ export default function StudentsPage() {
       }
       return sortDir === "asc" ? cmp : -cmp;
     });
-  }, [studentList, query, group, status, sortKey, sortDir]);
+  }, [studentList, query, group, m1SubgroupFilter, status, sortKey, sortDir]);
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
   const safePage = Math.min(page, totalPages);
@@ -988,6 +1009,7 @@ export default function StudentsPage() {
               value={group}
               onChange={(v) => {
                 setSharedGroup(v === "all" ? "" : v);
+                setM1SubgroupFilter("all");
                 setPage(1);
               }}
               options={[
@@ -1025,6 +1047,50 @@ export default function StudentsPage() {
               ]}
             />
           </div>
+
+          {isCombinedM1(group) && (
+            <div className="mt-3 flex flex-wrap items-center gap-1.5 rounded-lg border border-[#d8e0ec] bg-[#f8fafc] p-2.5">
+              <span className="mr-1 text-[12.5px] font-bold text-[#16233a]">
+                ห้องเรียน:
+              </span>
+              <button
+                type="button"
+                onClick={() => {
+                  setM1SubgroupFilter("all");
+                  setPage(1);
+                }}
+                className={cn(
+                  "rounded-md px-2.5 py-1 text-[12px] font-bold transition-colors",
+                  m1SubgroupFilter === "all"
+                    ? "bg-[#16233a] text-white shadow-xs"
+                    : "border border-[#d8e0ec] bg-white text-[#5b6b82] hover:bg-[#eef2f7]",
+                )}
+              >
+                ทั้งหมด ({studentList.filter((s) => s.group.startsWith("ม.1/")).length} คน)
+              </button>
+              {M1_SUBGROUPS.map((rm) => {
+                const count = studentList.filter((s) => s.group === rm).length;
+                return (
+                  <button
+                    key={rm}
+                    type="button"
+                    onClick={() => {
+                      setM1SubgroupFilter(rm);
+                      setPage(1);
+                    }}
+                    className={cn(
+                      "rounded-md px-2.5 py-1 text-[12px] font-bold transition-colors",
+                      m1SubgroupFilter === rm
+                        ? "bg-[#2474c6] text-white shadow-xs"
+                        : "border border-[#d8e0ec] bg-white text-[#5b6b82] hover:bg-[#eef2f7]",
+                    )}
+                  >
+                    {rm} ({count})
+                  </button>
+                );
+              })}
+            </div>
+          )}
 
           <p className="mt-2 text-[12.5px] text-[#5b6b82]">
             ★ นักเรียนที่ติดธง รด. จะถูกบันทึกเป็นกิจกรรมอัตโนมัติในวันที่ตารางเรียนมีคาบชื่อ “รด.”
@@ -1100,6 +1166,11 @@ export default function StudentsPage() {
                         {s.thaiName}
                         {s.engName ? ` (${s.engName})` : ""}
                       </button>
+                      {s.number ? (
+                        <span className="ml-2 rounded bg-[#f1f5fa] px-1.5 py-0.2 text-[11px] font-bold text-[#2474c6]">
+                          เลขที่ {s.number}
+                        </span>
+                      ) : null}
                     </td>
                     <td className="whitespace-nowrap py-2 pr-3 text-[14px] text-[#16233a]">
                       {s.studentId}

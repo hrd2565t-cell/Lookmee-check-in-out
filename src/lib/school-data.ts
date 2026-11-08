@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { isSupabaseConfigured, supabase } from "./supabase/client";
-import { COMBINED_M1_GROUP } from "./attendance";
+import { COMBINED_M1_GROUP, isCombinedM1 } from "./attendance";
 import {
   ACTIVE_STUDENT_COUNT,
   SCHOOL_GROUPS,
@@ -67,12 +67,15 @@ export function mockRoster(): Omit<Roster, "live"> {
       a.code.localeCompare(b.code, "th", { numeric: true }),
   );
   const m1Count = SCHOOL_STUDENTS.filter((s) => s.group.startsWith("ม.1/")).length;
-  const nonM1Groups = SCHOOL_GROUPS.filter((g) => !g.name.startsWith("ม.1/"));
+  const nonM1Groups = SCHOOL_GROUPS.filter((g) => !g.name.startsWith("ม.1/") && !isCombinedM1(g.name));
+  const rawMockGroups: RosterGroup[] = [
+    ...(m1Count > 0 ? [{ name: COMBINED_M1_GROUP, count: m1Count }] : []),
+    ...nonM1Groups,
+  ];
+  const seenMock = new Set<string>();
+  const groups: RosterGroup[] = rawMockGroups.filter((g) => !seenMock.has(g.name) && seenMock.add(g.name));
   return {
-    groups: [
-      ...(m1Count > 0 ? [{ name: COMBINED_M1_GROUP, count: m1Count }] : []),
-      ...nonM1Groups,
-    ],
+    groups,
     students: sorted.map((s) => ({ ...s, registered: false })),
   };
 }
@@ -134,14 +137,16 @@ async function fetchRosterFromDb(): Promise<Omit<Roster, "live"> | null> {
   const counts = new Map<string, number>();
   students.forEach((s) => counts.set(s.group, (counts.get(s.group) ?? 0) + 1));
   const m1Count = students.filter((s) => s.group.startsWith("ม.1/")).length;
-  const nonM1Names = names.filter((name) => !name.startsWith("ม.1/"));
-  const groups: RosterGroup[] = [
+  const nonM1Names = names.filter((name) => !name.startsWith("ม.1/") && !isCombinedM1(name));
+  const rawGroups: RosterGroup[] = [
     ...(m1Count > 0 ? [{ name: COMBINED_M1_GROUP, count: m1Count }] : []),
     ...nonM1Names.map((name) => ({
       name,
       count: counts.get(name) ?? 0,
     })),
   ];
+  const seen = new Set<string>();
+  const groups: RosterGroup[] = rawGroups.filter((g) => !seen.has(g.name) && seen.add(g.name));
   return { groups, students };
 }
 

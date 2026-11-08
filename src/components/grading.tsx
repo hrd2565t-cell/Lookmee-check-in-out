@@ -1142,13 +1142,24 @@ export default function GradingPage() {
               จัดการทะเบียนวิชา
             </UIButton>
           </div>
-        ) : assignments.length === 0 ? (
-          <p className="py-8 text-center text-[14px] text-[#5b6b82]">
-            ยังไม่มีคอลัมน์งานในวิชานี้ — กด “+ เพิ่มคอลัมน์งาน” เพื่อเริ่ม
-          </p>
         ) : (
-          <div className="slim-scroll -mx-4 overflow-x-auto px-4 sm:-mx-5 sm:px-5">
-            <table className="w-full min-w-[860px] border-separate border-spacing-0 text-left">
+          <>
+            {assignments.length === 0 && (
+              <div className="mb-3 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-[#fed7aa] bg-[#fffaf0] p-3 text-[13px] text-[#9a3412]">
+                <span>
+                  💡 แสดงรายชื่อนักเรียน <span className="font-bold text-[#16233a]">{students.length} คน</span> เรียบร้อยแล้ว — ยังไม่มีคอลัมน์งานในวิชานี้ กดปุ่มสีเขียวเพื่อสร้างงานแรก
+                </span>
+                <UIButton
+                  variant="green"
+                  onClick={openAddColumn}
+                  className="h-8 px-3 text-[12px]"
+                >
+                  + เพิ่มคอลัมน์งาน
+                </UIButton>
+              </div>
+            )}
+            <div className="slim-scroll -mx-4 overflow-x-auto px-4 sm:-mx-5 sm:px-5">
+              <table className="w-full min-w-[860px] border-separate border-spacing-0 text-left">
               <thead>
                 <tr className="text-[12.5px] font-bold text-[#16233a]">
                   {/* ตรึงคอลัมน์ ลำดับ */}
@@ -1197,85 +1208,104 @@ export default function GradingPage() {
                       ) : null}
                     </div>
                   </th>
-                  {assignments.map((a) => (
-                    <th
-                      key={a.id}
-                      className={cn(
-                        "w-[110px] max-w-[110px] border-b border-[#eef2f7] px-1.5 py-2 text-center",
-                        draggedId === a.id ? "opacity-50 ring-2 ring-[#2474c6]" : "",
-                      )}
-                      title={`${a.title} · ส่ง ${a.due}`}
-                      draggable={true}
-                      onDragStart={(e) => {
-                        setDraggedId(a.id);
-                        e.dataTransfer.setData("text/plain", a.id);
-                        e.dataTransfer.effectAllowed = "move";
-                      }}
-                      onDragOver={(e) => e.preventDefault()}
-                      onDrop={(e) => {
-                        e.preventDefault();
-                        if (draggedId && draggedId !== a.id) {
-                          void handleColumnDrop(a.id);
-                        }
-                      }}
-                      >
-                      <div className="flex flex-col items-start gap-1.5">
-                        <div className="flex-1 min-w-0">
-                          <span className="block break-words leading-tight line-clamp-2">
-                            {a.title}
-                            {a.retakeOf ? <span className="ml-1 align-middle text-[9px] font-bold text-[#b45309]">ซ่อม</span> : null}
-                          </span>
-                          <span className="block font-medium text-[#5b6b82]">({a.max})</span>
-                          {!a.visible ? (
-                            <span className="mt-0.5 block text-[10px] font-bold text-[#8a97ab]">ซ่อนอยู่</span>
-                          ) : null}
-                        </div>
-                        <div className="flex items-center gap-1 text-[#8a97ab]">
-                          <span className="text-[10px] cursor-grab active:cursor-grabbing">⋮⋮</span>
-                          <button
-                            type="button"
-                            aria-label={`แก้ไขคอลัมน์ ${a.title}`}
-                            title={`แก้ไข ${a.title}`}
-                            onClick={() => openEditColumn(a)}
-                            className="rounded p-0.5 text-[#c9d2de] hover:bg-[#e8f1fb] hover:text-[#2474c6]"
-                          >
-                            <PencilIcon className="h-3.5 w-3.5" />
-                          </button>
-                          <button
-                            type="button"
-                            aria-label={a.visible ? `ซ่อนคอลัมน์ ${a.title} จากนักเรียน` : `เผยแพร่คอลัมน์ ${a.title}`}
-                            title={a.title + (a.visible ? " (นักเรียนเห็น)" : " (ครูเห็นคนเดียว)")}
-                            onClick={() => void toggleVisible(a)}
-                            className="rounded p-0.5 text-[#c9d2de] hover:bg-[#e8f1fb] hover:text-[#2474c6]"
-                          >
-                            {a.visible ? <EyeIcon className="h-3.5 w-3.5" /> : <EyeOffIcon className="h-3.5 w-3.5" />}
-                          </button>
-                          <button
-                            type="button"
-                            aria-label={`ลบคอลัมน์ ${a.title}`}
-                            title={a.title}
-                            onClick={() => void removeColumn(a)}
-                            className="rounded p-0.5 text-[#c9d2de] hover:bg-[#fdecec] hover:text-[#c62828]"
-                          >
-                            <TrashIcon className="h-3.5 w-3.5" />
-                          </button>
-                          {!a.retakeOf && !assignments.some((x) => x.retakeOf === a.id) ? (
+                  {assignments.length > 0 ? (
+                    assignments.map((a) => (
+                      <th
+                        key={a.id}
+                        className={cn(
+                          "w-[110px] max-w-[110px] border-b border-[#eef2f7] px-1.5 py-2 text-center",
+                          draggedId === a.id ? "opacity-50 ring-2 ring-[#2474c6]" : "",
+                        )}
+                        title={`${a.title} · ส่ง ${a.due}`}
+                        draggable={true}
+                        onDragStart={(e) => {
+                          setDraggedId(a.id);
+                          e.dataTransfer.setData("text/plain", a.id);
+                          e.dataTransfer.effectAllowed = "move";
+                        }}
+                        onDragOver={(e) => e.preventDefault()}
+                        onDrop={(e) => {
+                          e.preventDefault();
+                          if (draggedId && draggedId !== a.id) {
+                            void handleColumnDrop(a.id);
+                          }
+                        }}
+                        >
+                        <div className="flex flex-col items-start gap-1.5">
+                          <div className="flex-1 min-w-0">
+                            <span className="block break-words leading-tight line-clamp-2">
+                              {a.title}
+                              {a.retakeOf ? <span className="ml-1 align-middle text-[9px] font-bold text-[#b45309]">ซ่อม</span> : null}
+                            </span>
+                            <span className="block font-medium text-[#5b6b82]">({a.max})</span>
+                            {!a.visible ? (
+                              <span className="mt-0.5 block text-[10px] font-bold text-[#8a97ab]">ซ่อนอยู่</span>
+                            ) : null}
+                          </div>
+                          <div className="flex items-center gap-1 text-[#8a97ab]">
+                            <span className="text-[10px] cursor-grab active:cursor-grabbing">⋮⋮</span>
                             <button
                               type="button"
-                              title={`เพิ่มคอลัมน์สอบซ่อมของ ${a.title}`}
-                              onClick={() => void addRetake(a)}
-                              className="rounded px-1 text-[9px] font-bold text-[#b45309] hover:bg-[#fef6ec]"
+                              aria-label={`แก้ไขคอลัมน์ ${a.title}`}
+                              title={`แก้ไข ${a.title}`}
+                              onClick={() => openEditColumn(a)}
+                              className="rounded p-0.5 text-[#c9d2de] hover:bg-[#e8f1fb] hover:text-[#2474c6]"
                             >
-                              +ซ่อม
+                              <PencilIcon className="h-3.5 w-3.5" />
                             </button>
-                          ) : null}
+                            <button
+                              type="button"
+                              aria-label={a.visible ? `ซ่อนคอลัมน์ ${a.title} จากนักเรียน` : `เผยแพร่คอลัมน์ ${a.title}`}
+                              title={a.title + (a.visible ? " (นักเรียนเห็น)" : " (ครูเห็นคนเดียว)")}
+                              onClick={() => void toggleVisible(a)}
+                              className="rounded p-0.5 text-[#c9d2de] hover:bg-[#e8f1fb] hover:text-[#2474c6]"
+                            >
+                              {a.visible ? <EyeIcon className="h-3.5 w-3.5" /> : <EyeOffIcon className="h-3.5 w-3.5" />}
+                            </button>
+                            <button
+                              type="button"
+                              aria-label={`ลบคอลัมน์ ${a.title}`}
+                              title={a.title}
+                              onClick={() => void removeColumn(a)}
+                              className="rounded p-0.5 text-[#c9d2de] hover:bg-[#fdecec] hover:text-[#c62828]"
+                            >
+                              <TrashIcon className="h-3.5 w-3.5" />
+                            </button>
+                            {!a.retakeOf && !assignments.some((x) => x.retakeOf === a.id) ? (
+                              <button
+                                type="button"
+                                title={`เพิ่มคอลัมน์สอบซ่อมของ ${a.title}`}
+                                onClick={() => void addRetake(a)}
+                                className="rounded px-1 text-[9px] font-bold text-[#b45309] hover:bg-[#fef6ec]"
+                              >
+                                +ซ่อม
+                              </button>
+                            ) : null}
+                          </div>
                         </div>
+                      </th>
+                    ))
+                  ) : (
+                    <th className="border-b border-[#eef2f7] px-4 py-2.5 text-center">
+                      <div className="flex items-center justify-center gap-2">
+                        <span className="text-[12px] font-medium text-[#5b6b82]">ยังไม่มีคอลัมน์งาน</span>
+                        <button
+                          type="button"
+                          onClick={openAddColumn}
+                          className="rounded bg-[#1e8e3e] px-2.5 py-1 text-[11.5px] font-bold text-white shadow-2xs transition hover:brightness-110 active:scale-95"
+                        >
+                          + เพิ่มคอลัมน์งานแรก
+                        </button>
                       </div>
                     </th>
-                  ))}
-                  <th className="whitespace-nowrap border-b border-[#eef2f7] px-2 py-2 text-center">คะแนนรวม (100)</th>
-                  <th className="whitespace-nowrap border-b border-[#eef2f7] px-2 py-2 text-center">เกรด</th>
-                  <th className="whitespace-nowrap border-b border-[#eef2f7] py-2 text-right">สถานะ</th>
+                  )}
+                  {assignments.length > 0 && (
+                    <>
+                      <th className="whitespace-nowrap border-b border-[#eef2f7] px-2 py-2 text-center">คะแนนรวม (100)</th>
+                      <th className="whitespace-nowrap border-b border-[#eef2f7] px-2 py-2 text-center">เกรด</th>
+                      <th className="whitespace-nowrap border-b border-[#eef2f7] py-2 text-right">สถานะ</th>
+                    </>
+                  )}
                 </tr>
               </thead>
               <tbody>
@@ -1353,7 +1383,7 @@ export default function GradingPage() {
                 })}
                 {pageRows.length === 0 ? (
                   <tr>
-                    <td colSpan={6 + assignments.length} className="py-8 text-center text-[14px] text-[#5b6b82]">
+                    <td colSpan={assignments.length > 0 ? (6 + assignments.length) : 4} className="py-8 text-center text-[14px] text-[#5b6b82]">
                       ไม่พบนักเรียนตามเงื่อนไข
                     </td>
                   </tr>
@@ -1361,6 +1391,7 @@ export default function GradingPage() {
               </tbody>
             </table>
           </div>
+          </>
         )}
         {/* pagination */}
         <div className="mt-2 flex items-center gap-1 border-t border-[#eef2f7] pt-2.5 text-[13.5px] text-[#5b6b82]">
