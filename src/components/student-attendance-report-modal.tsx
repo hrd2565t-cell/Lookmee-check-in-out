@@ -106,10 +106,16 @@ export function StudentAttendanceReportModal({
     let leaveDays = 0;
     for (const l of approvedLeaves) {
       if (l.dateFrom && l.dateTo) {
-        const d1 = new Date(l.dateFrom).getTime();
-        const d2 = new Date(l.dateTo).getTime();
-        const diff = Math.round((d2 - d1) / (1000 * 60 * 60 * 24)) + 1;
-        leaveDays += isNaN(diff) || diff < 1 ? 1 : diff;
+        const cur = new Date(`${l.dateFrom}T00:00:00`);
+        const end = new Date(`${l.dateTo}T00:00:00`);
+        let cnt = 0;
+        let g = 0;
+        while (cur <= end && g++ < 60) {
+          const day = cur.getDay();
+          if (day !== 0 && day !== 6) cnt++;
+          cur.setDate(cur.getDate() + 1);
+        }
+        leaveDays += cnt || 1;
       } else {
         leaveDays += 1;
       }

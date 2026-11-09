@@ -24,6 +24,7 @@ import {
 } from "@/data/reports";
   import {
     isCombinedM1,
+    isWeekend,
     M1_SUBGROUPS,
     calculateAffectiveScore,
     checkIn,
@@ -246,7 +247,18 @@ export default function ReportsPage() {
   const [modalSearch, setModalSearch] = useState("");
   const [modalRoomFilter, setModalRoomFilter] = useState("all");
 
+  const isDateWeekend = isWeekend(date);
+
   const summary = useMemo(() => {
+    if (isDateWeekend) {
+      return {
+        present: 0,
+        absent: 0,
+        late: 0,
+        activity: 0,
+        total: groupStudents.length,
+      };
+    }
     const recordMap = new Map(grec.map((r) => [r.studentCode, r]));
     let present = 0;
     let late = 0;
@@ -275,7 +287,7 @@ export default function ReportsPage() {
       activity,
       total: groupStudents.length,
     };
-  }, [grec, groupStudents]);
+  }, [grec, groupStudents, isDateWeekend]);
 
   /* ---------- สรุปช่วงวันที่ (ทั้งเทอม/เดือน) ---------- */
   const monthStart = (() => {
@@ -327,10 +339,16 @@ export default function ReportsPage() {
       let leaveDays = 0;
       for (const l of approvedLeaves) {
         if (l.dateFrom && l.dateTo) {
-          const d1 = new Date(l.dateFrom).getTime();
-          const d2 = new Date(l.dateTo).getTime();
-          const diff = Math.round((d2 - d1) / (1000 * 60 * 60 * 24)) + 1;
-          leaveDays += isNaN(diff) || diff < 1 ? 1 : diff;
+          const cur = new Date(`${l.dateFrom}T00:00:00`);
+          const end = new Date(`${l.dateTo}T00:00:00`);
+          let cnt = 0;
+          let g = 0;
+          while (cur <= end && g++ < 60) {
+            const day = cur.getDay();
+            if (day !== 0 && day !== 6) cnt++;
+            cur.setDate(cur.getDate() + 1);
+          }
+          leaveDays += cnt || 1;
         } else {
           leaveDays += 1;
         }
@@ -484,6 +502,10 @@ export default function ReportsPage() {
   const [actBanner, setActBanner] = useState("");
 
   const openActivityModal = () => {
+    if (isDateWeekend) {
+      alert("ไม่สามารถบันทึกกิจกรรมในวันหยุดเสาร์-อาทิตย์ได้");
+      return;
+    }
     const g = group || reportGroups[0] || "";
     setActGroup(g);
     setActDate(dbToday());
@@ -772,6 +794,7 @@ export default function ReportsPage() {
 
   /* ---------- ข้อมูลนักเรียนทั้งหมดพร้อมสถานะของวันนั้น ---------- */
   const allRosterRows = useMemo<ReportRow[]>(() => {
+    if (isDateWeekend) return [];
     const recordMap = new Map(grec.map((r) => [r.studentCode, r]));
     return groupStudents.map((st) => {
       const r = recordMap.get(st.code);
@@ -800,7 +823,7 @@ export default function ReportsPage() {
         method: "manual" as const,
       };
     });
-  }, [groupStudents, grec]);
+  }, [groupStudents, grec, isDateWeekend]);
 
   /* ---------- รายชื่อนักเรียนสำหรับตารางหลัก ---------- */
   const rows = useMemo(() => {
@@ -852,6 +875,10 @@ export default function ReportsPage() {
 
   /* ---------- ฟังก์ชันเปลี่ยนสถานะด่วนในคลิกเดียว (Quick Check-in) ---------- */
   const handleQuickMarkStatus = async (studentCode: string, targetStatus: AttendanceStatus) => {
+    if (isDateWeekend) {
+      alert("ไม่สามารถเช็คชื่อในวันหยุดเสาร์-อาทิตย์ได้");
+      return;
+    }
     const existingRec = grec.find((x) => x.studentCode === studentCode);
     const st = groupStudents.find((s) => s.code === studentCode);
     if (!st) return;
@@ -957,9 +984,18 @@ export default function ReportsPage() {
                   setDate(e.target.value);
                   setPage(1);
                 }}
-                className="h-10 w-full rounded-lg border border-[#d8e0ec] bg-white pl-3 pr-3 text-[14px] text-[#16233a] focus:border-[#2474c6] focus:outline-none"
+                className={cn(
+                  "h-10 w-full rounded-lg border bg-white pl-3 pr-3 text-[14px] text-[#16233a] focus:outline-none",
+                  isDateWeekend ? "border-[#f59e0b] focus:border-[#d97706]" : "border-[#d8e0ec] focus:border-[#2474c6]",
+                )}
               />
             </span>
+            {isDateWeekend && (
+              <p className="mt-1.5 flex items-center gap-1 text-[12px] font-semibold text-[#b45309]">
+                <span>⚠️</span>
+                <span>ตรงกับวันหยุดสุดสัปดาห์ (เสาร์-อาทิตย์)</span>
+              </p>
+            )}
           </label>
 
           <div className="relative mt-3">
@@ -1427,9 +1463,11 @@ export default function ReportsPage() {
                         colSpan={8}
                         className="py-8 text-center text-[14px] text-[#5b6b82]"
                       >
-                        {session
-                          ? "ไม่พบข้อมูลรายงานตามเงื่อนไข"
-                          : `ยังไม่มีรอบเช็กชื่อของกลุ่ม ${group} ในวันที่เลือก — เปิดรอบที่หน้า Scanner หรือบันทึกกิจกรรม`}
+                        {isDateWeekend
+                          ? `📅 วันที่ ${fmtDate(date)} ตรงกับวันหยุดสุดสัปดาห์ (เสาร์-อาทิตย์) ไม่มีการเรียนการสอนและไม่มีการเช็กชื่อ`
+                          : session
+                            ? "ไม่พบข้อมูลรายงานตามเงื่อนไข"
+                            : `ยังไม่มีรอบเช็กชื่อของกลุ่ม ${group} ในวันที่เลือก — เปิดรอบที่หน้า Scanner หรือบันทึกกิจกรรม`}
                       </td>
                     </tr>
                   ) : null}

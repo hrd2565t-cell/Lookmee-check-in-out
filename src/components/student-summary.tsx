@@ -414,15 +414,26 @@ export default function StudentSummaryPage() {
     leaves.forEach((l) => {
       const cur = new Date(`${l.date_from}T00:00:00`);
       const end = new Date(`${l.date_to}T00:00:00`);
-      while (cur <= end) {
-        const key = `${cur.getFullYear()}-${String(cur.getMonth() + 1).padStart(2, "0")}-${String(cur.getDate()).padStart(2, "0")}`;
-        if (!m.has(key)) m.set(key, "leave");
+      let g = 0;
+      while (cur <= end && g++ < 60) {
+        const day = cur.getDay();
+        // ไม่ปักจุดสีฟ้าลงในวันหยุดเสาร์-อาทิตย์
+        if (day !== 0 && day !== 6) {
+          const key = `${cur.getFullYear()}-${String(cur.getMonth() + 1).padStart(2, "0")}-${String(cur.getDate()).padStart(2, "0")}`;
+          if (!m.has(key)) m.set(key, "leave");
+        }
         cur.setDate(cur.getDate() + 1);
       }
     });
     att.forEach((a) => {
       const s = a.status;
-      if (s === "present" || s === "absent" || s === "late" || s === "activity") m.set(a.date, s);
+      if (s === "present" || s === "absent" || s === "late" || s === "activity") {
+        const [y, mth, d] = a.date.split("-").map(Number);
+        const dow = new Date(y, (mth || 1) - 1, d || 1).getDay();
+        if (dow !== 0 && dow !== 6) {
+          m.set(a.date, s);
+        }
+      }
     });
     return m;
   }, [att, leaves]);

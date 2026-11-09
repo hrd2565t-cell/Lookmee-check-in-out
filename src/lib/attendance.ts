@@ -49,6 +49,15 @@ export function isCombinedM1(name: string): boolean {
   return name === COMBINED_M1_GROUP || name === "รวม ม.1" || name.startsWith("รวม ม.1");
 }
 
+/** ตรวจสอบว่าเป็นวันหยุดเสาร์-อาทิตย์หรือไม่ (0 = อาทิตย์, 6 = เสาร์) */
+export function isWeekend(dateStr: string): boolean {
+  if (!dateStr) return false;
+  const [y, m, d] = dateStr.split("-").map(Number);
+  if (!y || !m || !d) return false;
+  const day = new Date(y, m - 1, d).getDay();
+  return day === 0 || day === 6;
+}
+
 /** เปิด (หรือดึง) รอบเช็กชื่อของกลุ่มในวันที่กำหนด — คืน session id */
 export async function ensureSession(groupName: string, date: string): Promise<string | null> {
   const s = await ensureSessionFull(groupName, date);
@@ -60,6 +69,8 @@ export type SessionFull = { id: string; pin: string | null; status: string };
 /** เปิดรอบพร้อม PIN (รอบเก่าที่ไม่มี PIN จะเติมให้) + ผูกครูผู้เปิด (รองรับกลุ่มรวม ม.1) */
 export async function ensureSessionFull(groupName: string, date: string): Promise<SessionFull | null> {
   if (!isSupabaseConfigured) return null;
+  // บล็อกการเปิดรอบในวันเสาร์และวันอาทิตย์ (ไม่มีการเรียนการสอน)
+  if (isWeekend(date)) return null;
   try {
     if (isCombinedM1(groupName)) {
       const { data: gList } = await supabase
@@ -573,7 +584,8 @@ export async function fillAbsentForLeave(
     let guard = 0;
     while (cur <= end && guard++ < 60) {
       const ds = `${cur.getFullYear()}-${String(cur.getMonth() + 1).padStart(2, "0")}-${String(cur.getDate()).padStart(2, "0")}`;
-      if (cur.getDay() === 0) {
+      // ข้ามวันเสาร์ (6) และวันอาทิตย์ (0) — ไม่มีเรียน ไม่ปักขาดวันหยุด
+      if (cur.getDay() === 0 || cur.getDay() === 6) {
         cur.setDate(cur.getDate() + 1);
         continue;
       }
@@ -646,7 +658,9 @@ export async function fetchGroupRangeSummary(
         };
       }>;
     }>) {
-      days.add(s.session_date);
+      if (!isWeekend(s.session_date)) {
+        days.add(s.session_date);
+      }
       for (const r of s.attendance_records) {
         const st = r.students;
         if (!st.student_code) continue;
@@ -696,7 +710,17 @@ export async function fetchGroupRangeSummary(
           if (!sc) continue;
           const cur = map.get(sc);
           if (cur) {
-            cur.leave = (cur.leave || 0) + 1;
+            // นับเฉพาะวันจันทร์-ศุกร์ ไม่รวมวันหยุดเสาร์-อาทิตย์
+            const cDate = new Date(`${l.date_from}T00:00:00`);
+            const eDate = new Date(`${l.date_to}T00:00:00`);
+            let lDays = 0;
+            let g = 0;
+            while (cDate <= eDate && g++ < 60) {
+              const d = cDate.getDay();
+              if (d !== 0 && d !== 6) lDays++;
+              cDate.setDate(cDate.getDate() + 1);
+            }
+            cur.leave = (cur.leave || 0) + (lDays || 1);
           }
         }
       }

@@ -13,6 +13,7 @@ import {
 } from "@/data/scanner";
 import {
   isCombinedM1,
+  isWeekend,
   bulkMarkStatus,
   closeSessionFull,
   ensureSessionFull,
@@ -323,10 +324,15 @@ export default function ScannerPage() {
   }, [activeGroup]);
 
   const openRound = async () => {
+    const today = todayStr();
+    if (isWeekend(today)) {
+      setNotice("⚠️ วันนี้เป็นวันหยุดสุดสัปดาห์ (เสาร์/อาทิตย์) ไม่มีการเรียนการสอน จึงไม่สามารถเปิดรอบเช็คชื่อได้");
+      return;
+    }
     setNotice("กำลังเปิดรอบ...");
-    const s = await ensureSessionFull(activeGroup, todayStr());
+    const s = await ensureSessionFull(activeGroup, today);
     if (!s) {
-      setNotice("เปิดรอบไม่ได้ — ต่อ DB ไม่ติด");
+      setNotice("เปิดรอบไม่ได้ — ต่อ DB ไม่ติด หรือเป็นวันหยุด");
       return;
     }
     setRound(s);
