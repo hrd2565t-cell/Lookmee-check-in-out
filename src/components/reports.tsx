@@ -15,6 +15,7 @@ import {
 } from "@/components/icons";
 import { Avatar, Card, CardTitle, DonutChart, Modal, UIButton } from "@/components/ui";
 import { StudentDetail } from "@/components/student-detail";
+import { StudentAttendanceReportModal, type StudentReportData } from "@/components/student-attendance-report-modal";
 import { FaceEnrollModal } from "@/components/face-enroll";
 import type { Student } from "@/data/students";
 import {
@@ -289,6 +290,7 @@ export default function ReportsPage() {
 
   /* ---------- สรุปรายบุคคล (Individual Summary) ---------- */
   const [individualStudentCode, setIndividualStudentCode] = useState<string>("");
+  const [printReportStudent, setPrintReportStudent] = useState<StudentReportData | null>(null);
   const [individualStats, setIndividualStats] = useState<{
     present: number;
     late: number;
@@ -1632,13 +1634,33 @@ export default function ReportsPage() {
               </label>
 
               {individualStudentCode && (
-                <div className="flex items-end gap-2 pt-5">
+                <div className="flex flex-wrap items-end gap-2 pt-2 sm:pt-5">
+                  <UIButton
+                    variant="green"
+                    onClick={() => {
+                      const st = selectedIndividualStudent ?? {
+                        code: individualStudentCode,
+                        name: "",
+                        group,
+                        number: "",
+                      };
+                      setPrintReportStudent({
+                        code: st.code,
+                        name: st.name,
+                        group: st.group,
+                        number: st.number,
+                      });
+                    }}
+                    className="h-10 px-4 text-[13.5px] font-bold shadow-md hover:brightness-105 active:scale-95"
+                  >
+                    🖨️ พิมพ์ใบรายงานผล (PDF / A4)
+                  </UIButton>
                   <UIButton
                     variant="blue"
                     onClick={() => setDetailCode(individualStudentCode)}
-                    className="h-10 px-4 text-[13.5px] font-bold shadow-2xs"
+                    className="h-10 bg-[#5b6b82] px-3.5 text-[13.5px] font-semibold hover:bg-[#465364]"
                   >
-                    👁️ ดูประวัติฉบับเต็ม &amp; พิมพ์รายงาน
+                    👁️ ดูประวัตินักเรียน
                   </UIButton>
                 </div>
               )}
@@ -1722,10 +1744,17 @@ export default function ReportsPage() {
                         </span>
                         <button
                           type="button"
-                          onClick={() => setDetailCode(selectedIndividualStudent.code)}
-                          className="font-semibold text-[#2474c6] hover:underline"
+                          onClick={() => {
+                            setPrintReportStudent({
+                              code: selectedIndividualStudent.code,
+                              name: selectedIndividualStudent.name,
+                              group: selectedIndividualStudent.group,
+                              number: selectedIndividualStudent.number,
+                            });
+                          }}
+                          className="inline-flex items-center gap-1 font-bold text-[#1e8e3e] hover:underline"
                         >
-                          🖨️ พิมพ์ใบรายงานของนักเรียนคนนี้
+                          🖨️ พิมพ์ใบรายงานผลของนักเรียนคนนี้ (A4 / PDF)
                         </button>
                       </div>
                     )}
@@ -2060,6 +2089,14 @@ export default function ReportsPage() {
           />
         ) : null;
       })()}
+
+      {/* พิมพ์รายงานสรุปรายบุคคล */}
+      <StudentAttendanceReportModal
+        open={Boolean(printReportStudent)}
+        onClose={() => setPrintReportStudent(null)}
+        student={printReportStudent}
+        preloadedSummary={printReportStudent?.code === individualStudentCode ? individualStats : null}
+      />
       {/* ลงทะเบียนใบหน้า */}
       {enrollCode ? (
         <FaceEnrollModal

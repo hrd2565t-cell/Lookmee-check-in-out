@@ -26,6 +26,7 @@ import {
 } from "@/lib/grading";
 import { isSupabaseConfigured, supabase } from "@/lib/supabase/client";
 import { cn } from "@/lib/cn";
+import { StudentAttendanceReportModal } from "@/components/student-attendance-report-modal";
 
 const STATUS_PILL: Record<string, string> = {
   present: "bg-[#1e8e3e]",
@@ -104,6 +105,7 @@ export function StudentDetail({
   const [draftNumber, setDraftNumber] = useState("");
   const [numberBusy, setNumberBusy] = useState(false);
   const [numberNotice, setNumberNotice] = useState("");
+  const [printModalOpen, setPrintModalOpen] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -411,71 +413,83 @@ export function StudentDetail({
   const loading = attendance === null || leaves === null || retakes === null;
 
   return (
-    <Modal title="ประวัตินักเรียน" onClose={onClose}>
-      <div className="rounded-lg bg-[#f1f5fa] px-3.5 py-3">
-        <p className="text-[15px] font-bold text-[#16233a]">{name}</p>
-        <p className="mt-0.5 flex flex-wrap items-center gap-2 text-[13px] text-[#5b6b82]">
-          <span>
-            รหัส <span className="font-mono font-semibold text-[#16233a]">{code}</span>
-          </span>
-          <span>·</span>
-          <span>
-            กลุ่ม <span className="font-semibold text-[#16233a]">{group}</span>
-          </span>
-          <span>·</span>
-          <span className="flex items-center gap-1">
-            <span>เลขที่:</span>
-            {editingNumber ? (
-              <span className="inline-flex items-center gap-1">
-                <input
-                  type="number"
-                  min="1"
-                  max="99"
-                  value={draftNumber}
-                  onChange={(e) => setDraftNumber(e.target.value)}
-                  className="h-7 w-16 rounded border border-[#2474c6] bg-white px-1.5 text-center text-[13px] font-bold text-[#16233a] focus:outline-none"
-                  autoFocus
-                />
-                <button
-                  type="button"
-                  onClick={() => void saveStudentNumber()}
-                  disabled={numberBusy}
-                  className="rounded bg-[#1e8e3e] px-2 py-0.5 text-[11.5px] font-bold text-white hover:brightness-110 disabled:opacity-40"
-                >
-                  {numberBusy ? "..." : "บันทึก"}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setEditingNumber(false)}
-                  className="rounded bg-[#5b6b82] px-1.5 py-0.5 text-[11.5px] font-semibold text-white hover:bg-[#465364]"
-                >
-                  ยกเลิก
-                </button>
-              </span>
-            ) : (
-              <span className="inline-flex items-center gap-1 font-bold text-[#2474c6]">
-                <span>{studentNumber || "-"}</span>
-                <button
-                  type="button"
-                  title="แก้ไขเลขที่"
-                  onClick={() => {
-                    setDraftNumber(studentNumber);
-                    setEditingNumber(true);
-                    setNumberNotice("");
-                  }}
-                  className="ml-0.5 rounded p-0.5 text-[#5b6b82] hover:bg-white hover:text-[#2474c6]"
-                >
-                  <PencilIcon className="h-3.5 w-3.5" />
-                </button>
-              </span>
-            )}
-          </span>
-        </p>
-        {numberNotice && (
-          <p className="mt-1 text-[12px] font-medium text-[#1e8e3e]">
-            {numberNotice}
+    <Modal title="ประวัตินักเรียน" onClose={onClose} maxWidth="max-w-xl">
+      <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl bg-[#f1f5fa] p-3.5">
+        <div className="min-w-0 flex-1">
+          <p className="text-[16px] font-bold text-[#16233a]">{name}</p>
+          <p className="mt-0.5 flex flex-wrap items-center gap-2 text-[13px] text-[#5b6b82]">
+            <span>
+              รหัส <span className="font-mono font-semibold text-[#16233a]">{code}</span>
+            </span>
+            <span>·</span>
+            <span>
+              กลุ่ม <span className="font-semibold text-[#16233a]">{group}</span>
+            </span>
+            <span>·</span>
+            <span className="flex items-center gap-1">
+              <span>เลขที่:</span>
+              {editingNumber ? (
+                <span className="inline-flex items-center gap-1">
+                  <input
+                    type="number"
+                    min="1"
+                    max="99"
+                    value={draftNumber}
+                    onChange={(e) => setDraftNumber(e.target.value)}
+                    className="h-7 w-16 rounded border border-[#2474c6] bg-white px-1.5 text-center text-[13px] font-bold text-[#16233a] focus:outline-none"
+                    autoFocus
+                  />
+                  <button
+                    type="button"
+                    onClick={() => void saveStudentNumber()}
+                    disabled={numberBusy}
+                    className="rounded bg-[#1e8e3e] px-2 py-0.5 text-[11.5px] font-bold text-white hover:brightness-110 disabled:opacity-40"
+                  >
+                    {numberBusy ? "..." : "บันทึก"}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setEditingNumber(false)}
+                    className="rounded bg-[#5b6b82] px-1.5 py-0.5 text-[11.5px] font-semibold text-white hover:bg-[#465364]"
+                  >
+                    ยกเลิก
+                  </button>
+                </span>
+              ) : (
+                <span className="inline-flex items-center gap-1 font-bold text-[#2474c6]">
+                  <span>{studentNumber || "-"}</span>
+                  <button
+                    type="button"
+                    title="แก้ไขเลขที่"
+                    onClick={() => {
+                      setDraftNumber(studentNumber);
+                      setEditingNumber(true);
+                      setNumberNotice("");
+                    }}
+                    className="ml-0.5 rounded p-0.5 text-[#5b6b82] hover:bg-white hover:text-[#2474c6]"
+                  >
+                    <PencilIcon className="h-3.5 w-3.5" />
+                  </button>
+                </span>
+              )}
+            </span>
           </p>
-        )}
+          {numberNotice && (
+            <p className="mt-1 text-[12px] font-medium text-[#1e8e3e]">
+              {numberNotice}
+            </p>
+          )}
+        </div>
+
+        {/* ปุ่มพิมพ์รายงานตัวใหญ่เด่นชัด */}
+        <button
+          type="button"
+          onClick={() => setPrintModalOpen(true)}
+          className="inline-flex shrink-0 items-center gap-1.5 rounded-lg bg-[#1e8e3e] px-3.5 py-2 text-[13px] font-bold text-white shadow-sm transition hover:bg-[#166c2e] active:scale-95"
+        >
+          <span>🖨️</span>
+          <span>พิมพ์ใบรายงานผล (PDF)</span>
+        </button>
       </div>
 
       {/* สรุปรายบุคคล: ขาด ลา มา สาย กิจกรรม */}
@@ -561,10 +575,11 @@ export function StudentDetail({
           </span>
           <button
             type="button"
-            onClick={() => window.print()}
-            className="inline-flex items-center gap-1 rounded px-2 py-0.5 font-bold text-[#2474c6] hover:bg-[#e8f1fb]"
+            onClick={() => setPrintModalOpen(true)}
+            className="inline-flex items-center gap-1.5 rounded-lg bg-[#2474c6] px-3 py-1.5 text-[12px] font-bold text-white shadow-2xs transition hover:bg-[#1a5da3] active:scale-95"
           >
-            <span>🖨️ พิมพ์รายงานสรุป</span>
+            <span>🖨️</span>
+            <span>ดูตัวอย่าง &amp; พิมพ์ใบรายงาน (A4/PDF)</span>
           </button>
         </div>
       </div>
@@ -1016,6 +1031,15 @@ export function StudentDetail({
           </div>
         </Modal>
       ) : null}
+
+      <StudentAttendanceReportModal
+        open={printModalOpen}
+        onClose={() => setPrintModalOpen(false)}
+        student={{ code, name, group, number: studentNumber }}
+        preloadedSummary={summary}
+        preloadedAttendance={attendance}
+        preloadedLeaves={leaves}
+      />
     </Modal>
   );
 }

@@ -39,3 +39,39 @@ body {
 .slim-scroll::-webkit-scrollbar-track {
   background: transparent;
 }
+
+
+/* ---------- Print Styles for Student Attendance Report ---------- */
+@media print {
+  body {
+    background: white !important;
+    color: black !important;
+  }
+  body * {
+    visibility: hidden;
+  }
+  .printable-report,
+  .printable-report * {
+    visibility: visible;
+  }
+  .printable-report {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 100% !important;
+    max-width: none !important;
+    margin: 0 !important;
+    padding: 10mm !important;
+    box-shadow: none !important;
+    border-radius: 0 !important;
+    background: white !important;
+    color: black !important;
+  }
+  .no-print {
+    display: none !important;
+  }
+  @page {
+    size: A4 portrait;
+    margin: 10mm;
+  }
+}
