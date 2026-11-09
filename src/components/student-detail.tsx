@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { PencilIcon, TrashIcon } from "@/components/icons";
 import { Modal } from "@/components/ui";
 import {
@@ -363,6 +363,51 @@ export function StudentDetail({
     setNumberNotice("✓ บันทึกเลขที่แล้ว (ระบบจะเรียงลำดับให้อัตโนมัติ)");
   };
 
+  const summary = useMemo(() => {
+    if (!attendance || !leaves) return null;
+    const present = attendance.filter((a) => a.status === "present").length;
+    const late = attendance.filter((a) => a.status === "late").length;
+    const activity = attendance.filter((a) => a.status === "activity").length;
+    const absent = attendance.filter((a) => a.status === "absent").length;
+
+    const approvedLeaves = leaves.filter((l) => l.status === "approved");
+    const sickCount = approvedLeaves.filter((l) => l.type === "sick").length;
+    const personalCount = approvedLeaves.filter((l) => l.type === "personal").length;
+    const otherCount = approvedLeaves.filter((l) => l.type === "other").length;
+
+    let leaveDays = 0;
+    for (const l of approvedLeaves) {
+      if (l.dateFrom && l.dateTo) {
+        const d1 = new Date(l.dateFrom).getTime();
+        const d2 = new Date(l.dateTo).getTime();
+        const diff = Math.round((d2 - d1) / (1000 * 60 * 60 * 24)) + 1;
+        leaveDays += isNaN(diff) || diff < 1 ? 1 : diff;
+      } else {
+        leaveDays += 1;
+      }
+    }
+
+    const totalDays = present + late + activity + absent + leaveDays;
+    const attended = present + late + activity;
+    const pct = totalDays > 0 ? Math.round((attended / totalDays) * 1000) / 10 : 0;
+    const passed = totalDays > 0 && pct >= 80;
+
+    return {
+      present,
+      late,
+      activity,
+      absent,
+      leave: approvedLeaves.length,
+      leaveDays,
+      sickCount,
+      personalCount,
+      otherCount,
+      totalDays,
+      pct,
+      passed,
+    };
+  }, [attendance, leaves]);
+
   const loading = attendance === null || leaves === null || retakes === null;
 
   return (
@@ -431,6 +476,97 @@ export function StudentDetail({
             {numberNotice}
           </p>
         )}
+      </div>
+
+      {/* สรุปรายบุคคล: ขาด ลา มา สาย กิจกรรม */}
+      <div className="mt-3.5 rounded-xl border border-[#d8e0ec] bg-white p-3.5 shadow-2xs">
+        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-[#eef2f7] pb-2.5">
+          <div className="flex items-center gap-2">
+            <span className="text-[14.5px] font-bold text-[#16233a]">📊 สรุปการเข้าเรียนรายบุคคล</span>
+            <span className="text-[12px] font-medium text-[#5b6b82]">(ขาด ลา มา สาย กิจกรรม)</span>
+          </div>
+          {summary && (
+            <div className="flex items-center gap-2">
+              <span
+                className={cn(
+                  "rounded-full px-2.5 py-0.5 text-[11.5px] font-bold text-white shadow-2xs",
+                  summary.passed ? "bg-[#1e8e3e]" : "bg-[#c62828]",
+                )}
+              >
+                {summary.passed ? "✓ ผ่านเกณฑ์ (≥80%)" : "⚠️ ต่ำกว่าเกณฑ์ (<80%)"}
+              </span>
+              <span className="text-[12.5px] font-bold text-[#16233a]">
+                มาเรียน {summary.pct}%
+              </span>
+            </div>
+          )}
+        </div>
+
+        {/* 5 กล่องสถิติ ขาด ลา มา สาย กิจกรรม */}
+        <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-5">
+          {/* ขาด */}
+          <div className="flex flex-col items-center justify-center rounded-xl border border-rose-200 bg-rose-50/70 p-2.5 text-center transition hover:shadow-xs">
+            <span className="text-[12px] font-bold text-rose-700">ขาดเรียน</span>
+            <span className="my-0.5 text-[24px] font-black text-rose-600">
+              {summary ? summary.absent : "-"}
+            </span>
+            <span className="text-[11px] font-medium text-rose-600">ครั้ง</span>
+          </div>
+
+          {/* ลา */}
+          <div className="flex flex-col items-center justify-center rounded-xl border border-sky-200 bg-sky-50/70 p-2.5 text-center transition hover:shadow-xs">
+            <span className="text-[12px] font-bold text-sky-800">ลาเรียน</span>
+            <span className="my-0.5 text-[24px] font-black text-sky-600">
+              {summary ? summary.leave : "-"}
+            </span>
+            <span
+              className="text-[10px] text-sky-700"
+              title={`ป่วย ${summary?.sickCount ?? 0} / กิจ ${summary?.personalCount ?? 0} / อื่นๆ ${summary?.otherCount ?? 0}`}
+            >
+              ป่วย {summary?.sickCount ?? 0} · กิจ {summary?.personalCount ?? 0}
+            </span>
+          </div>
+
+          {/* มา */}
+          <div className="flex flex-col items-center justify-center rounded-xl border border-emerald-200 bg-emerald-50/70 p-2.5 text-center transition hover:shadow-xs">
+            <span className="text-[12px] font-bold text-emerald-800">มาเรียน</span>
+            <span className="my-0.5 text-[24px] font-black text-emerald-600">
+              {summary ? summary.present : "-"}
+            </span>
+            <span className="text-[11px] font-medium text-emerald-600">วัน</span>
+          </div>
+
+          {/* สาย */}
+          <div className="flex flex-col items-center justify-center rounded-xl border border-amber-200 bg-amber-50/70 p-2.5 text-center transition hover:shadow-xs">
+            <span className="text-[12px] font-bold text-amber-800">มาสาย</span>
+            <span className="my-0.5 text-[24px] font-black text-amber-600">
+              {summary ? summary.late : "-"}
+            </span>
+            <span className="text-[11px] font-medium text-amber-600">ครั้ง</span>
+          </div>
+
+          {/* กิจกรรม */}
+          <div className="col-span-2 sm:col-span-1 flex flex-col items-center justify-center rounded-xl border border-teal-200 bg-teal-50/70 p-2.5 text-center transition hover:shadow-xs">
+            <span className="text-[12px] font-bold text-teal-800">กิจกรรม</span>
+            <span className="my-0.5 text-[24px] font-black text-teal-700">
+              {summary ? summary.activity : "-"}
+            </span>
+            <span className="text-[11px] font-medium text-teal-600">ครั้ง</span>
+          </div>
+        </div>
+
+        <div className="mt-3 flex flex-wrap items-center justify-between gap-2 border-t border-[#f1f5fa] pt-2 text-[12px] text-[#5b6b82]">
+          <span>
+            รวมวันที่มีข้อมูลเช็กชื่อสะสม: <strong>{summary?.totalDays ?? 0}</strong> วัน
+          </span>
+          <button
+            type="button"
+            onClick={() => window.print()}
+            className="inline-flex items-center gap-1 rounded px-2 py-0.5 font-bold text-[#2474c6] hover:bg-[#e8f1fb]"
+          >
+            <span>🖨️ พิมพ์รายงานสรุป</span>
+          </button>
+        </div>
       </div>
 
       <h4 className="mb-1.5 mt-4 text-[14.5px] font-bold text-[#16233a]">

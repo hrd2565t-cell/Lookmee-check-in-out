@@ -29,6 +29,7 @@ import {
     bulkMarkStatus,
     ensureSession,
     fetchGroupRangeSummary,
+    fetchStudentAttendance,
     fetchRecordsByDate,
     fetchSessionsByDate,
     fillAbsentForLeave,
@@ -49,6 +50,7 @@ import {
   decideLeave,
   deleteLeave,
   fetchPendingLeaves,
+  fetchStudentLeaves,
   LEAVE_TYPE_LABEL,
   type LeaveItem,
   type LeaveType,
@@ -285,6 +287,80 @@ export default function ReportsPage() {
   const [rangeBusy, setRangeBusy] = useState(false);
   const [rangeNotice, setRangeNotice] = useState("");
 
+  /* ---------- สรุปรายบุคคล (Individual Summary) ---------- */
+  const [individualStudentCode, setIndividualStudentCode] = useState<string>("");
+  const [individualStats, setIndividualStats] = useState<{
+    present: number;
+    late: number;
+    activity: number;
+    absent: number;
+    leave: number;
+    sickCount: number;
+    personalCount: number;
+    otherCount: number;
+    totalDays: number;
+    pct: number;
+    passed: boolean;
+  } | null>(null);
+  const individualLoading = Boolean(individualStudentCode && !individualStats);
+
+  useEffect(() => {
+    if (!individualStudentCode) return;
+    let cancelled = false;
+    (async () => {
+      const [att, lv] = await Promise.all([
+        fetchStudentAttendance(individualStudentCode, 100),
+        fetchStudentLeaves(individualStudentCode),
+      ]);
+      if (cancelled) return;
+      const present = (att || []).filter((a) => a.status === "present").length;
+      const late = (att || []).filter((a) => a.status === "late").length;
+      const activity = (att || []).filter((a) => a.status === "activity").length;
+      const absent = (att || []).filter((a) => a.status === "absent").length;
+      const approvedLeaves = (lv || []).filter((l) => l.status === "approved");
+      const sickCount = approvedLeaves.filter((l) => l.type === "sick").length;
+      const personalCount = approvedLeaves.filter((l) => l.type === "personal").length;
+      const otherCount = approvedLeaves.filter((l) => l.type === "other").length;
+
+      let leaveDays = 0;
+      for (const l of approvedLeaves) {
+        if (l.dateFrom && l.dateTo) {
+          const d1 = new Date(l.dateFrom).getTime();
+          const d2 = new Date(l.dateTo).getTime();
+          const diff = Math.round((d2 - d1) / (1000 * 60 * 60 * 24)) + 1;
+          leaveDays += isNaN(diff) || diff < 1 ? 1 : diff;
+        } else {
+          leaveDays += 1;
+        }
+      }
+      const totalDays = present + late + activity + absent + leaveDays;
+      const attended = present + late + activity;
+      const pct = totalDays > 0 ? Math.round((attended / totalDays) * 1000) / 10 : 0;
+      const passed = totalDays > 0 && pct >= 80;
+      setIndividualStats({
+        present,
+        late,
+        activity,
+        absent,
+        leave: approvedLeaves.length,
+        sickCount,
+        personalCount,
+        otherCount,
+        totalDays,
+        pct,
+        passed,
+      });
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [individualStudentCode]);
+
+  const selectedIndividualStudent = useMemo(() => {
+    if (!individualStudentCode) return null;
+    return groupStudents.find((s) => s.code === individualStudentCode) ?? null;
+  }, [individualStudentCode, groupStudents]);
+
   const loadRange = async (exportIt: boolean) => {
     if (!group) return;
     if (!rangeFrom || !rangeTo || rangeFrom > rangeTo) {
@@ -306,13 +382,13 @@ export default function ReportsPage() {
     }
     downloadCsv(
       `summary-${group}-${rangeFrom}-${rangeTo}.csv`,
-      ["ลำดับ", "รหัสประจำตัว", "เลขที่", "ชื่อ-นามสกุล", "มาเรียน", "มาสาย", "กิจกรรม", "ขาด", "วันที่มีข้อมูล", "% มาเรียน", "คะแนนจิตพิสัย (เต็ม 10)"],
+      ["ลำดับ", "รหัสประจำตัว", "เลขที่", "ชื่อ-นามสกุล", "มาเรียน", "มาสาย", "กิจกรรม", "ขาด", "ลาเรียน", "วันที่มีข้อมูล", "% มาเรียน", "คะแนนจิตพิสัย (เต็ม 10)"],
       rows.map((r, i) => {
         const attended = r.present + r.late + r.activity;
         const score = calculateAffectiveScore(group, r.absent);
         return [
           i + 1, r.code, r.number, r.name,
-          r.present, r.late, r.activity, r.absent, r.days,
+          r.present, r.late, r.activity, r.absent, r.leave ?? 0, r.days,
           r.days ? Math.round((attended / r.days) * 100) : 0,
           score,
         ];
@@ -335,13 +411,13 @@ export default function ReportsPage() {
     for (const [room, list] of byRoom.entries()) {
       downloadCsv(
         `summary-${room.replace("/", "-")}-${rangeFrom}-${rangeTo}.csv`,
-        ["ลำดับ", "รหัสประจำตัว", "เลขที่", "ชื่อ-นามสกุล", "ห้อง", "มาเรียน", "มาสาย", "กิจกรรม", "ขาด", "วันที่มีข้อมูล", "% มาเรียน", "คะแนนจิตพิสัย (เต็ม 10)"],
+        ["ลำดับ", "รหัสประจำตัว", "เลขที่", "ชื่อ-นามสกุล", "ห้อง", "มาเรียน", "มาสาย", "กิจกรรม", "ขาด", "ลาเรียน", "วันที่มีข้อมูล", "% มาเรียน", "คะแนนจิตพิสัย (เต็ม 10)"],
         list.map((r, i) => {
           const attended = r.present + r.late + r.activity;
           const score = calculateAffectiveScore(room, r.absent);
           return [
             i + 1, r.code, r.number, r.name, room,
-            r.present, r.late, r.activity, r.absent, r.days,
+            r.present, r.late, r.activity, r.absent, r.leave ?? 0, r.days,
             r.days ? Math.round((attended / r.days) * 100) : 0,
             score,
           ];
@@ -854,6 +930,8 @@ export default function ReportsPage() {
                   setPage(1);
                   setRangeRows(null);
                   setRangeNotice("");
+                  setIndividualStudentCode("");
+                  setIndividualStats(null);
                 }}
                 className="h-10 w-full appearance-none rounded-lg border border-[#d8e0ec] bg-white pl-3 pr-9 text-[14px] text-[#16233a] focus:border-[#2474c6] focus:outline-none"
               >
@@ -1455,13 +1533,15 @@ export default function ReportsPage() {
                       <th className="px-2.5 py-2">เลขที่</th>
                       <th className="px-2.5 py-2">รหัส</th>
                       <th className="px-2.5 py-2">ชื่อ-นามสกุล</th>
-                      <th className="px-2.5 py-2 text-center">มา</th>
-                      <th className="px-2.5 py-2 text-center">สาย</th>
-                      <th className="px-2.5 py-2 text-center">กิจกรรม</th>
-                      <th className="px-2.5 py-2 text-center">ขาด</th>
+                      <th className="px-2.5 py-2 text-center text-[#1e8e3e]">มา</th>
+                      <th className="px-2.5 py-2 text-center text-[#ef8c1a]">สาย</th>
+                      <th className="px-2.5 py-2 text-center text-[#00897b]">กิจกรรม</th>
+                      <th className="px-2.5 py-2 text-center text-[#c62828]">ขาด</th>
+                      <th className="px-2.5 py-2 text-center text-[#2474c6]">ลา</th>
                       <th className="px-2.5 py-2 text-center">วันที่มีข้อมูล</th>
                       <th className="px-2.5 py-2 text-center">% มาเรียน</th>
                       <th className="px-2.5 py-2 text-center text-[#1a5da3]">จิตพิสัย (10)</th>
+                      <th className="px-2.5 py-2 text-center">สรุปรายคน</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -1470,23 +1550,187 @@ export default function ReportsPage() {
                       const pctAttend = r.days ? Math.round((attended / r.days) * 100) : 0;
                       const score = calculateAffectiveScore(group, r.absent);
                       return (
-                        <tr key={r.code} className="border-t border-[#eef2f7]">
+                        <tr key={r.code} className="border-t border-[#eef2f7] hover:bg-[#f8fafc]">
                           <td className="px-2.5 py-1.5 text-[#5b6b82]">{i + 1}</td>
                           <td className="px-2.5 py-1.5 font-bold text-[#2474c6]">{r.number || "-"}</td>
-                          <td className="px-2.5 py-1.5">{r.code}</td>
-                          <td className="whitespace-nowrap px-2.5 py-1.5 font-medium text-[#16233a]">{r.name}</td>
-                          <td className="px-2.5 py-1.5 text-center text-[#1e8e3e]">{r.present}</td>
-                          <td className="px-2.5 py-1.5 text-center text-[#ef8c1a]">{r.late}</td>
-                          <td className="px-2.5 py-1.5 text-center text-[#00897b]">{r.activity}</td>
-                          <td className="px-2.5 py-1.5 text-center text-[#c62828]">{r.absent}</td>
+                          <td className="px-2.5 py-1.5 font-mono">{r.code}</td>
+                          <td className="whitespace-nowrap px-2.5 py-1.5 font-medium text-[#16233a]">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setIndividualStudentCode(r.code);
+                                setDetailCode(r.code);
+                              }}
+                              className="text-left font-medium text-[#16233a] hover:text-[#2474c6] hover:underline"
+                              title="คลิกเพื่อดูสรุปรายบุคคลฉบับเต็ม"
+                            >
+                              {r.name}
+                            </button>
+                          </td>
+                          <td className="px-2.5 py-1.5 text-center font-semibold text-[#1e8e3e]">{r.present}</td>
+                          <td className="px-2.5 py-1.5 text-center font-semibold text-[#ef8c1a]">{r.late}</td>
+                          <td className="px-2.5 py-1.5 text-center font-semibold text-[#00897b]">{r.activity}</td>
+                          <td className="px-2.5 py-1.5 text-center font-semibold text-[#c62828]">{r.absent}</td>
+                          <td className="px-2.5 py-1.5 text-center font-semibold text-[#2474c6]">{r.leave ?? 0}</td>
                           <td className="px-2.5 py-1.5 text-center text-[#5b6b82]">{r.days}</td>
                           <td className="px-2.5 py-1.5 text-center font-bold text-[#16233a]">{pctAttend}%</td>
                           <td className="px-2.5 py-1.5 text-center font-bold text-[#1a5da3]">{score}/10</td>
+                          <td className="px-2.5 py-1.5 text-center">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setIndividualStudentCode(r.code);
+                                setDetailCode(r.code);
+                              }}
+                              className="rounded bg-[#e8f1fb] px-2 py-0.5 text-[11.5px] font-bold text-[#1a5da3] hover:bg-[#d0e3f7]"
+                            >
+                              ดูสรุป
+                            </button>
+                          </td>
                         </tr>
                       );
                     })}
                   </tbody>
                 </table>
+              </div>
+            ) : null}
+          </Card>
+
+          {/* สรุปการเข้าเรียนรายบุคคล */}
+          <Card className="p-4 sm:p-5">
+            <div className="flex flex-wrap items-center justify-between gap-2 border-b border-[#eef2f7] pb-3">
+              <div>
+                <CardTitle className="mb-0.5">👤 สรุปการเข้าเรียนรายบุคคล (Individual Summary)</CardTitle>
+                <p className="text-[12.5px] text-[#5b6b82]">
+                  เลือกนักเรียนในกลุ่ม {group} เพื่อดูสรุปยอด ขาด ลา มา สาย กิจกรรม และร้อยละการเข้าเรียนสะสม
+                </p>
+              </div>
+            </div>
+
+            <div className="mt-3 flex flex-wrap items-center gap-3">
+              <label className="min-w-[240px] flex-1 text-[13.5px] font-medium text-[#16233a]">
+                เลือกนักเรียน:
+                <span className="relative mt-1 block">
+                  <select
+                    value={individualStudentCode}
+                    onChange={(e) => {
+                      const next = e.target.value;
+                      setIndividualStudentCode(next);
+                      if (!next) setIndividualStats(null);
+                    }}
+                    className="h-10 w-full appearance-none rounded-lg border border-[#d8e0ec] bg-white pl-3 pr-9 text-[14px] text-[#16233a] focus:border-[#2474c6] focus:outline-none"
+                  >
+                    <option value="">-- เลือกนักเรียนที่ต้องการดูสรุป --</option>
+                    {groupStudents.map((s) => (
+                      <option key={s.code} value={s.code}>
+                        {s.number ? `เลขที่ ${s.number} - ` : ""}{s.name} ({s.code})
+                      </option>
+                    ))}
+                  </select>
+                  <ChevronDownIcon className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[#8a97ab]" />
+                </span>
+              </label>
+
+              {individualStudentCode && (
+                <div className="flex items-end gap-2 pt-5">
+                  <UIButton
+                    variant="blue"
+                    onClick={() => setDetailCode(individualStudentCode)}
+                    className="h-10 px-4 text-[13.5px] font-bold shadow-2xs"
+                  >
+                    👁️ ดูประวัติฉบับเต็ม &amp; พิมพ์รายงาน
+                  </UIButton>
+                </div>
+              )}
+            </div>
+
+            {selectedIndividualStudent ? (
+              <div className="mt-4 rounded-xl border border-[#d8e0ec] bg-[#f8fafc] p-3.5">
+                <div className="flex flex-wrap items-center justify-between gap-2 border-b border-[#eef2f7] pb-2.5">
+                  <div>
+                    <span className="text-[15px] font-bold text-[#16233a]">
+                      {selectedIndividualStudent.name}
+                    </span>
+                    <span className="ml-2 text-[13px] text-[#5b6b82]">
+                      (รหัส {selectedIndividualStudent.code} {selectedIndividualStudent.number ? `· เลขที่ ${selectedIndividualStudent.number}` : ""} · {selectedIndividualStudent.group})
+                    </span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setDetailCode(selectedIndividualStudent.code)}
+                    className="text-[12.5px] font-bold text-[#2474c6] hover:underline"
+                  >
+                    เปิดรายละเอียดทั้งหมด ➔
+                  </button>
+                </div>
+
+                {individualLoading ? (
+                  <p className="py-6 text-center text-[13.5px] text-[#5b6b82]">กำลังโหลดสรุปรายบุคคล...</p>
+                ) : (
+                  <>
+                    {/* กล่องสรุป 5 ช่อง: ขาด ลา มา สาย กิจกรรม */}
+                    <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-5">
+                      <div className="flex flex-col items-center justify-center rounded-xl border border-rose-200 bg-rose-50/70 p-2.5 text-center">
+                        <span className="text-[12px] font-bold text-rose-700">ขาดเรียน</span>
+                        <span className="my-0.5 text-[24px] font-black text-rose-600">
+                          {individualStats ? individualStats.absent : 0}
+                        </span>
+                        <span className="text-[11px] font-medium text-rose-600">ครั้ง</span>
+                      </div>
+                      <div className="flex flex-col items-center justify-center rounded-xl border border-sky-200 bg-sky-50/70 p-2.5 text-center">
+                        <span className="text-[12px] font-bold text-sky-800">ลาเรียน</span>
+                        <span className="my-0.5 text-[24px] font-black text-sky-600">
+                          {individualStats ? individualStats.leave : 0}
+                        </span>
+                        <span
+                          className="text-[10px] text-sky-700"
+                          title={`ป่วย ${individualStats?.sickCount ?? 0} / กิจ ${individualStats?.personalCount ?? 0} / อื่นๆ ${individualStats?.otherCount ?? 0}`}
+                        >
+                          ป่วย {individualStats?.sickCount ?? 0} · กิจ {individualStats?.personalCount ?? 0}
+                        </span>
+                      </div>
+                      <div className="flex flex-col items-center justify-center rounded-xl border border-emerald-200 bg-emerald-50/70 p-2.5 text-center">
+                        <span className="text-[12px] font-bold text-emerald-800">มาเรียน</span>
+                        <span className="my-0.5 text-[24px] font-black text-emerald-600">
+                          {individualStats ? individualStats.present : 0}
+                        </span>
+                        <span className="text-[11px] font-medium text-emerald-600">วัน</span>
+                      </div>
+                      <div className="flex flex-col items-center justify-center rounded-xl border border-amber-200 bg-amber-50/70 p-2.5 text-center">
+                        <span className="text-[12px] font-bold text-amber-800">มาสาย</span>
+                        <span className="my-0.5 text-[24px] font-black text-amber-600">
+                          {individualStats ? individualStats.late : 0}
+                        </span>
+                        <span className="text-[11px] font-medium text-amber-600">ครั้ง</span>
+                      </div>
+                      <div className="col-span-2 sm:col-span-1 flex flex-col items-center justify-center rounded-xl border border-teal-200 bg-teal-50/70 p-2.5 text-center">
+                        <span className="text-[12px] font-bold text-teal-800">กิจกรรม</span>
+                        <span className="my-0.5 text-[24px] font-black text-teal-700">
+                          {individualStats ? individualStats.activity : 0}
+                        </span>
+                        <span className="text-[11px] font-medium text-teal-600">ครั้ง</span>
+                      </div>
+                    </div>
+
+                    {individualStats && (
+                      <div className="mt-3 flex flex-wrap items-center justify-between gap-2 border-t border-[#eef2f7] pt-2 text-[12px] text-[#5b6b82]">
+                        <span>
+                          รวมวันที่มีข้อมูล: <strong>{individualStats.totalDays}</strong> วัน · ร้อยละการเข้าเรียน:{" "}
+                          <strong className={individualStats.passed ? "text-[#1e8e3e]" : "text-[#c62828]"}>
+                            {individualStats.pct}% ({individualStats.passed ? "✓ ผ่านเกณฑ์" : "⚠️ ต่ำกว่าเกณฑ์ 80%"})
+                          </strong>
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => setDetailCode(selectedIndividualStudent.code)}
+                          className="font-semibold text-[#2474c6] hover:underline"
+                        >
+                          🖨️ พิมพ์ใบรายงานของนักเรียนคนนี้
+                        </button>
+                      </div>
+                    )}
+                  </>
+                )}
               </div>
             ) : null}
           </Card>

@@ -392,8 +392,8 @@ export async function deleteAttendanceRecord(recordId: string): Promise<boolean>
   }
 }
 
-/** ประวัติเช็กชื่อรายคน (ล่าสุด 30 แถว) — null ถ้าต่อ DB ไม่ได้ */
-export async function fetchStudentAttendance(studentCode: string): Promise<AttendanceRow[] | null> {
+/** ประวัติเช็กชื่อรายคน (ล่าสุด 100 แถว) — null ถ้าต่อ DB ไม่ได้ */
+export async function fetchStudentAttendance(studentCode: string, limit = 100): Promise<AttendanceRow[] | null> {
   if (!isSupabaseConfigured) return null;
   try {
     const { data: st } = await supabase
@@ -408,7 +408,7 @@ export async function fetchStudentAttendance(studentCode: string): Promise<Atten
       .select("id,check_in_at,status,confidence,method,period_no,activity_name,attendance_sessions!inner(session_date,class_groups!inner(name))")
       .eq("student_id", studentId)
       .order("check_in_at", { ascending: false })
-      .limit(30);
+      .limit(limit);
     if (error || !data) return null;
       return (data as unknown as Array<{
       id: string;
@@ -604,10 +604,11 @@ export type RangeSummaryRow = {
   late: number;
   activity: number;
   absent: number;
+  leave: number;
   days: number;
 };
 
-/** สรุปรายคนช่วงวันที่ของกลุ่มเดียว (มา/สาย/กิจกรรม/ขาด + จำนวนวันที่มีข้อมูล) */
+/** สรุปรายคนช่วงวันที่ของกลุ่มเดียว (มา/สาย/กิจกรรม/ขาด/ลา + จำนวนวันที่มีข้อมูล) */
 export async function fetchGroupRangeSummary(
   groupName: string,
   from: string,
@@ -658,6 +659,7 @@ export async function fetchGroupRangeSummary(
           late: 0,
           activity: 0,
           absent: 0,
+          leave: 0,
           days: 0,
         };
         if (r.status === "present") cur.present++;
@@ -667,6 +669,41 @@ export async function fetchGroupRangeSummary(
         map.set(st.student_code, cur);
       }
     }
+
+    // ดึงใบลาที่ได้รับอนุมัติ (approved) ในช่วงวันที่นี้ เพื่อสรุปยอดลาเรียน
+    try {
+      let leaveQuery = supabase
+        .from("leave_requests")
+        .select("date_from,date_to,status,students!inner(student_code,class_groups!inner(name))")
+        .eq("status", "approved")
+        .lte("date_from", to)
+        .gte("date_to", from);
+
+      if (isCombinedM1(groupName)) {
+        leaveQuery = leaveQuery.in("students.class_groups.name", M1_SUBGROUPS);
+      } else {
+        leaveQuery = leaveQuery.eq("students.class_groups.name", groupName);
+      }
+
+      const { data: leaveData } = await leaveQuery;
+      if (leaveData) {
+        for (const l of leaveData as unknown as Array<{
+          date_from: string;
+          date_to: string;
+          students: { student_code: string | null };
+        }>) {
+          const sc = l.students.student_code;
+          if (!sc) continue;
+          const cur = map.get(sc);
+          if (cur) {
+            cur.leave = (cur.leave || 0) + 1;
+          }
+        }
+      }
+    } catch {
+      // ignore leave query error to keep attendance data safe
+    }
+
     const totalDays = days.size;
     return [...map.values()]
       .map((row) => ({ ...row, days: totalDays }))
