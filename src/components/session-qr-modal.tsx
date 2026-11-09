@@ -18,9 +18,9 @@ export function SessionQrModal({
   const [qrDataUrl, setQrDataUrl] = useState<string>("");
   const [copied, setCopied] = useState(false);
 
-  // สร้าง URL ที่มี ?openExternalBrowser=1 และ &pin=XXXX เพื่อให้นักเรียนไม่ต้องพิมพ์รหัสเอง
+  // สร้าง URL ที่มี ?openExternalBrowser=1 และ &pin=XXXX เพื่อให้นักเรียนไม่ต้องพิมพ์รหัสเอง และส่งตรงเข้าหน้าสแกน
   const shareUrl = typeof window !== "undefined"
-    ? `${window.location.origin}/student?openExternalBrowser=1${pin ? `&pin=${encodeURIComponent(pin)}` : ""}`
+    ? `${window.location.origin}/student/scan?openExternalBrowser=1${pin ? `&pin=${encodeURIComponent(pin)}` : ""}`
     : "";
 
   useEffect(() => {
@@ -88,9 +88,15 @@ export function SessionQrModal({
           )}
         </div>
 
-        <p className="mt-3 max-w-sm text-[12.5px] text-[#5b6b82]">
-          💡 สแกนผ่านกล้องมือถือ จะเปิดใน Google Chrome / Safari อัตโนมัติ (ไม่ติดใน LINE) และกรอกรหัสรอบให้ทันที
-        </p>
+        <div className="mt-3.5 max-w-sm rounded-xl border border-amber-300 bg-amber-50 px-3.5 py-2.5 text-center shadow-2xs">
+          <p className="flex items-center justify-center gap-1.5 text-[13px] font-bold text-amber-900">
+            <span>📸</span>
+            <span>แนะนำ: ใช้แอปกล้องถ่ายรูปปกติของมือถือสแกน</span>
+          </p>
+          <p className="mt-1 text-[12px] leading-relaxed text-amber-800">
+            หลีกเลี่ยงการสแกนด้วยแอป LINE เพราะ LINE จะบล็อกกล้อง — หากเปิดใน LINE ให้แตะจุด 3 จุด (⋮) ด้านล่างขวา แล้วเลือก &ldquo;เปิดในเบราว์เซอร์อื่น&rdquo;
+          </p>
+        </div>
 
         {/* ปุ่มลัดคัดลอกลิงก์ส่ง LINE */}
         <div className="mt-4 flex w-full flex-wrap justify-center gap-2">

@@ -133,6 +133,15 @@ function StudentForm() {
     const st = foundRef.current ?? found;
     if (!st) return;
     setStudentCode(st.code);
+    if (typeof window !== "undefined") {
+      const params = new URLSearchParams(window.location.search);
+      const redirect = params.get("redirect");
+      if (redirect && redirect.startsWith("/")) {
+        router.push(redirect);
+        router.refresh();
+        return;
+      }
+    }
     router.push("/student");
     router.refresh();
   };
@@ -257,7 +266,14 @@ function StudentForm() {
 }
 
 export function LoginForm() {
-  const [tab, setTab] = useState<"teacher" | "student">("teacher");
+  const [tab, setTab] = useState<"teacher" | "student">(() => {
+    if (typeof window !== "undefined") {
+      const params = new URLSearchParams(window.location.search);
+      const redirect = params.get("redirect");
+      if (redirect && redirect.includes("student")) return "student";
+    }
+    return "teacher";
+  });
 
   if (!isSupabaseConfigured) {
     return (

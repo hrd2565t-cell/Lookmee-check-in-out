@@ -20,7 +20,12 @@ import {
   verifyPin,
   type StudentIdentity,
 } from "@/lib/student";
-import { InAppBrowserNotice } from "@/lib/in-app-browser";
+import {
+  InAppBrowserNotice,
+  detectInAppBrowser,
+  getExternalBrowserHref,
+  openInExternalBrowser,
+} from "@/lib/in-app-browser";
 import { playSuccessChime } from "@/lib/sound";
 import { StudentSelfEnroll } from "@/components/student-self-enroll";
 
@@ -101,11 +106,27 @@ export default function StudentScanPage() {
     }
   }, []);
 
+  // หากเปิดผ่าน LINE พยายามดีดตัวออกไป Chrome/Safari อัตโนมัติ 1 ครั้ง
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const { isLine } = detectInAppBrowser();
+    if (isLine) {
+      const key = "lookmee_line_escape_attempted";
+      if (!sessionStorage.getItem(key)) {
+        sessionStorage.setItem(key, "1");
+        openInExternalBrowser();
+      }
+    }
+  }, []);
+
   // ขั้น 1: ยืนยันตัวตน + เก็บ PIN (รองรับ ?pin=... จากการสแกน QR Code)
   useEffect(() => {
     const code = getStudentCode();
     if (!code) {
-      router.replace("/login");
+      const current = typeof window !== "undefined"
+        ? `${window.location.pathname}${window.location.search}`
+        : "/student/scan";
+      router.replace(`/login?redirect=${encodeURIComponent(current)}`);
       return;
     }
     let cancelled = false;
@@ -299,46 +320,113 @@ export default function StudentScanPage() {
               <div className="h-[210px] w-[160px] rounded-[50%] border-2 border-dashed border-[#3ecf6f]/70 shadow-[0_0_0_9999px_rgba(0,0,0,0.25)]" />
             </div>
           )}
-          {/* ปุ่มสลับกล้องแบบลอยบนมุมขวา */}
-          <button
-            type="button"
-            onClick={() => void toggleCamera()}
-            className="absolute right-3 top-3 z-20 inline-flex items-center gap-1.5 rounded-full bg-black/70 px-3 py-1.5 text-[12px] font-semibold text-white shadow-md backdrop-blur-xs transition hover:bg-black/90 active:scale-95"
-            title={`คลิกเพื่อสลับเป็น${facingMode === "user" ? "กล้องหลัง" : "กล้องหน้า"}`}
-          >
-            <CameraSwitchIcon className="h-3.5 w-3.5 text-emerald-400" />
-            <span>{facingMode === "user" ? "กล้องหน้า" : "กล้องหลัง"}</span>
-            <span className="rounded bg-white/25 px-1.5 py-0.5 text-[10.5px]">สลับ</span>
-          </button>
+          {/* ปุ่มสลับกล้องแบบลอยบนมุมขวา (แสดงเฉพาะตอนกล้องเปิดทำงาน) */}
+          {camOn && (
+            <button
+              type="button"
+              onClick={() => void toggleCamera()}
+              className="absolute right-3 top-3 z-20 inline-flex items-center gap-1.5 rounded-full bg-black/70 px-3 py-1.5 text-[12px] font-semibold text-white shadow-md backdrop-blur-xs transition hover:bg-black/90 active:scale-95"
+              title={`คลิกเพื่อสลับเป็น${facingMode === "user" ? "กล้องหลัง" : "กล้องหน้า"}`}
+            >
+              <CameraSwitchIcon className="h-3.5 w-3.5 text-emerald-400" />
+              <span>{facingMode === "user" ? "กล้องหน้า" : "กล้องหลัง"}</span>
+              <span className="rounded bg-white/25 px-1.5 py-0.5 text-[10.5px]">สลับ</span>
+            </button>
+          )}
+
           {!camOn ? (
-            <div className="flex aspect-[4/3] flex-col items-center justify-center p-6 text-center">
-              <span className="text-3xl">📷</span>
-              <p className="mt-2 text-[14px] font-semibold text-rose-300">{camStatus}</p>
-              <div className="mt-3 flex flex-wrap justify-center gap-2">
-                <button
-                  type="button"
-                  onClick={() => void retryCamera()}
-                  className="inline-flex items-center gap-1.5 rounded-md bg-[#2474c6] px-3.5 py-1.5 text-[12.5px] font-bold text-white hover:bg-[#1d5ea2]"
-                >
-                  <RefreshIcon className="h-3.5 w-3.5" />
-                  ลองใหม่
-                </button>
-                <button
-                  type="button"
-                  onClick={() => void toggleCamera()}
-                  className="inline-flex items-center gap-1.5 rounded-md bg-white/20 px-3.5 py-1.5 text-[12.5px] font-semibold text-white hover:bg-white/30"
-                >
-                  <CameraSwitchIcon className="h-3.5 w-3.5" />
-                  สลับกล้อง ({facingMode === "user" ? "ลองกล้องหลัง" : "ลองกล้องหน้า"})
-                </button>
-              </div>
-            </div>
+            (() => {
+              const inAppInfo = detectInAppBrowser();
+              const isLineOrInApp =
+                camStatus.includes("LINE") ||
+                camStatus.includes("แอปนี้บล็อก") ||
+                inAppInfo.isInApp;
+
+              if (isLineOrInApp) {
+                return (
+                  <div className="flex min-h-[340px] flex-col items-center justify-center p-5 text-center">
+                    <div className="flex h-14 w-14 items-center justify-center rounded-full bg-amber-500/20 text-3xl">
+                      🔒
+                    </div>
+                    <p className="mt-3 text-[16px] font-bold text-amber-200">
+                      แอป LINE ไม่อนุญาตให้เปิดกล้อง
+                    </p>
+                    <p className="mt-1 max-w-xs text-[12.5px] leading-relaxed text-amber-100/90">
+                      ระบบความปลอดภัยของ LINE บล็อกสิทธิ์กล้อง เพื่อให้สแกนหน้าได้ 100% โปรดเปิดผ่าน Chrome หรือ Safari
+                    </p>
+
+                    {/* ปุ่มเด่นสุดสำหรับเปิด Chrome/Safari */}
+                    <a
+                      href={getExternalBrowserHref()}
+                      onClick={() => openInExternalBrowser()}
+                      className="mt-4 flex w-full max-w-xs items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-emerald-600 to-green-600 px-5 py-3 text-[14.5px] font-extrabold text-white shadow-lg shadow-emerald-950/40 transition hover:from-emerald-500 hover:to-green-500 active:scale-95 animate-pulse"
+                    >
+                      <span className="text-lg">🚀</span>
+                      <span>แตะเปิดใน Chrome / Safari ทันที</span>
+                    </a>
+
+                    {/* คำแนะนำชี้เป้าจุดสามจุด (⋮) */}
+                    <div className="mt-3.5 max-w-xs rounded-lg border border-amber-400/30 bg-black/50 px-3.5 py-2 text-[12px] leading-relaxed text-amber-200">
+                      <span>👇 หรือแตะปุ่มจุดสามจุด <strong>(⋮)</strong> ที่มุมล่างขวาของหน้าจอ LINE แล้วเลือก <strong>&ldquo;เปิดในเบราว์เซอร์อื่น&rdquo;</strong></span>
+                    </div>
+
+                    <div className="mt-4 flex flex-wrap justify-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => void retryCamera()}
+                        className="inline-flex items-center gap-1.5 rounded-lg bg-white/15 px-3 py-1.5 text-[12px] font-semibold text-white hover:bg-white/25"
+                      >
+                        <RefreshIcon className="h-3.5 w-3.5" />
+                        ลองเปิดกล้องใหม่
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => void toggleCamera()}
+                        className="inline-flex items-center gap-1.5 rounded-lg bg-white/15 px-3 py-1.5 text-[12px] font-semibold text-white hover:bg-white/25"
+                      >
+                        <CameraSwitchIcon className="h-3.5 w-3.5" />
+                        สลับกล้อง ({facingMode === "user" ? "ลองกล้องหลัง" : "ลองกล้องหน้า"})
+                      </button>
+                    </div>
+                  </div>
+                );
+              }
+
+              return (
+                <div className="flex min-h-[280px] flex-col items-center justify-center p-6 text-center">
+                  <span className="text-3xl">📷</span>
+                  <p className="mt-2 text-[14px] font-semibold text-rose-300">{camStatus}</p>
+                  <div className="mt-3 flex flex-wrap justify-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => void retryCamera()}
+                      className="inline-flex items-center gap-1.5 rounded-md bg-[#2474c6] px-3.5 py-1.5 text-[12.5px] font-bold text-white hover:bg-[#1d5ea2]"
+                    >
+                      <RefreshIcon className="h-3.5 w-3.5" />
+                      ลองใหม่
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => void toggleCamera()}
+                      className="inline-flex items-center gap-1.5 rounded-md bg-white/20 px-3.5 py-1.5 text-[12.5px] font-semibold text-white hover:bg-white/30"
+                    >
+                      <CameraSwitchIcon className="h-3.5 w-3.5" />
+                      สลับกล้อง ({facingMode === "user" ? "ลองกล้องหลัง" : "ลองกล้องหน้า"})
+                    </button>
+                  </div>
+                </div>
+              );
+            })()
           ) : null}
-          <div className="absolute inset-x-0 bottom-0 bg-black/55 px-4 py-2.5 text-center">
-            <p className="text-[15px] font-semibold text-white">
-              {identity ? identity.name : "กำลังโหลด..."}
-            </p>
-          </div>
+
+          {/* ป้ายชื่อนักเรียน (แสดงเฉพาะเมื่อกล้องเปิดทำงาน เพื่อไม่ให้ทับปุ่มตอนกล้องไม่ทำงาน) */}
+          {camOn && (
+            <div className="absolute inset-x-0 bottom-0 bg-black/55 px-4 py-2.5 text-center">
+              <p className="text-[15px] font-semibold text-white">
+                {identity ? identity.name : "กำลังโหลด..."}
+              </p>
+            </div>
+          )}
         </div>
         <div className="p-4">
           <p role="status" className="text-center text-[13.5px] text-[#5b6b82]">

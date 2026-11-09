@@ -921,7 +921,7 @@ export default function ScannerPage() {
                 <button
                   type="button"
                   onClick={() => {
-                    const shareUrl = `${window.location.origin}/student?openExternalBrowser=1${round.pin ? `&pin=${encodeURIComponent(round.pin)}` : ""}`;
+                    const shareUrl = `${window.location.origin}/student/scan?openExternalBrowser=1${round.pin ? `&pin=${encodeURIComponent(round.pin)}` : ""}`;
                     void navigator.clipboard.writeText(shareUrl);
                     setNotice("✓ คัดลอกลิงก์สำหรับส่งใน LINE แล้ว (เปิดจะเด้งเข้า Chrome/Safari ทันที)");
                   }}
