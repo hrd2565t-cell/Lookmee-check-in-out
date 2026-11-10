@@ -174,7 +174,7 @@ export async function openCamera(
   if (opts.deviceId) {
     try {
       stream = await navigator.mediaDevices.getUserMedia({
-        video: { deviceId: { exact: opts.deviceId }, width: { ideal: 1280 }, height: { ideal: 720 } },
+        video: { deviceId: { exact: opts.deviceId } },
         audio: false,
       });
     } catch {
@@ -182,22 +182,22 @@ export async function openCamera(
     }
   }
 
-  // 2. ลองเปิดตาม facingMode พร้อม resolution
+  // 2. ลองเปิดตาม facingMode แบบ exact ก่อน (สำหรับมือถือ ให้ได้กล้องหน้า/หลังตามที่เลือก 100%)
   if (!stream) {
     try {
       stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: targetFacing, width: { ideal: 1280 }, height: { ideal: 720 } },
+        video: { facingMode: { exact: targetFacing } },
         audio: false,
       });
     } catch {
-      // 3. ลองเปิดตาม facingMode แบบไม่มี resolution constraints
+      // 3. ถ้า exact ไม่ผ่าน (เช่น webcam บน desktop) ให้ลอง ideal
       try {
         stream = await navigator.mediaDevices.getUserMedia({
-          video: { facingMode: targetFacing },
+          video: { facingMode: { ideal: targetFacing } },
           audio: false,
         });
       } catch {
-        // 4. ลองเปิดแบบ video: true (กล้องใดก็ได้ที่ใช้ได้)
+        // 4. สุดท้ายถ้ายังไม่ได้ ค่อยเปิดกล้องใดก็ได้
         stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
       }
     }

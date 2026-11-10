@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Card, UIButton } from "@/components/ui";
 import { BrandMark } from "@/components/logo";
@@ -12,12 +12,6 @@ import {
   setStudentCode,
   type StudentIdentity,
 } from "@/lib/student";
-import {
-  closeCamera,
-  descriptorFromVideo,
-  ensureFaceModels,
-  openCamera,
-} from "@/lib/face";
 
 function TeacherForm() {
   const router = useRouter();
@@ -101,17 +95,11 @@ function StudentForm() {
   const [found, setFound] = useState<StudentIdentity | null>(null);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
-  const [verifying, setVerifying] = useState(false);
-  const [faceMsg, setFaceMsg] = useState("");
-  const videoRef = useRef<HTMLVideoElement | null>(null);
-  const foundRef = useRef<StudentIdentity | null>(null);
 
   const search = async (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
     setFound(null);
-    foundRef.current = null;
-    setVerifying(false);
     if (!code.trim()) {
       setError("กรุณากรอกรหัสประจำตัว");
       return;
@@ -123,16 +111,12 @@ function StudentForm() {
       setError("ไม่พบรหัสนี้ในระบบ — ตรวจอีกครั้งหรือติดต่อครู");
       return;
     }
-    foundRef.current = st;
     setFound(st);
-    // มีใบหน้าลงทะเบียน → ขั้นสแกนยืนยันว่าเป็นเจ้าของรหัสจริง
-    if (st.descriptor) setVerifying(true);
   };
 
   const enter = () => {
-    const st = foundRef.current ?? found;
-    if (!st) return;
-    setStudentCode(st.code);
+    if (!found) return;
+    setStudentCode(found.code);
     if (typeof window !== "undefined") {
       const params = new URLSearchParams(window.location.search);
       const redirect = params.get("redirect");
@@ -145,52 +129,6 @@ function StudentForm() {
     router.push("/student");
     router.refresh();
   };
-
-  // สแกนเทียบใบหน้า 1:1 กับรหัสที่กรอก
-  useEffect(() => {
-    if (!verifying) return;
-    let cancelled = false;
-    let timer: ReturnType<typeof setInterval> | null = null;
-    const video = videoRef.current;
-    (async () => {
-      try {
-        if (!window.isSecureContext) {
-          setFaceMsg("ต้องเปิดผ่าน HTTPS กล้องถึงจะทำงาน");
-          return;
-        }
-        setFaceMsg("กำลังโหลดโมเดลใบหน้า...");
-        await ensureFaceModels();
-        if (cancelled || !video) return;
-        await openCamera(video);
-        if (cancelled) return;
-        setFaceMsg("ส่องหน้าเพื่อยืนยันว่าเป็นเจ้าของรหัส");
-        timer = setInterval(() => {
-          void (async () => {
-            const target = foundRef.current?.descriptor;
-            if (cancelled || !target) return;
-            const desc = await descriptorFromVideo(video);
-            if (!desc) return;
-            let sum = 0;
-            for (let i = 0; i < desc.length; i++) {
-              const diff = (desc[i] ?? 0) - (target[i] ?? 0);
-              sum += diff * diff;
-            }
-            if (Math.sqrt(sum) > 0.55) return;
-            if (timer) clearInterval(timer);
-            enter();
-          })();
-        }, 1000);
-      } catch {
-        if (!cancelled) setFaceMsg("เปิดกล้องไม่ได้ — กดเข้าสู่ระบบได้เลยถ้าเป็นเจ้าของรหัส");
-      }
-    })();
-    return () => {
-      cancelled = true;
-      if (timer) clearInterval(timer);
-      closeCamera(video);
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [verifying]);
 
   return (
     <div className="space-y-3">
@@ -218,48 +156,18 @@ function StudentForm() {
         </p>
       ) : null}
       {found ? (
-        <div className="rounded-lg bg-[#e8f1fb] px-4 py-3 text-center">
-          <p className="text-[16px] font-bold text-[#16233a]">{found.name}</p>
-          <p className="text-[13px] text-[#5b6b82]">
-            {found.code} · {found.group}
+        <div className="rounded-xl border border-[#cbe2f8] bg-[#eef6fc] p-4 text-center">
+          <p className="text-[17px] font-bold text-[#16233a]">{found.name}</p>
+          <p className="mt-1 text-[13.5px] text-[#5b6b82]">
+            รหัส <span className="font-mono font-semibold text-[#16233a]">{found.code}</span> · ห้อง <span className="font-semibold text-[#16233a]">{found.group}</span>
           </p>
-          {verifying ? (
-            <div className="mt-2">
-              <div className="relative overflow-hidden rounded-lg bg-[#3a4148]">
-                <video
-                  ref={videoRef}
-                  muted
-                  playsInline
-                  className="aspect-[4/3] w-full object-cover -scale-x-100"
-                />
-              </div>
-              <p role="status" className="mt-2 text-[13px] text-[#5b6b82]">{faceMsg}</p>
-              <div className="mt-2 flex gap-2">
-                <UIButton
-                  variant="blue"
-                  onClick={() => {
-                    setVerifying(false);
-                    setFound(null);
-                    foundRef.current = null;
-                  }}
-                  className="h-10 flex-1 bg-[#5b6b82] hover:bg-[#465364] focus-visible:ring-[#5b6b82]/40"
-                >
-                  ยกเลิก
-                </UIButton>
-                <UIButton onClick={enter} className="h-10 flex-1">
-                  ข้าม (เป็นเจ้าของรหัส)
-                </UIButton>
-              </div>
-            </div>
-          ) : (
-            <UIButton onClick={enter} className="mt-2 h-11 w-full">
-              เข้าสู่ระบบ
-            </UIButton>
-          )}
+          <UIButton onClick={enter} className="mt-3.5 h-11 w-full text-[15px] font-bold">
+            ✓ เข้าสู่ระบบ (เป็นฉัน)
+          </UIButton>
         </div>
       ) : null}
       <p className="text-center text-[12px] text-[#8a97ab]">
-        ไม่ต้องใช้รหัสผ่าน — เห็นเฉพาะประวัติของตัวเองเท่านั้น
+        ไม่ต้องใช้รหัสผ่าน — เข้าสู่ระบบเพื่อเช็กชื่อและดูข้อมูลของตนเอง
       </p>
     </div>
   );
