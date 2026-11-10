@@ -24,6 +24,7 @@ import {
   fetchBonusScoreTotal,
   type BonusScoreRow,
 } from "@/lib/grading";
+import { teacherDecideFaceEnroll, teacherResetStudentPin } from "@/lib/student";
 import { isSupabaseConfigured, supabase } from "@/lib/supabase/client";
 import { cn } from "@/lib/cn";
 import { StudentAttendanceReportModal } from "@/components/student-attendance-report-modal";
@@ -71,7 +72,12 @@ export function StudentDetail({
 }) {
   const [attendance, setAttendance] = useState<AttendanceRow[] | null>(null);
   const [leaves, setLeaves] = useState<LeaveItem[] | null>(null);
+  const [studentDbId, setStudentDbId] = useState<string | null>(null);
+  const [faceStatus, setFaceStatus] = useState<string>("unregistered");
   const [facePhoto, setFacePhoto] = useState<string | null | undefined>(undefined);
+  const [pendingPhoto, setPendingPhoto] = useState<string | null>(null);
+  const [hasPin, setHasPin] = useState(false);
+  const [actionBusy, setActionBusy] = useState(false);
   const [faceBusy, setFaceBusy] = useState(false);
   const [twinFlag, setTwinFlag] = useState(false);
   const [editingLeaveId, setEditingLeaveId] = useState<string | null>(null);
@@ -120,12 +126,28 @@ export function StudentDetail({
       }
       const { data } = await supabase
         .from("students")
-        .select("photo_url,face_status,twin_flag,class_no")
+        .select("id,photo_url,face_status,twin_flag,class_no,pending_photo_url,pin_hash")
         .eq("student_code", code)
         .single();
       if (cancelled) return;
-      const row = data as { photo_url: string | null; face_status: string; twin_flag: boolean | null; class_no: string | null } | null;
+      const row = data as {
+        id: string;
+        photo_url: string | null;
+        face_status: string;
+        twin_flag: boolean | null;
+        class_no: string | null;
+        pending_photo_url: string | null;
+        pin_hash: string | null;
+      } | null;
+      setStudentDbId(row?.id ?? null);
+      setFaceStatus(row?.face_status ?? "unregistered");
       setFacePhoto(row?.face_status === "registered" ? (row.photo_url ?? null) : null);
+      setPendingPhoto(
+        row?.face_status === "pending"
+          ? (row.pending_photo_url ?? row.photo_url ?? null)
+          : (row?.pending_photo_url ?? null)
+      );
+      setHasPin(Boolean(row?.pin_hash));
       setTwinFlag(row?.twin_flag === true);
       setStudentNumber(row?.class_no ?? "");
 
@@ -342,6 +364,50 @@ export function StudentDetail({
     setFacePhoto(null);
     setFaceBusy(false);
     onFaceDeleted?.(code);
+  };
+
+  const approvePendingFace = async () => {
+    if (!studentDbId) return;
+    setActionBusy(true);
+    const res = await teacherDecideFaceEnroll(studentDbId, "approve");
+    setActionBusy(false);
+    if (res.ok) {
+      setFaceStatus("registered");
+      if (pendingPhoto) setFacePhoto(pendingPhoto);
+      setPendingPhoto(null);
+      alert(`✓ อนุมัติการลงทะเบียนใบหน้าของ ${name} เรียบร้อยแล้ว`);
+    } else {
+      alert(`อนุมัติไม่สำเร็จ: ${res.error || "เกิดข้อผิดพลาด"}`);
+    }
+  };
+
+  const rejectPendingFace = async () => {
+    if (!studentDbId) return;
+    if (!window.confirm(`ปฏิเสธคำขอลงทะเบียนใบหน้านี้ของ ${name} หรือไม่? (นักเรียนจะต้องถ่ายภาพส่งมาใหม่)`)) return;
+    setActionBusy(true);
+    const res = await teacherDecideFaceEnroll(studentDbId, "reject");
+    setActionBusy(false);
+    if (res.ok) {
+      setFaceStatus("unregistered");
+      setPendingPhoto(null);
+      alert(`ปฏิเสธคำขอลงทะเบียนใบหน้าแล้ว`);
+    } else {
+      alert(`ปฏิเสธไม่สำเร็จ: ${res.error || "เกิดข้อผิดพลาด"}`);
+    }
+  };
+
+  const resetPin = async () => {
+    if (!studentDbId) return;
+    if (!window.confirm(`รีเซ็ตรหัส PIN ของ ${name} หรือไม่? (นักเรียนจะต้องตั้ง PIN ใหม่อีกครั้ง)`)) return;
+    setActionBusy(true);
+    const res = await teacherResetStudentPin(studentDbId);
+    setActionBusy(false);
+    if (res.ok) {
+      setHasPin(false);
+      alert(`✓ รีเซ็ตรหัส PIN ของ ${name} เรียบร้อยแล้ว`);
+    } else {
+      alert(`รีเซ็ต PIN ไม่สำเร็จ: ${res.error || "เกิดข้อผิดพลาด"}`);
+    }
   };
 
   const saveStudentNumber = async () => {
@@ -606,6 +672,44 @@ export function StudentDetail({
       >
         {twinFlag ? "★ ปักธงแฝดแล้ว" : "☆ ปักธงแฝด"}
       </button>
+      {/* กล่องคำขอลงทะเบียนใบหน้ารอครูอนุมัติ */}
+      {pendingPhoto ? (
+        <div className="mb-3 rounded-xl border-2 border-[#f59e0b] bg-[#fffbeb] p-3 shadow-sm">
+          <div className="flex items-center gap-1.5 text-[14px] font-bold text-[#b45309]">
+            <span>⏳ คำขอลงทะเบียนใบหน้า (รอครูอนุมัติ)</span>
+          </div>
+          <p className="mt-0.5 text-[12px] text-[#78350f]">
+            นักเรียนส่งคำขอลงทะเบียนใบหน้าด้วยตนเอง กรุณาตรวจสอบว่าเป็นตัวจริงแล้วกดยืนยัน
+          </p>
+          <div className="mt-2.5 flex items-center gap-3">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={pendingPhoto}
+              alt={`ภาพรออนุมัติของ ${name}`}
+              className="h-24 w-20 shrink-0 rounded-lg border-2 border-[#f59e0b] object-cover shadow-sm"
+            />
+            <div className="flex min-w-0 flex-1 flex-col gap-2">
+              <button
+                type="button"
+                onClick={() => void approvePendingFace()}
+                disabled={actionBusy}
+                className="rounded-lg bg-[#16a34a] px-3 py-1.5 text-[13px] font-bold text-white shadow-sm hover:bg-[#15803d] disabled:opacity-50"
+              >
+                {actionBusy ? "กำลังบันทึก..." : "✓ อนุมัติใบหน้านี้"}
+              </button>
+              <button
+                type="button"
+                onClick={() => void rejectPendingFace()}
+                disabled={actionBusy}
+                className="rounded-lg border border-[#ef4444] bg-white px-3 py-1 text-[12px] font-semibold text-[#dc2626] hover:bg-[#fef2f2] disabled:opacity-50"
+              >
+                ✕ ปฏิเสธ (ให้ถ่ายใหม่)
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
       {facePhoto === undefined ? (
         <p className="py-2 text-center text-[13.5px] text-[#5b6b82]">กำลังโหลด...</p>
       ) : facePhoto ? (
@@ -656,6 +760,25 @@ export function StudentDetail({
           ) : null}
         </div>
       )}
+
+      {/* จัดการรหัส PIN ส่วนตัวของนักเรียน */}
+      {hasPin ? (
+        <div className="mt-2.5 flex items-center justify-between rounded-lg border border-[#e2e8f0] bg-[#f8fafc] px-3 py-2">
+          <div>
+            <p className="text-[13px] font-semibold text-[#1e293b]">🔑 รหัส PIN ส่วนตัว: ตั้งไว้แล้ว</p>
+            <p className="text-[11.5px] text-[#64748b]">ใช้นักเรียนเข้าดูข้อมูลเมื่อแสงมืด</p>
+          </div>
+          <button
+            type="button"
+            onClick={() => void resetPin()}
+            disabled={actionBusy}
+            className="rounded-md border border-[#cbd5e1] bg-white px-2.5 py-1 text-[12px] font-semibold text-[#dc2626] hover:bg-[#fee2e2] disabled:opacity-50"
+            title="รีเซ็ต PIN กรณีนักเรียนลืมรหัส"
+          >
+            รีเซ็ต PIN
+          </button>
+        </div>
+      ) : null}
 
       <h4 className="mb-1.5 mt-4 text-[14.5px] font-bold text-[#16233a]">
         ประวัติการลา ({leaves?.length ?? 0})

@@ -107,8 +107,15 @@ function GroupRow({
 }
 
 /* ---------- face-scan status badge ---------- */
-function FaceStatus({ registered }: { registered: boolean }) {
-  if (registered) {
+function FaceStatus({ registered, status }: { registered: boolean; status?: string }) {
+  if (status === "pending") {
+    return (
+      <span className="inline-flex items-center gap-1 rounded-full bg-[#fef3c7] px-2.5 py-1 text-[13px] font-bold text-[#b45309]">
+        ⏳ รออนุมัติ
+      </span>
+    );
+  }
+  if (registered || status === "registered") {
     return (
       <span className="inline-flex items-center gap-1.5 text-[14px] font-semibold text-[#1e8e3e]">
         <CheckCircleIcon className="h-5 w-5" />
@@ -234,6 +241,7 @@ export default function StudentsPage() {
               studentId: r.student_code as string,
               group: idToName.get(r.group_id) as string,
               registered: r.face_status === "registered",
+              faceStatus: (r.face_status as "registered" | "unregistered" | "pending") || "unregistered",
               isRotc: r.is_rotc,
               initials: initialsFor(thaiName),
               color: colorFor(r.student_code as string),
@@ -295,8 +303,9 @@ export default function StudentsPage() {
           return false;
         }
       }
-      if (status === "registered" && !s.registered) return false;
-      if (status === "unregistered" && s.registered) return false;
+      if (status === "registered" && s.faceStatus !== "registered" && !s.registered) return false;
+      if (status === "pending" && s.faceStatus !== "pending") return false;
+      if (status === "unregistered" && (s.registered || s.faceStatus === "registered" || s.faceStatus === "pending")) return false;
       if (!q) return true;
       return (
         s.thaiName.toLowerCase().includes(q) ||
@@ -1025,7 +1034,8 @@ export default function StudentsPage() {
                 setPage(1);
               }}
               options={[
-                { value: "all", label: "All" },
+                { value: "all", label: "สถานะใบหน้าทั้งหมด" },
+                { value: "pending", label: "⏳ รออนุมัติใบหน้า" },
                 { value: "registered", label: "ลงทะเบียนแล้ว" },
                 { value: "unregistered", label: "ยังไม่ลงทะเบียน" },
               ]}
@@ -1191,7 +1201,7 @@ export default function StudentsPage() {
                       </button>
                     </td>
                     <td className="whitespace-nowrap py-2 pr-3">
-                      <FaceStatus registered={s.registered} />
+                      <FaceStatus registered={s.registered} status={s.faceStatus} />
                     </td>
                     <td className="whitespace-nowrap py-2 text-right">
                       <span className="inline-flex items-center gap-0.5">

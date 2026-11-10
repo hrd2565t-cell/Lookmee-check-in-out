@@ -14,7 +14,9 @@ import {
   type CameraFacingMode,
 } from "@/lib/face";
 import {
+  getMyFaceDescriptor,
   getStudentCode,
+  getStudentToken,
   lookupStudent,
   studentCheckin,
   verifyPin,
@@ -122,7 +124,8 @@ export default function StudentScanPage() {
   // ขั้น 1: ยืนยันตัวตน + เก็บ PIN (รองรับ ?pin=... จากการสแกน QR Code)
   useEffect(() => {
     const code = getStudentCode();
-    if (!code) {
+    const token = getStudentToken();
+    if (!code || !token) {
       const current = typeof window !== "undefined"
         ? `${window.location.pathname}${window.location.search}`
         : "/student/scan";
@@ -131,11 +134,17 @@ export default function StudentScanPage() {
     }
     let cancelled = false;
     (async () => {
-      const id = await lookupStudent(code);
+      const [id, myDescriptor] = await Promise.all([
+        lookupStudent(code),
+        getMyFaceDescriptor(),
+      ]);
       if (cancelled) return;
       if (!id) {
         router.replace("/login");
         return;
+      }
+      if (myDescriptor) {
+        id.descriptor = myDescriptor;
       }
       identityRef.current = id;
       setIdentity(id);
@@ -238,10 +247,39 @@ export default function StudentScanPage() {
   if (!identity) {
     return (
       <StudentSummaryShell
-        identity={{ code: "", name: "...", group: "...", hasFace: false, descriptor: null, photo: null }}
+        identity={{
+          code: "",
+          name: "...",
+          group: "...",
+          faceStatus: "unregistered",
+          hasFace: false,
+          descriptor: null,
+          photo: null,
+          hasPin: false,
+        }}
         active="scan"
       >
         <p className="py-10 text-center text-[14px] text-[#5b6b82]">กำลังโหลด...</p>
+      </StudentSummaryShell>
+    );
+  }
+
+  // หากข้อมูลใบหน้ากำลังรอครูอนุมัติ
+  if (identity.faceStatus === "pending") {
+    return (
+      <StudentSummaryShell identity={identity} active="scan">
+        <InAppBrowserNotice />
+        <Card className="p-6 text-center">
+          <div className="mx-auto mb-3 flex h-14 w-14 items-center justify-center rounded-full bg-[#fef3c7] text-[26px] text-[#b45309]">
+            ⏳
+          </div>
+          <CardTitle className="text-[18px] text-[#16233a]">ข้อมูลใบหน้าอยู่ระหว่างรอครูอนุมัติ</CardTitle>
+          <p className="mt-2 text-[14px] leading-relaxed text-[#5b6b82]">
+            ระบบได้รับข้อมูลใบหน้าของคุณแล้ว<br />
+            โปรดแจ้งคุณครูประจำวิชาหรือครูประจำชั้นเพื่อกดยืนยันอนุมัติในระบบ<br />
+            เมื่อคุณครูอนุมัติแล้ว จะสามารถสแกนใบหน้าเพื่อเช็คชื่อได้ทันที
+          </p>
+        </Card>
       </StudentSummaryShell>
     );
   }
@@ -254,14 +292,25 @@ export default function StudentScanPage() {
         <StudentSelfEnroll
           studentCode={identity.code}
           studentName={identity.name}
+          onSubmitted={() => {
+            setIdentity({
+              ...identity,
+              faceStatus: "pending",
+            });
+            if (identityRef.current) {
+              identityRef.current.faceStatus = "pending";
+            }
+          }}
           onEnrolled={(desc) => {
             setIdentity({
               ...identity,
-              hasFace: true,
+              faceStatus: "pending",
+              hasFace: false,
               descriptor: desc,
             });
             if (identityRef.current) {
-              identityRef.current.hasFace = true;
+              identityRef.current.faceStatus = "pending";
+              identityRef.current.hasFace = false;
               identityRef.current.descriptor = desc;
             }
           }}

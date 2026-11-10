@@ -1,15 +1,22 @@
 import { supabase } from "./supabase/client";
 
 export const STUDENT_COOKIE = "lookmee_student";
-const COOKIE_MAX_AGE = 7 * 24 * 60 * 60;
+export const STUDENT_TOKEN_COOKIE = "lookmee_student_token";
+// Requirement 3ข: ปลดล็อกใหม่ทุกวัน (Session token expires daily / 24h)
+const SESSION_MAX_AGE = 24 * 60 * 60;
+
+export type StudentFaceStatus = "registered" | "unregistered" | "pending";
 
 export type StudentIdentity = {
+  id?: string;
   code: string;
   name: string;
   group: string;
+  faceStatus: StudentFaceStatus;
   hasFace: boolean;
   descriptor: number[] | null;
   photo: string | null;
+  hasPin: boolean;
 };
 
 export type MyHistory = {
@@ -33,41 +40,242 @@ export function getStudentCode(): string | null {
   if (typeof document === "undefined") return null;
   const m = document.cookie.match(/(?:^|;\s*)lookmee_student=([^;]*)/);
   const code = m?.[1]?.trim();
-  return code ? code : null;
+  return code ? decodeURIComponent(code) : null;
+}
+
+export function getStudentToken(): string | null {
+  if (typeof document === "undefined") return null;
+  const m = document.cookie.match(/(?:^|;\s*)lookmee_student_token=([^;]*)/);
+  const token = m?.[1]?.trim();
+  return token ? decodeURIComponent(token) : null;
+}
+
+export function setStudentSession(code: string, token: string, expiresAt?: string) {
+  let maxAge = SESSION_MAX_AGE;
+  if (expiresAt) {
+    const diff = Math.floor((new Date(expiresAt).getTime() - Date.now()) / 1000);
+    if (diff > 0) maxAge = diff;
+  }
+  document.cookie = `${STUDENT_COOKIE}=${encodeURIComponent(code)}; Path=/; Max-Age=${maxAge}; SameSite=Lax`;
+  document.cookie = `${STUDENT_TOKEN_COOKIE}=${encodeURIComponent(token)}; Path=/; Max-Age=${maxAge}; SameSite=Lax`;
 }
 
 export function setStudentCode(code: string) {
-  document.cookie = `${STUDENT_COOKIE}=${encodeURIComponent(code)}; Path=/; Max-Age=${COOKIE_MAX_AGE}; SameSite=Lax`;
+  document.cookie = `${STUDENT_COOKIE}=${encodeURIComponent(code)}; Path=/; Max-Age=${SESSION_MAX_AGE}; SameSite=Lax`;
+}
+
+export function clearStudentSession() {
+  document.cookie = `${STUDENT_COOKIE}=; Path=/; Max-Age=0; SameSite=Lax`;
+  document.cookie = `${STUDENT_TOKEN_COOKIE}=; Path=/; Max-Age=0; SameSite=Lax`;
 }
 
 export function clearStudentCode() {
-  document.cookie = `${STUDENT_COOKIE}=; Path=/; Max-Age=0; SameSite=Lax`;
+  clearStudentSession();
 }
 
-/** ค้นหาตัวตนด้วยรหัส (ไม่ต้องล็อกอิน) — ไม่เจอคืน null */
+/** ค้นหาตัวตนด้วยรหัส (ไม่ต้องล็อกอิน) — ปลอดภัย ไม่ส่ง raw descriptor ออกมา */
 export async function lookupStudent(code: string): Promise<StudentIdentity | null> {
   try {
     const { data, error } = await supabase.rpc("lookup_student", { p_code: code.trim() });
     if (error || !data || (data as unknown[]).length === 0) return null;
     const rows = (data as Array<{
-      code: string;
-      name: string;
-      group_name: string;
-      has_face: boolean;
-      descriptor: number[] | null;
-      photo: string | null;
+      code?: string;
+      student_code?: string;
+      name?: string;
+      student_name?: string;
+      group_name?: string;
+      face_status?: string;
+      photo?: string | null;
+      photo_url?: string | null;
+      has_pin?: boolean;
     }>) ?? [];
     const r = rows[0];
     if (!r) return null;
-    const descriptor =
-      Array.isArray(r.descriptor) && r.descriptor.length === 128 ? r.descriptor : null;
+    const faceStatus = ((r.face_status as StudentFaceStatus) || "unregistered");
     return {
-      code: r.code,
-      name: r.name,
-      group: r.group_name,
-      hasFace: r.has_face,
-      descriptor,
+      code: r.code ?? r.student_code ?? code.trim(),
+      name: r.name ?? r.student_name ?? "",
+      group: r.group_name ?? "",
+      faceStatus,
+      hasFace: faceStatus === "registered",
+      descriptor: null,
+      photo: r.photo ?? r.photo_url ?? null,
+      hasPin: r.has_pin === true,
+    };
+  } catch {
+    return null;
+  }
+}
+
+/** ดึงเวกเตอร์ใบหน้าของตนเองสำหรับใช้ในหน้าสแกนเช็กชื่อ (ต้องมี session token) */
+export async function getMyFaceDescriptor(): Promise<number[] | null> {
+  const token = getStudentToken();
+  if (!token) return null;
+  try {
+    const { data, error } = await supabase.rpc("get_my_face_descriptor", { p_token: token });
+    if (error || !data) return null;
+    if (Array.isArray(data) && data.length === 128) return data as number[];
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+export type FaceLoginResult = {
+  ok: boolean;
+  token?: string;
+  expires_at?: string;
+  has_pin?: boolean;
+  error?: "not_found" | "no_face" | "face_not_match" | string;
+  distance?: number;
+  student?: {
+    code: string;
+    name: string;
+    group: string;
+    photo: string | null;
+  };
+};
+
+/** ล็อกอินด้วย Face Unlock (สแกนใบหน้า) */
+export async function loginWithFace(code: string, descriptor: number[]): Promise<FaceLoginResult> {
+  try {
+    const { data, error } = await supabase.rpc("student_face_login", {
+      p_code: code.trim(),
+      p_descriptor: descriptor,
+    });
+    if (error || !data) return { ok: false, error: error?.message || "network_error" };
+    return data as FaceLoginResult;
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : "network_error";
+    return { ok: false, error: msg };
+  }
+}
+
+export type PinLoginResult = {
+  ok: boolean;
+  token?: string;
+  expires_at?: string;
+  error?: "not_found" | "locked" | "no_pin_set" | "bad_pin" | string;
+  remaining?: number;
+  wait_minutes?: number;
+  student?: {
+    code: string;
+    name: string;
+    group: string;
+    photo: string | null;
+  };
+};
+
+/** ล็อกอินด้วยรหัส PIN ส่วนตัว 4-6 หลัก */
+export async function loginWithPin(code: string, pin: string): Promise<PinLoginResult> {
+  try {
+    const { data, error } = await supabase.rpc("student_pin_login", {
+      p_code: code.trim(),
+      p_pin: pin.trim(),
+    });
+    if (error || !data) return { ok: false, error: error?.message || "network_error" };
+    return data as PinLoginResult;
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : "network_error";
+    return { ok: false, error: msg };
+  }
+}
+
+/** ตั้งรหัส PIN ส่วนตัว 4-6 หลัก (ต้องมี session token) */
+export async function setStudentPersonalPin(pin: string, token?: string): Promise<{ ok: boolean; error?: string }> {
+  const t = token ?? getStudentToken();
+  if (!t) return { ok: false, error: "unauthorized" };
+  try {
+    const { data, error } = await supabase.rpc("student_set_pin", {
+      p_token: t,
+      p_pin: pin.trim(),
+    });
+    if (error || !data) return { ok: false, error: error?.message || "failed" };
+    const r = data as { ok: boolean; error?: string };
+    return { ok: r.ok === true, error: r.error };
+  } catch {
+    return { ok: false, error: "network_error" };
+  }
+}
+
+/** นักเรียนส่งคำขอลงทะเบียนใบหน้าด้วยตนเอง (สถานะจะเป็น 'pending' รอครูอนุมัติ) */
+export async function submitSelfEnroll(
+  code: string,
+  descriptor: number[],
+  photoUrl?: string | null,
+): Promise<{ ok: boolean; error?: string }> {
+  try {
+    const { data, error } = await supabase.rpc("student_submit_self_enroll", {
+      p_code: code.trim(),
+      p_descriptor: descriptor,
+      p_photo_url: photoUrl ?? null,
+    });
+    if (error || !data) return { ok: false, error: error?.message || "failed" };
+    const r = data as { ok: boolean; error?: string };
+    return { ok: r.ok === true, error: r.error };
+  } catch {
+    return { ok: false, error: "network_error" };
+  }
+}
+
+/** ครูอนุมัติหรือปฏิเสธคำขอลงทะเบียนใบหน้า */
+export async function teacherDecideFaceEnroll(
+  studentId: string,
+  decision: "approve" | "reject",
+): Promise<{ ok: boolean; error?: string }> {
+  try {
+    const { data, error } = await supabase.rpc("teacher_decide_face_enroll", {
+      p_student_id: studentId,
+      p_decision: decision,
+    });
+    if (error || !data) return { ok: false, error: error?.message || "failed" };
+    const r = data as { ok: boolean; error?: string };
+    return { ok: r.ok === true, error: r.error };
+  } catch {
+    return { ok: false, error: "network_error" };
+  }
+}
+
+/** ครูรีเซ็ตรหัส PIN ให้นักเรียน */
+export async function teacherResetStudentPin(studentId: string): Promise<{ ok: boolean; error?: string }> {
+  try {
+    const { data, error } = await supabase.rpc("teacher_reset_student_pin", {
+      p_student_id: studentId,
+    });
+    if (error || !data) return { ok: false, error: error?.message || "failed" };
+    const r = data as { ok: boolean; error?: string };
+    return { ok: r.ok === true, error: r.error };
+  } catch {
+    return { ok: false, error: "network_error" };
+  }
+}
+
+/** ตรวจสอบ Session Token ที่จัดเก็บใน Cookie */
+export async function verifyStudentSession(token?: string): Promise<StudentIdentity | null> {
+  const t = token ?? getStudentToken();
+  if (!t) return null;
+  try {
+    const { data, error } = await supabase.rpc("verify_student_session", { p_token: t });
+    if (error || !data || (data as unknown[]).length === 0) return null;
+    const rows = (data as Array<{
+      is_valid?: boolean;
+      code?: string;
+      name?: string;
+      group_name?: string;
+      photo?: string | null;
+      has_pin?: boolean;
+    }>) ?? [];
+    const r = rows[0];
+    if (!r || !r.is_valid) return null;
+    return {
+      code: r.code ?? "",
+      name: r.name ?? "",
+      group: r.group_name ?? "",
+      faceStatus: "registered",
+      hasFace: true,
+      descriptor: null,
       photo: r.photo ?? null,
+      hasPin: r.has_pin === true,
     };
   } catch {
     return null;

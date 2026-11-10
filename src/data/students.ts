@@ -14,6 +14,7 @@ export type Student = {
   studentId: string;
   group: string;
   registered: boolean;
+  faceStatus?: "registered" | "unregistered" | "pending";
   isRotc: boolean;
   initials: string;
   color: string;

@@ -9,6 +9,7 @@ import {
   fetchAssignments,
   fetchAssignmentSummary,
   getStudentCode,
+  getStudentToken,
   lookupStudent,
   type AssignmentRow,
   type AssignmentSummary,
@@ -69,7 +70,8 @@ export default function StudentGradesPage() {
 
   useEffect(() => {
     const code = getStudentCode();
-    if (!code) {
+    const token = getStudentToken();
+    if (!code || !token) {
       router.replace("/login");
       return;
     }
@@ -169,7 +171,16 @@ export default function StudentGradesPage() {
   const pageRows = shown.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE);
 
   const shellIdentity: StudentIdentity =
-    identity ?? { code: "", name: "...", group: "...", hasFace: false, descriptor: null, photo: null };
+    identity ?? {
+      code: "",
+      name: "...",
+      group: "...",
+      faceStatus: "unregistered",
+      hasFace: false,
+      descriptor: null,
+      photo: null,
+      hasPin: false,
+    };
 
   return (
     <StudentSummaryShell identity={shellIdentity} active="grades">

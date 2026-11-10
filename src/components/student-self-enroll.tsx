@@ -13,6 +13,7 @@ import {
   type CameraFacingMode,
 } from "@/lib/face";
 import { isSupabaseConfigured, supabase } from "@/lib/supabase/client";
+import { submitSelfEnroll } from "@/lib/student";
 import { playSuccessChime } from "@/lib/sound";
 
 const POSES = [
@@ -25,15 +26,20 @@ export function StudentSelfEnroll({
   studentCode,
   studentName,
   onEnrolled,
+  onSubmitted,
+  onCancel,
 }: {
   studentCode: string;
   studentName: string;
-  onEnrolled: (descriptor: number[]) => void;
+  onEnrolled?: (descriptor: number[]) => void;
+  onSubmitted?: () => void;
+  onCancel?: () => void;
 }) {
   const [ready, setReady] = useState(false);
   const [status, setStatus] = useState("กำลังเตรียมกล้อง...");
   const [shots, setShots] = useState<Float32Array[]>([]);
   const [saving, setSaving] = useState(false);
+  const [submitted, setSubmitted] = useState(false);
   const [facingMode, setFacingMode] = useState<CameraFacingMode>("user");
   const videoRef = useRef<HTMLVideoElement>(null);
   const photoRef = useRef<Blob | null>(null);
@@ -142,7 +148,7 @@ export function StudentSelfEnroll({
   const saveEnrollment = async () => {
     if (shots.length < POSES.length || saving) return;
     setSaving(true);
-    setStatus("กำลังบันทึกและอัปโหลดใบหน้า...");
+    setStatus("กำลังบันทึกและส่งข้อมูลใบหน้า...");
     const avg = averageDescriptors(shots);
 
     try {
@@ -161,25 +167,21 @@ export function StudentSelfEnroll({
             photoUrl = data.publicUrl;
           }
         }
-        const { error } = await supabase
-          .from("students")
-          .update({
-            face_data: JSON.stringify(avg),
-            face_status: "registered",
-            ...(photoUrl ? { photo_url: photoUrl } : {}),
-          })
-          .eq("student_code", studentCode);
 
-        if (error) {
-          setStatus(`บันทึกไม่สำเร็จ: ${error.message}`);
+        // ก) ส่งคำขอลงทะเบียนใบหน้ารอครูอนุมัติ (Requirement 1ก)
+        const res = await submitSelfEnroll(studentCode, Array.from(avg), photoUrl);
+        if (!res.ok) {
+          setStatus(`บันทึกไม่สำเร็จ: ${res.error || "เกิดข้อผิดพลาด"}`);
           setSaving(false);
           return;
         }
       }
 
       playSuccessChime();
-      setStatus("✓ ลงทะเบียนใบหน้าสำเร็จแล้ว!");
-      onEnrolled(avg);
+      setStatus("✓ ส่งคำขอลงทะเบียนใบหน้าสำเร็จ!");
+      setSubmitted(true);
+      onEnrolled?.(avg);
+      onSubmitted?.();
     } catch {
       setStatus("เกิดข้อผิดพลาดในการเชื่อมต่อ — ลองอีกครั้ง");
       setSaving(false);
@@ -192,11 +194,52 @@ export function StudentSelfEnroll({
     setStatus(`${POSES[0]?.label ?? ""}: ${POSES[0]?.hint ?? ""}`);
   };
 
+  if (submitted) {
+    return (
+      <Card className="p-5 text-center">
+        <div className="mx-auto mb-3 flex h-14 w-14 items-center justify-center rounded-full bg-[#e8f5e9] text-[28px] text-[#2e7d32]">
+          ✓
+        </div>
+        <CardTitle className="text-[18px] text-[#16233a]">ส่งข้อมูลใบหน้าเรียบร้อยแล้ว</CardTitle>
+        <p className="mt-2 text-[14px] leading-relaxed text-[#5b6b82]">
+          ระบบบันทึกภาพและส่งคำขอไปยังคุณครูแล้ว<br />
+          <strong className="text-[#e65100]">กำลังรอคุณครูกดอนุมัติการใช้งาน</strong>
+        </p>
+        <div className="mt-4 rounded-xl bg-[#fff8e1] p-3 text-[13px] text-[#8d6e63]">
+          📌 โปรดแจ้งครูประจำชั้นหรือครูผู้สอนเพื่อกดยืนยันใบหน้าของ {studentName} ({studentCode})
+        </div>
+        <div className="mt-5">
+          <UIButton
+            onClick={() => {
+              if (onSubmitted) onSubmitted();
+              else if (onCancel) onCancel();
+            }}
+            className="w-full"
+          >
+            เข้าใจแล้ว / กลับ
+          </UIButton>
+        </div>
+      </Card>
+    );
+  }
+
   return (
     <Card className="p-4 sm:p-5">
-      <CardTitle className="text-center text-[18px]">
-        📸 ลงทะเบียนใบหน้าครั้งแรก
-      </CardTitle>
+      <div className="flex items-center justify-between">
+        {onCancel ? (
+          <button
+            type="button"
+            onClick={onCancel}
+            className="text-[13px] font-semibold text-[#5b6b82] hover:text-[#16233a]"
+          >
+            ← ย้อนกลับ
+          </button>
+        ) : <div />}
+        <CardTitle className="text-center text-[18px]">
+          📸 ลงทะเบียนใบหน้า
+        </CardTitle>
+        <div />
+      </div>
       <p className="mt-1 text-center text-[13px] text-[#5b6b82]">
         สวัสดี {studentName} ({studentCode}) — ถ่ายรูป 3 ท่า เพื่อให้ระบบจดจำใบหน้าสำหรับเช็กชื่อ
       </p>

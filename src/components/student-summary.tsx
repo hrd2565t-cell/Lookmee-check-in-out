@@ -15,6 +15,7 @@ import {
 import {
   fetchMyHistory,
   getStudentCode,
+  getStudentToken,
   lookupStudent,
   submitDispute as apiDispute,
   submitLeaveSelf as apiLeave,
@@ -342,7 +343,8 @@ export default function StudentSummaryPage() {
 
   useEffect(() => {
     const code = getStudentCode();
-    if (!code) {
+    const token = getStudentToken();
+    if (!code || !token) {
       router.replace("/login");
       return;
     }
@@ -509,7 +511,16 @@ export default function StudentSummaryPage() {
   if (!identity) {
     return (
       <StudentSummaryShell
-        identity={{ code: "", name: "...", group: "...", hasFace: false, descriptor: null, photo: null }}
+        identity={{
+          code: "",
+          name: "...",
+          group: "...",
+          faceStatus: "unregistered",
+          hasFace: false,
+          descriptor: null,
+          photo: null,
+          hasPin: false,
+        }}
         active="summary"
       >
         <p className="py-10 text-center text-[14px] text-[#5b6b82]">กำลังโหลด...</p>
