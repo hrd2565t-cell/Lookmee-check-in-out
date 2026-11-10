@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import Link from "next/link";
 import { AppShell } from "@/components/layout";
 import {
   AlertCircleIcon,
@@ -963,6 +964,12 @@ export default function StudentsPage() {
             >
               {dbLive ? "● Supabase" : "● Local"}
             </span>
+            <Link
+              href="/students/pins"
+              className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-[#f59e0b] bg-[#fffbeb] px-3.5 text-[13.5px] font-bold text-[#b45309] shadow-sm hover:bg-[#fef3c7]"
+            >
+              🔑 สมุดรหัส PIN นักเรียน
+            </Link>
             <UIButton variant="blue" onClick={openAddStudent} className="h-9 px-3.5 text-[13.5px]">
               เพิ่มนักเรียนใหม่
             </UIButton>

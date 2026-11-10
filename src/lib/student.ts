@@ -250,6 +250,21 @@ export async function teacherResetStudentPin(studentId: string): Promise<{ ok: b
   }
 }
 
+/** ครูตั้งหรือเปลี่ยนรหัส PIN ให้นักเรียนโดยตรง */
+export async function teacherSetStudentPin(studentId: string, pin: string): Promise<{ ok: boolean; error?: string }> {
+  try {
+    const { data, error } = await supabase.rpc("teacher_set_student_pin", {
+      p_student_id: studentId,
+      p_pin: pin.trim(),
+    });
+    if (error || !data) return { ok: false, error: error?.message || "failed" };
+    const r = data as { ok: boolean; error?: string };
+    return { ok: r.ok === true, error: r.error };
+  } catch {
+    return { ok: false, error: "network_error" };
+  }
+}
+
 /** ตรวจสอบ Session Token ที่จัดเก็บใน Cookie */
 export async function verifyStudentSession(token?: string): Promise<StudentIdentity | null> {
   const t = token ?? getStudentToken();

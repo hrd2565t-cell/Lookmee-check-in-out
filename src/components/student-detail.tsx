@@ -24,7 +24,7 @@ import {
   fetchBonusScoreTotal,
   type BonusScoreRow,
 } from "@/lib/grading";
-import { teacherDecideFaceEnroll, teacherResetStudentPin } from "@/lib/student";
+import { teacherDecideFaceEnroll, teacherResetStudentPin, teacherSetStudentPin } from "@/lib/student";
 import { isSupabaseConfigured, supabase } from "@/lib/supabase/client";
 import { cn } from "@/lib/cn";
 import { StudentAttendanceReportModal } from "@/components/student-attendance-report-modal";
@@ -77,6 +77,7 @@ export function StudentDetail({
   const [facePhoto, setFacePhoto] = useState<string | null | undefined>(undefined);
   const [pendingPhoto, setPendingPhoto] = useState<string | null>(null);
   const [hasPin, setHasPin] = useState(false);
+  const [pinCode, setPinCode] = useState<string | null>(null);
   const [actionBusy, setActionBusy] = useState(false);
   const [faceBusy, setFaceBusy] = useState(false);
   const [twinFlag, setTwinFlag] = useState(false);
@@ -126,7 +127,7 @@ export function StudentDetail({
       }
       const { data } = await supabase
         .from("students")
-        .select("id,photo_url,face_status,twin_flag,class_no,pending_photo_url,pin_hash")
+        .select("id,photo_url,face_status,twin_flag,class_no,pending_photo_url,pin_hash,pin_code")
         .eq("student_code", code)
         .single();
       if (cancelled) return;
@@ -138,6 +139,7 @@ export function StudentDetail({
         class_no: string | null;
         pending_photo_url: string | null;
         pin_hash: string | null;
+        pin_code: string | null;
       } | null;
       setStudentDbId(row?.id ?? null);
       setFaceStatus(row?.face_status ?? "unregistered");
@@ -147,7 +149,8 @@ export function StudentDetail({
           ? (row.pending_photo_url ?? row.photo_url ?? null)
           : (row?.pending_photo_url ?? null)
       );
-      setHasPin(Boolean(row?.pin_hash));
+      setHasPin(Boolean(row?.pin_hash || row?.pin_code));
+      setPinCode(row?.pin_code ?? null);
       setTwinFlag(row?.twin_flag === true);
       setStudentNumber(row?.class_no ?? "");
 
@@ -404,9 +407,31 @@ export function StudentDetail({
     setActionBusy(false);
     if (res.ok) {
       setHasPin(false);
+      setPinCode(null);
       alert(`✓ รีเซ็ตรหัส PIN ของ ${name} เรียบร้อยแล้ว`);
     } else {
       alert(`รีเซ็ต PIN ไม่สำเร็จ: ${res.error || "เกิดข้อผิดพลาด"}`);
+    }
+  };
+
+  const promptSetPin = async () => {
+    if (!studentDbId) return;
+    const input = window.prompt(`ตั้งรหัส PIN ใหม่ให้ ${name} (ตัวเลข 4-6 หลัก):`, pinCode || "");
+    if (!input || !input.trim()) return;
+    const clean = input.trim();
+    if (!/^[0-9]{4,6}$/.test(clean)) {
+      alert("รหัส PIN ต้องเป็นตัวเลข 4-6 หลักเท่านั้น");
+      return;
+    }
+    setActionBusy(true);
+    const res = await teacherSetStudentPin(studentDbId, clean);
+    setActionBusy(false);
+    if (res.ok) {
+      setPinCode(clean);
+      setHasPin(true);
+      alert(`✓ ตั้งรหัส PIN ของ ${name} เป็น "${clean}" เรียบร้อยแล้ว`);
+    } else {
+      alert(`ตั้ง PIN ไม่สำเร็จ: ${res.error || "เกิดข้อผิดพลาด"}`);
     }
   };
 
@@ -762,23 +787,45 @@ export function StudentDetail({
       )}
 
       {/* จัดการรหัส PIN ส่วนตัวของนักเรียน */}
-      {hasPin ? (
-        <div className="mt-2.5 flex items-center justify-between rounded-lg border border-[#e2e8f0] bg-[#f8fafc] px-3 py-2">
-          <div>
-            <p className="text-[13px] font-semibold text-[#1e293b]">🔑 รหัส PIN ส่วนตัว: ตั้งไว้แล้ว</p>
-            <p className="text-[11.5px] text-[#64748b]">ใช้นักเรียนเข้าดูข้อมูลเมื่อแสงมืด</p>
+      <div className="mt-2.5 rounded-lg border border-[#e2e8f0] bg-[#f8fafc] p-3">
+        <div className="flex items-center justify-between gap-2">
+          <div className="min-w-0 flex-1">
+            <p className="text-[13px] font-semibold text-[#1e293b]">
+              🔑 รหัส PIN ส่วนตัว:{" "}
+              {pinCode ? (
+                <span className="font-mono text-[16px] font-bold tracking-widest text-[#2563eb]">{pinCode}</span>
+              ) : hasPin ? (
+                <span className="font-medium text-[#16a34a]">ตั้งแล้ว (เข้ารหัส)</span>
+              ) : (
+                <span className="text-[#94a3b8]">ยังไม่ตั้ง</span>
+              )}
+            </p>
+            <p className="text-[11.5px] text-[#64748b]">ใช้นักเรียนเข้าดูข้อมูลเมื่อแสงมืด/กล้องมีปัญหา</p>
           </div>
-          <button
-            type="button"
-            onClick={() => void resetPin()}
-            disabled={actionBusy}
-            className="rounded-md border border-[#cbd5e1] bg-white px-2.5 py-1 text-[12px] font-semibold text-[#dc2626] hover:bg-[#fee2e2] disabled:opacity-50"
-            title="รีเซ็ต PIN กรณีนักเรียนลืมรหัส"
-          >
-            รีเซ็ต PIN
-          </button>
+          <div className="flex shrink-0 gap-1.5">
+            {hasPin || pinCode ? (
+              <button
+                type="button"
+                onClick={() => void resetPin()}
+                disabled={actionBusy}
+                className="rounded-md border border-[#cbd5e1] bg-white px-2.5 py-1 text-[12px] font-semibold text-[#dc2626] hover:bg-[#fee2e2] disabled:opacity-50"
+                title="รีเซ็ต PIN กรณีนักเรียนลืมรหัส"
+              >
+                รีเซ็ต PIN
+              </button>
+            ) : null}
+            <button
+              type="button"
+              onClick={() => void promptSetPin()}
+              disabled={actionBusy}
+              className="rounded-md bg-[#2474c6] px-2.5 py-1 text-[12px] font-semibold text-white hover:bg-[#1a5da3] disabled:opacity-50"
+              title="ตั้งหรือเปลี่ยน PIN ให้นักเรียน"
+            >
+              {pinCode || hasPin ? "เปลี่ยน PIN" : "+ ตั้ง PIN ให้"}
+            </button>
+          </div>
         </div>
-      ) : null}
+      </div>
 
       <h4 className="mb-1.5 mt-4 text-[14.5px] font-bold text-[#16233a]">
         ประวัติการลา ({leaves?.length ?? 0})
