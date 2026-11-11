@@ -153,8 +153,56 @@ function FaceUnlockCamera({
 
   useEffect(() => {
     let cancelled = false;
-    let timer: ReturnType<typeof setInterval> | null = null;
+    let isDetecting = false;
+    let loopTimer: ReturnType<typeof setTimeout> | null = null;
     const video = videoRef.current;
+
+    const runLoop = async () => {
+      if (cancelled || isDetecting || scanLockRef.current || !videoRef.current) return;
+      isDetecting = true;
+      try {
+        const desc = await descriptorFromVideo(videoRef.current);
+        if (desc && !cancelled) {
+          scanLockRef.current = true;
+          setChecking(true);
+          setStatus("กำลังเทียบใบหน้ากับระบบ...");
+
+          const res = await loginWithFace(student.code, Array.from(desc));
+          if (cancelled) return;
+          setChecking(false);
+
+          if (res.ok && res.token) {
+            setStatus("✓ ยืนยันใบหน้าสำเร็จ!");
+            playSuccessChime();
+            onSuccess(res.token, res.expires_at, res.has_pin);
+            return;
+          }
+
+          if (res.error === "face_not_match") {
+            setMatchError("ใบหน้าไม่ตรงกับที่ลงทะเบียนไว้");
+            setStatus("ใบหน้าไม่ตรง — ลองจัดมุมกล้องให้อยู่ในกรอบ");
+          } else if (res.error === "no_face") {
+            setStatus("ยังไม่ได้ลงทะเบียนใบหน้า");
+          } else {
+            setStatus("สแกนไม่สำเร็จ — กำลังลองใหม่...");
+          }
+
+          setTimeout(() => {
+            scanLockRef.current = false;
+          }, 1500);
+        }
+      } catch (err) {
+        console.error("Login face detection error:", err);
+      } finally {
+        isDetecting = false;
+        if (!cancelled) {
+          const delay = scanLockRef.current ? 1600 : 600;
+          loopTimer = setTimeout(() => {
+            void runLoop();
+          }, delay);
+        }
+      }
+    };
 
     (async () => {
       try {
@@ -171,42 +219,9 @@ function FaceUnlockCamera({
         setReady(true);
         setStatus("มองกล้องตรง ๆ เพื่อสแกนใบหน้า");
 
-        timer = setInterval(() => {
-          void (async () => {
-            if (cancelled || scanLockRef.current || !videoRef.current) return;
-            const desc = await descriptorFromVideo(videoRef.current);
-            if (!desc || cancelled) return;
-
-            scanLockRef.current = true;
-            setChecking(true);
-            setStatus("กำลังเทียบใบหน้ากับระบบ...");
-
-            const res = await loginWithFace(student.code, Array.from(desc));
-            if (cancelled) return;
-            setChecking(false);
-
-            if (res.ok && res.token) {
-              setStatus("✓ ยืนยันใบหน้าสำเร็จ!");
-              playSuccessChime();
-              onSuccess(res.token, res.expires_at, res.has_pin);
-              return;
-            }
-
-            if (res.error === "face_not_match") {
-              setMatchError("ใบหน้าไม่ตรงกับที่ลงทะเบียนไว้");
-              setStatus("ใบหน้าไม่ตรง — ลองจัดมุมกล้องให้อยู่ในกรอบ");
-            } else if (res.error === "no_face") {
-              setStatus("ยังไม่ได้ลงทะเบียนใบหน้า");
-            } else {
-              setStatus("สแกนไม่สำเร็จ — กำลังลองใหม่...");
-            }
-
-            // หน่วงเวลา 1.5 วินาทีก่อนเทียบภาพถัดไป
-            setTimeout(() => {
-              scanLockRef.current = false;
-            }, 1500);
-          })();
-        }, 800);
+        loopTimer = setTimeout(() => {
+          void runLoop();
+        }, 500);
       } catch (err) {
         if (!cancelled) {
           setReady(false);
@@ -217,7 +232,7 @@ function FaceUnlockCamera({
 
     return () => {
       cancelled = true;
-      if (timer) clearInterval(timer);
+      if (loopTimer) clearTimeout(loopTimer);
       closeCamera(video);
     };
   }, [student.code, facingMode, onSuccess]);

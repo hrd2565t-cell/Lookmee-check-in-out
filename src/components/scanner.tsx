@@ -422,10 +422,19 @@ export default function ScannerPage() {
         if (r.synced > 0) await reloadDayRecords();
       })();
     }, 30_000);
+
+    // ซิงก์ข้อมูลเช็กชื่อล่าสุดทุก 4 วินาที เพื่อให้นักเรียนที่เช็กผ่านมือถือตนเองปรากฏบนจอครูแบบ Realtime อัตโนมัติ
+    const pollTimer = setInterval(() => {
+      if (typeof document !== "undefined" && !document.hidden && window.navigator.onLine) {
+        void reloadDayRecords();
+      }
+    }, 4000);
+
     return () => {
       window.removeEventListener("online", onOnline);
       window.removeEventListener("offline", onOffline);
       clearInterval(timer);
+      clearInterval(pollTimer);
     };
   }, []);
   const [mode, setMode] = useState<"face" | "manual">("face");
@@ -666,7 +675,7 @@ export default function ScannerPage() {
   // โหลดทะเบียนใบหน้า + เปิดกล้อง + วนลูปแมตช์อัตโนมัติ
   useEffect(() => {
     let cancelled = false;
-    let timer: ReturnType<typeof setInterval> | null = null;
+    let loopTimer: ReturnType<typeof setTimeout> | null = null;
     const video = videoRef.current;
     (async () => {
       try {
@@ -707,11 +716,14 @@ export default function ScannerPage() {
         if (cancelled) return;
         setCamOn(true);
         setCamStatus(`กำลังสแกนด้วย${facingMode === "user" ? "กล้องหน้า" : "กล้องหลัง"}อัตโนมัติ...`);
-        timer = setInterval(() => {
-          void (async () => {
-            if (cancelled || enrolledRef.current.length === 0) return;
-            const desc = await descriptorFromVideo(video);
-            if (!desc) return;
+        let isBusy = false;
+
+        const runScanLoop = async () => {
+          if (cancelled || enrolledRef.current.length === 0 || isBusy || !videoRef.current) return;
+          isBusy = true;
+          try {
+            const desc = await descriptorFromVideo(videoRef.current);
+            if (!desc || cancelled) return;
             const top = findTopMatches(desc, enrolledRef.current, 0.55, 2);
             if (top.length === 0) return;
             const hit = top[0] as { code: string; distance: number };
@@ -775,8 +787,21 @@ export default function ScannerPage() {
               setSelectedGroup(st.group);
             }
             await saveMatchRef.current(m);
-          })();
-        }, 1200);
+          } catch (err) {
+            console.error("Scanner scan error:", err);
+          } finally {
+            isBusy = false;
+            if (!cancelled) {
+              loopTimer = setTimeout(() => {
+                void runScanLoop();
+              }, 600);
+            }
+          }
+        };
+
+        loopTimer = setTimeout(() => {
+          void runScanLoop();
+        }, 500);
       } catch (err) {
         if (!cancelled) {
           setCamOn(false);
@@ -786,7 +811,7 @@ export default function ScannerPage() {
     })();
     return () => {
       cancelled = true;
-      if (timer) clearInterval(timer);
+      if (loopTimer) clearTimeout(loopTimer);
       closeCamera(video);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps

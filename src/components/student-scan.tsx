@@ -92,9 +92,13 @@ export default function StudentScanPage() {
         playSuccessChime();
         setNotice(`✓ เช็กชื่อสำเร็จ — ${new Date().toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" })}`);
         setDone(true);
+        if (videoRef.current) closeCamera(videoRef.current);
+        setCamOn(false);
       } else if (res === "duplicate") {
         setNotice("เช็กชื่อวันนี้ไปแล้ว");
         setDone(true);
+        if (videoRef.current) closeCamera(videoRef.current);
+        setCamOn(false);
       } else if (res === "no_session") {
         setNotice("ครูยังไม่เปิดรอบวันนี้ — รอครูเปิดรอบก่อน");
       } else if (res === "bad_pin") {
@@ -191,12 +195,46 @@ export default function StudentScanPage() {
   };
 
   useEffect(() => {
-    if (!pinOk) return;
+    if (!pinOk || done) return;
     const id = identityRef.current;
     if (!id) return;
     let cancelled = false;
-    let timer: ReturnType<typeof setInterval> | null = null;
+    let isBusy = false;
+    let loopTimer: ReturnType<typeof setTimeout> | null = null;
     const video = videoRef.current;
+
+    const runScanLoop = async () => {
+      if (cancelled || !videoRef.current || !id.descriptor || isBusy) return;
+      isBusy = true;
+      try {
+        const desc = await descriptorFromVideo(videoRef.current);
+        if (desc && !cancelled) {
+          let sum = 0;
+          for (let i = 0; i < desc.length; i++) {
+            const diff = (desc[i] ?? 0) - (id.descriptor?.[i] ?? 0);
+            sum += diff * diff;
+          }
+          const dist = Math.sqrt(sum);
+          if (dist <= THRESHOLD) {
+            if (Date.now() - cooldownRef.current >= 30_000) {
+              cooldownRef.current = Date.now();
+              await doCheckin();
+              return; // หยุดลูปเมื่อเช็คชื่อสำเร็จ
+            }
+          }
+        }
+      } catch (err) {
+        console.error("Face scan error:", err);
+      } finally {
+        isBusy = false;
+        if (!cancelled) {
+          loopTimer = setTimeout(() => {
+            void runScanLoop();
+          }, 600);
+        }
+      }
+    };
+
     (async () => {
       if (!id.descriptor) {
         setCamStatus("ยังไม่ลงทะเบียนใบหน้า — ติดต่อครูประจำชั้น");
@@ -214,23 +252,10 @@ export default function StudentScanPage() {
         if (cancelled) return;
         setCamOn(true);
         setCamStatus(`ส่องหน้าด้วย${facingMode === "user" ? "กล้องหน้า" : "กล้องหลัง"} ระบบจะเช็กชื่อให้อัตโนมัติ`);
-        timer = setInterval(() => {
-          void (async () => {
-            if (cancelled || !id.descriptor) return;
-            const desc = await descriptorFromVideo(video);
-            if (!desc) return;
-            let sum = 0;
-            for (let i = 0; i < desc.length; i++) {
-              const diff = (desc[i] ?? 0) - (id.descriptor?.[i] ?? 0);
-              sum += diff * diff;
-            }
-            const dist = Math.sqrt(sum);
-            if (dist > THRESHOLD) return;
-            if (Date.now() - cooldownRef.current < 30_000) return;
-            cooldownRef.current = Date.now();
-            await doCheckin();
-          })();
-        }, 1200);
+        // เริ่มวนลูปทีละเฟรม ไม่ซ้อนทับกัน
+        loopTimer = setTimeout(() => {
+          void runScanLoop();
+        }, 500);
       } catch (err) {
         if (!cancelled) {
           setCamOn(false);
@@ -238,13 +263,14 @@ export default function StudentScanPage() {
         }
       }
     })();
+
     return () => {
       cancelled = true;
-      if (timer) clearInterval(timer);
+      if (loopTimer) clearTimeout(loopTimer);
       closeCamera(video);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [doCheckin, router, pinOk]);
+  }, [doCheckin, router, pinOk, done]);
 
   if (!identity) {
     return (
