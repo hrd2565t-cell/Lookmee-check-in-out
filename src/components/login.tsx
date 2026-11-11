@@ -510,6 +510,13 @@ function StudentForm() {
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
 
+  useEffect(() => {
+    // โหลดโมเดลใบหน้าล่วงหน้าขณะที่นักเรียนพิมพ์รหัส เพื่อให้ปลดล็อกด้วยใบหน้าได้ทันทีไม่สะดุด
+    if (typeof window !== "undefined") {
+      void ensureFaceModels();
+    }
+  }, []);
+
   const search = async (e: React.FormEvent) => {
     e.preventDefault();
     setError("");

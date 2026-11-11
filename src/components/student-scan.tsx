@@ -133,6 +133,8 @@ export default function StudentScanPage() {
       return;
     }
     let cancelled = false;
+    // โหลดโมเดลล่วงหน้าขณะรอตรวจ PIN ช่วยลดเวลารอเปิดกล้องได้ 5-10 วินาที
+    void ensureFaceModels();
     (async () => {
       const [id, myDescriptor] = await Promise.all([
         lookupStudent(code),

@@ -477,7 +477,28 @@ export default function ScannerPage() {
       setManualMsg(
         `ครูยืนยันตัวตน ${manualFound.name} แล้ว${out.periodNo !== null ? ` (คาบที่ ${out.periodNo}${out.late ? " · สาย" : ""})` : ""}`,
       );
-      await reloadDayRecords();
+      setDayRecords((prev) => {
+        if (prev.some((r) => r.studentCode === manualFound.code)) return prev;
+        const now = new Date();
+        const timeStr = `${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`;
+        return [
+          {
+            id: `opt-${manualFound.code}-${Date.now()}`,
+            studentCode: manualFound.code,
+            name: manualFound.name,
+            group: manualFound.group,
+            time: timeStr,
+            checkInAt: now.toISOString(),
+            status: out.late ? "late" : "present",
+            method: "manual",
+            periodNo: out.periodNo,
+            sessionId: "",
+            sessionStatus: "open",
+          },
+          ...prev,
+        ];
+      });
+      void reloadDayRecords();
       setManualFound(null);
       setManualCode("");
     } else if (out.result === "duplicate") {
@@ -537,7 +558,28 @@ export default function ScannerPage() {
     if (out.result === "saved") {
       setNotice(`ครูยืนยันมือ (${label}): ${st.name} แล้ว`);
       setCandidates(null);
-      await reloadDayRecords();
+      setDayRecords((prev) => {
+        if (prev.some((r) => r.studentCode === st.code)) return prev;
+        const now = new Date();
+        const timeStr = `${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`;
+        return [
+          {
+            id: `opt-${st.code}-${Date.now()}`,
+            studentCode: st.code,
+            name: st.name,
+            group: st.group,
+            time: timeStr,
+            checkInAt: now.toISOString(),
+            status: out.late ? "late" : "present",
+            method: "manual",
+            periodNo: out.periodNo,
+            sessionId: "",
+            sessionStatus: "open",
+          },
+          ...prev,
+        ];
+      });
+      void reloadDayRecords();
     } else if (out.result === "duplicate") {
       setNotice(`${st.name} เช็กชื่อวันนี้ไปแล้ว`);
     } else if (out.result === "queued") {
@@ -592,7 +634,28 @@ export default function ScannerPage() {
     };
     setNotice(label[out.result]);
     if (out.result === "saved" || out.result === "duplicate") {
-      await reloadDayRecords();
+      setDayRecords((prev) => {
+        if (prev.some((r) => r.studentCode === m.code)) return prev;
+        const now = new Date();
+        const timeStr = `${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`;
+        return [
+          {
+            id: `opt-${m.code}-${Date.now()}`,
+            studentCode: m.code,
+            name: m.thaiName,
+            group: m.group,
+            time: timeStr,
+            checkInAt: now.toISOString(),
+            status: out.late ? "late" : "present",
+            method: "face",
+            periodNo: out.periodNo,
+            sessionId: "",
+            sessionStatus: "open",
+          },
+          ...prev,
+        ];
+      });
+      void reloadDayRecords();
     }
   };
   const saveMatchRef = useRef(saveMatch);

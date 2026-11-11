@@ -93,57 +93,106 @@ export async function saveCheckin(input: {
     return { result: "queued", periodNo: null, late: false, queued };
   }
 
-  const periods = (await fetchPeriods(input.group)) ?? [];
-  const period = findCurrentPeriod(periods);
-  const late = period ? isLate(period) : false;
-  const status = late ? "late" : "present";
+  // --- เส้นทางความเร็วสูง (Fast Path): ทำงานใน 1 Single Atomic Transaction ผ่าน Database RPC ---
+  if (isSupabaseConfigured) {
+    try {
+      const { data, error } = await supabase.rpc("teacher_checkin", {
+        p_group: input.group,
+        p_code: input.code,
+        p_confidence: input.confidence,
+        p_method: method,
+      });
 
-  const sessionId = await ensureSession(input.group, todayStr());
-  if (!sessionId) {
-    const queued = enqueueCheckin({
-      group: input.group,
-      code: input.code,
-      confidence: input.confidence,
-      status,
-      periodNo: period?.periodNo ?? null,
-      method,
-    });
-    return { result: "queued", periodNo: period?.periodNo ?? null, late, queued };
-  }
+      if (!error && data) {
+        const res = data as {
+          result?: SaveResult;
+          period_no?: number | null;
+          late?: boolean;
+          error?: string;
+        };
 
-  const { data: st } = await supabase
-    .from("students")
-    .select("id")
-    .eq("student_code", input.code)
-    .eq("status", "active")
-    .single();
-  const studentId = (st as { id: string } | null)?.id;
-  if (!studentId) return fail("failed");
+        if (res.result === "saved" || res.result === "duplicate") {
+          return {
+            result: res.result,
+            periodNo: res.period_no ?? null,
+            late: res.late === true,
+            queued: typeof window === "undefined" ? 0 : readQueue().length,
+          };
+        }
 
-  const { error } = await supabase.from("attendance_records").insert({
-    session_id: sessionId,
-    student_id: studentId,
-    check_in_at: new Date().toISOString(),
-    status,
-    period_no: period?.periodNo ?? null,
-    confidence: input.confidence,
-    method,
-  });
-  if (error) {
-    if (error.code === "23505") {
-      return { result: "duplicate", periodNo: period?.periodNo ?? null, late, queued: readQueue().length };
+        if (res.error === "student_not_found" || res.error === "group_not_found") {
+          return fail("failed");
+        }
+      }
+    } catch {
+      // หากเน็ตกระตุกหรือ fetch ล้มเหลว ให้ไหลลงไปเก็บเข้าคิวสำรอง
     }
+  }
+
+  // --- Fallback เดิม (กรณี RPC ใช้งานไม่ได้ หรือเน็ตเริ่มสะดุด) ---
+  try {
+    const periods = (await fetchPeriods(input.group)) ?? [];
+    const period = findCurrentPeriod(periods);
+    const late = period ? isLate(period) : false;
+    const status = late ? "late" : "present";
+
+    const sessionId = await ensureSession(input.group, todayStr());
+    if (!sessionId) {
+      const queued = enqueueCheckin({
+        group: input.group,
+        code: input.code,
+        confidence: input.confidence,
+        status,
+        periodNo: period?.periodNo ?? null,
+        method,
+      });
+      return { result: "queued", periodNo: period?.periodNo ?? null, late, queued };
+    }
+
+    const { data: st } = await supabase
+      .from("students")
+      .select("id")
+      .eq("student_code", input.code)
+      .eq("status", "active")
+      .single();
+    const studentId = (st as { id: string } | null)?.id;
+    if (!studentId) return fail("failed");
+
+    const { error } = await supabase.from("attendance_records").insert({
+      session_id: sessionId,
+      student_id: studentId,
+      check_in_at: new Date().toISOString(),
+      status,
+      period_no: period?.periodNo ?? null,
+      confidence: input.confidence,
+      method,
+    });
+    if (error) {
+      if (error.code === "23505") {
+        return { result: "duplicate", periodNo: period?.periodNo ?? null, late, queued: readQueue().length };
+      }
+      const queued = enqueueCheckin({
+        group: input.group,
+        code: input.code,
+        confidence: input.confidence,
+        status,
+        periodNo: period?.periodNo ?? null,
+        method,
+      });
+      return { result: "queued", periodNo: period?.periodNo ?? null, late, queued };
+    }
+    return { result: "saved", periodNo: period?.periodNo ?? null, late, queued: readQueue().length };
+  } catch {
     const queued = enqueueCheckin({
       group: input.group,
       code: input.code,
       confidence: input.confidence,
-      status,
-      periodNo: period?.periodNo ?? null,
+      status: "present",
+      periodNo: null,
       method,
     });
-    return { result: "queued", periodNo: period?.periodNo ?? null, late, queued };
+    return { result: "queued", periodNo: null, late: false, queued };
   }
-  return { result: "saved", periodNo: period?.periodNo ?? null, late, queued: readQueue().length };
 }
 
 /** ซิงก์คิวค้างขึ้น server — คืนผลสรุป */
@@ -161,6 +210,27 @@ export async function flushQueue(): Promise<{ synced: number; dropped: number; r
       continue;
     }
     try {
+      // ลองใช้ fast-path RPC ก่อน
+      const { data: rpcRes, error: rpcErr } = await supabase.rpc("teacher_checkin", {
+        p_group: q.group,
+        p_code: q.code,
+        p_confidence: q.confidence,
+        p_method: q.method,
+        p_date: q.date,
+      });
+
+      if (!rpcErr && rpcRes) {
+        const resObj = rpcRes as { result?: string; error?: string };
+        if (resObj.result === "saved" || resObj.result === "duplicate") {
+          synced++;
+          continue;
+        }
+        if (resObj.error === "student_not_found" || resObj.error === "group_not_found") {
+          dropped++;
+          continue;
+        }
+      }
+
       const sessionId = await ensureSession(q.group, q.date);
       if (!sessionId) {
         kept.push({ ...q, attempts: q.attempts + 1 });
