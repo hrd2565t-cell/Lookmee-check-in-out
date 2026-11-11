@@ -20,6 +20,7 @@ import { FaceEnrollModal } from "@/components/face-enroll";
 import type { Student } from "@/data/students";
 import {
   PAGE_SIZE,
+  type AttendanceStatus,
   type ReportRow,
 } from "@/data/reports";
   import {
@@ -40,7 +41,7 @@ import {
     type DayRecord,
     type RangeSummaryRow,
     type SessionInfo,
-    type AttendanceStatus,
+    type AttendanceStatus as DbAttendanceStatus,
     updateAttendanceRecord,
     deleteAttendanceRecord,
   } from "@/lib/attendance";
@@ -51,6 +52,7 @@ import {
   createLeave,
   decideLeave,
   deleteLeave,
+  fetchApprovedLeavesForDate,
   fetchPendingLeaves,
   fetchStudentLeaves,
   LEAVE_TYPE_LABEL,
@@ -85,6 +87,7 @@ const STATUS_STYLE: Record<AttendanceStatus, string> = {
   absent: "bg-[#c62828]",
   late: "bg-[#ef8c1a]",
   activity: "bg-[#00897b]",
+  leave: "bg-[#0284c7]",
 };
 
 const STATUS_LABEL: Record<AttendanceStatus, string> = {
@@ -92,6 +95,7 @@ const STATUS_LABEL: Record<AttendanceStatus, string> = {
   absent: "Absent",
   late: "Late",
   activity: "Activity",
+  leave: "Leave",
 };
 
 function StatusBadge({ status }: { status: AttendanceStatus }) {
@@ -203,19 +207,31 @@ export default function ReportsPage() {
   const [date, setDate] = useState(dbToday());
   const [daySessions, setDaySessions] = useState<SessionInfo[]>([]);
   const [dayRecords, setDayRecords] = useState<DayRecord[]>([]);
+  const [approvedDayLeaves, setApprovedDayLeaves] = useState<
+    Map<string, { type: LeaveType; reason: string }>
+  >(new Map());
   const [refreshKey, setRefreshKey] = useState(0);
 
-  // โหลดรอบ + ผลจริงของวันที่เลือก
+  // โหลดรอบ + ผลจริง + ใบลาของวันที่เลือก
   useEffect(() => {
     let cancelled = false;
-    Promise.all([fetchSessionsByDate(date), fetchRecordsByDate(date)]).then(
-      ([s, r]) => {
-        if (!cancelled) {
-          setDaySessions(s ?? []);
-          setDayRecords(r ?? []);
+    Promise.all([
+      fetchSessionsByDate(date),
+      fetchRecordsByDate(date),
+      fetchApprovedLeavesForDate(date),
+    ]).then(([s, r, l]) => {
+      if (!cancelled) {
+        setDaySessions(s ?? []);
+        setDayRecords(r ?? []);
+        const m = new Map<string, { type: LeaveType; reason: string }>();
+        if (l) {
+          for (const item of l) {
+            m.set(item.studentCode, { type: item.type, reason: item.reason });
+          }
         }
-      },
-    );
+        setApprovedDayLeaves(m);
+      }
+    });
     return () => {
       cancelled = true;
     };
@@ -256,6 +272,7 @@ export default function ReportsPage() {
         absent: 0,
         late: 0,
         activity: 0,
+        leave: 0,
         total: groupStudents.length,
       };
     }
@@ -264,10 +281,14 @@ export default function ReportsPage() {
     let late = 0;
     let activity = 0;
     let absent = 0;
+    let leave = 0;
 
     for (const st of groupStudents) {
+      const isApprovedLeave = approvedDayLeaves.has(st.code);
       const r = recordMap.get(st.code);
-      if (!r) {
+      if (isApprovedLeave && (!r || r.status === "absent")) {
+        leave++;
+      } else if (!r) {
         absent++;
       } else if (r.status === "present") {
         present++;
@@ -285,9 +306,10 @@ export default function ReportsPage() {
       absent,
       late,
       activity,
+      leave,
       total: groupStudents.length,
     };
-  }, [grec, groupStudents, isDateWeekend]);
+  }, [grec, groupStudents, isDateWeekend, approvedDayLeaves]);
 
   /* ---------- สรุปช่วงวันที่ (ทั้งเทอม/เดือน) ---------- */
   const monthStart = (() => {
@@ -466,7 +488,7 @@ export default function ReportsPage() {
   const [enrollCode, setEnrollCode] = useState<string | null>(null);
   /* ---------- แก้ไขเช็คชื่อรายคน ---------- */
   const [editRecord, setEditRecord] = useState<DayRecord | null>(null);
-  const [editStatus, setEditStatus] = useState<AttendanceStatus>("present");
+  const [editStatus, setEditStatus] = useState<DbAttendanceStatus>("present");
   const [editCheckIn, setEditCheckIn] = useState("");
   const [editSaving, setEditSaving] = useState(false);
   /* ---------- แก้ไขใบลาที่ยังรออนุมัติ ---------- */
@@ -673,6 +695,27 @@ export default function ReportsPage() {
     fetchPendingDisputes().then((rows) => setStudentDisputes(rows));
   }, []);
 
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const scrollOnHash = () => {
+      const hash = window.location.hash;
+      if (hash === "#pending-leaves" || hash === "#student-disputes") {
+        const id = hash.replace("#", "");
+        setTimeout(() => {
+          const el = document.getElementById(id);
+          if (el) {
+            el.scrollIntoView({ behavior: "smooth", block: "start" });
+            el.classList.add("ring-2", "ring-[#2474c6]");
+            setTimeout(() => el.classList.remove("ring-2", "ring-[#2474c6]"), 2500);
+          }
+        }, 300);
+      }
+    };
+    scrollOnHash();
+    window.addEventListener("hashchange", scrollOnHash);
+    return () => window.removeEventListener("hashchange", scrollOnHash);
+  }, []);
+
   const onDeleteLeave = async (id: string) => {
     const target = visibleLeaves.find((l) => l.id === id) ?? null;
     if (!target || target.status !== "pending") {
@@ -797,7 +840,21 @@ export default function ReportsPage() {
     if (isDateWeekend) return [];
     const recordMap = new Map(grec.map((r) => [r.studentCode, r]));
     return groupStudents.map((st) => {
+      const leaveInfo = approvedDayLeaves.get(st.code);
       const r = recordMap.get(st.code);
+      if (leaveInfo && (!r || r.status === "absent")) {
+        return {
+          id: st.code,
+          name: st.name,
+          group: st.group,
+          number: st.number || "",
+          time: leaveInfo.type === "sick" ? "ลาป่วย" : "ลากิจ",
+          status: "leave" as AttendanceStatus,
+          initials: st.initials,
+          color: st.color,
+          method: "manual" as const,
+        };
+      }
       if (r) {
         return {
           id: st.code,
@@ -823,7 +880,7 @@ export default function ReportsPage() {
         method: "manual" as const,
       };
     });
-  }, [groupStudents, grec, isDateWeekend]);
+  }, [groupStudents, grec, isDateWeekend, approvedDayLeaves]);
 
   /* ---------- รายชื่อนักเรียนสำหรับตารางหลัก ---------- */
   const rows = useMemo(() => {
@@ -873,8 +930,41 @@ export default function ReportsPage() {
     });
   }, [allRosterRows, statusModal, modalSearch, modalRoomFilter]);
 
+  /* ---------- ฟังก์ชันบันทึกการลาป่วยด่วนในคลิกเดียว ---------- */
+  const handleQuickMarkSickLeave = async (studentCode: string) => {
+    if (isDateWeekend) {
+      alert("ไม่สามารถบันทึกการลาในวันหยุดเสาร์-อาทิตย์ได้");
+      return;
+    }
+    const st = groupStudents.find((s) => s.code === studentCode);
+    if (!st) return;
+
+    // ถ้ามีแถวเช็คชื่อเดิม ให้ลบออก เพื่อไม่ให้ชนกับสถานะลา
+    const existingRec = grec.find((x) => x.studentCode === studentCode);
+    if (existingRec) {
+      await deleteAttendanceRecord(existingRec.id);
+    }
+
+    // สร้างใบลาประเภทลาป่วยสถานะ approved ทันที
+    await createLeave({
+      studentCode,
+      dateFrom: date,
+      dateTo: date,
+      type: "sick",
+      reason: "ครูบันทึกแทน (ลาป่วย)",
+      status: "approved",
+    });
+
+    try {
+      playSuccessChime();
+    } catch {
+      // ignore
+    }
+    setRefreshKey((k) => k + 1);
+  };
+
   /* ---------- ฟังก์ชันเปลี่ยนสถานะด่วนในคลิกเดียว (Quick Check-in) ---------- */
-  const handleQuickMarkStatus = async (studentCode: string, targetStatus: AttendanceStatus) => {
+  const handleQuickMarkStatus = async (studentCode: string, targetStatus: DbAttendanceStatus) => {
     if (isDateWeekend) {
       alert("ไม่สามารถเช็คชื่อในวันหยุดเสาร์-อาทิตย์ได้");
       return;
@@ -900,6 +990,7 @@ export default function ReportsPage() {
       await updateAttendanceRecord(existingRec.id, {
         status: targetStatus,
         check_in_at: targetStatus === "absent" ? null : (existingRec.checkInAt || new Date().toISOString()),
+        activity_name: targetStatus === "activity" ? "กิจกรรมโรงเรียน" : null,
       });
     }
     try {
@@ -2164,7 +2255,7 @@ export default function ReportsPage() {
               สถานะ
               <select
                 value={editStatus}
-                onChange={(e) => setEditStatus(e.target.value as AttendanceStatus)}
+                onChange={(e) => setEditStatus(e.target.value as DbAttendanceStatus)}
                 className="mt-1 h-10 w-full rounded-lg border border-[#d8e0ec] bg-white px-3 text-[14px] focus:border-[#2474c6] focus:outline-none"
               >
                 <option value="present">มาเรียน</option>
@@ -2314,9 +2405,9 @@ export default function ReportsPage() {
                       statusModalRows,
                     )
                   }
-                  className="rounded-md bg-[#1e8e3e] px-2.5 py-1 text-[12px] font-bold text-white shadow-2xs hover:brightness-110"
+                  className="rounded-md bg-[#1e8e3e] px-2.5 py-1 text-[12px] font-bold text-white shadow-2xs hover:brightness-110 cursor-pointer"
                 >
-                  📥 ส่งออก Excel (${statusModalRows.length})
+                  📥 ส่งออก Excel ({statusModalRows.length})
                 </button>
               </div>
             </div>
@@ -2403,7 +2494,7 @@ export default function ReportsPage() {
                           <button
                             type="button"
                             onClick={() => void handleQuickMarkStatus(r.id, "present")}
-                            className="rounded-md bg-[#1e8e3e] px-2.5 py-1 text-[12px] font-bold text-white shadow-2xs transition hover:brightness-110 active:scale-95"
+                            className="rounded-md bg-[#1e8e3e] px-2.5 py-1 text-[12px] font-bold text-white shadow-2xs transition hover:brightness-110 active:scale-95 cursor-pointer"
                             title="เช็คชื่อให้นักเรียนเป็นมาเรียน"
                           >
                             ✓ เช็คชื่อให้ (มา)
@@ -2411,10 +2502,26 @@ export default function ReportsPage() {
                           <button
                             type="button"
                             onClick={() => void handleQuickMarkStatus(r.id, "late")}
-                            className="rounded-md bg-[#ef8c1a] px-2 py-1 text-[12px] font-bold text-white shadow-2xs transition hover:brightness-110 active:scale-95"
+                            className="rounded-md bg-[#ef8c1a] px-2 py-1 text-[12px] font-bold text-white shadow-2xs transition hover:brightness-110 active:scale-95 cursor-pointer"
                             title="เช็คชื่อให้นักเรียนเป็นมาสาย"
                           >
                             ⏱ สาย
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => void handleQuickMarkSickLeave(r.id)}
+                            className="rounded-md bg-[#0284c7] px-2.5 py-1 text-[12px] font-bold text-white shadow-2xs transition hover:brightness-110 active:scale-95 cursor-pointer"
+                            title="บันทึกว่านักเรียนลาป่วย"
+                          >
+                            🏥 ลาป่วย
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => void handleQuickMarkStatus(r.id, "activity")}
+                            className="rounded-md bg-[#00897b] px-2.5 py-1 text-[12px] font-bold text-white shadow-2xs transition hover:brightness-110 active:scale-95 cursor-pointer"
+                            title="เช็คชื่อให้นักเรียนไปร่วมกิจกรรม"
+                          >
+                            🎪 กิจกรรม
                           </button>
                         </>
                       ) : (
@@ -2422,7 +2529,7 @@ export default function ReportsPage() {
                           <button
                             type="button"
                             onClick={() => void handleQuickMarkStatus(r.id, "absent")}
-                            className="rounded-md border border-[#fed7d7] bg-[#fff5f5] px-2 py-1 text-[12px] font-bold text-[#c62828] shadow-2xs transition hover:bg-[#fdecec] active:scale-95"
+                            className="rounded-md border border-[#fed7d7] bg-[#fff5f5] px-2 py-1 text-[12px] font-bold text-[#c62828] shadow-2xs transition hover:bg-[#fdecec] active:scale-95 cursor-pointer"
                             title="เปลี่ยนสถานะเป็นขาดเรียน"
                           >
                             ✗ ขาด
@@ -2433,7 +2540,7 @@ export default function ReportsPage() {
                               setStatusModal(null);
                               void openEditRecord(r.id);
                             }}
-                            className="rounded-md border border-[#d8e0ec] bg-white px-2 py-1 text-[12px] font-semibold text-[#5b6b82] shadow-2xs hover:bg-[#eef2f7]"
+                            className="rounded-md border border-[#d8e0ec] bg-white px-2 py-1 text-[12px] font-semibold text-[#5b6b82] shadow-2xs hover:bg-[#eef2f7] cursor-pointer"
                             title="แก้ไขรายละเอียด"
                           >
                             ✏️ แก้ไข
@@ -2449,7 +2556,7 @@ export default function ReportsPage() {
             {/* Modal footer */}
             <div className="flex items-center justify-between border-t border-[#eef2f7] pt-2.5">
               <span className="text-[12.5px] font-medium text-[#5b6b82]">
-                รวม ${statusModalRows.length} คน
+                รวม {statusModalRows.length} คน
               </span>
               <button
                 type="button"
@@ -2458,7 +2565,7 @@ export default function ReportsPage() {
                   setModalSearch("");
                   setModalRoomFilter("all");
                 }}
-                className="rounded-md bg-[#16233a] px-4 py-1.5 text-[13px] font-bold text-white shadow-2xs hover:bg-[#20314f]"
+                className="rounded-md bg-[#16233a] px-4 py-1.5 text-[13px] font-bold text-white shadow-2xs hover:bg-[#20314f] cursor-pointer"
               >
                 ปิดหน้าต่าง
               </button>

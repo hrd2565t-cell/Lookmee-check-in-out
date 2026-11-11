@@ -1,5 +1,5 @@
 // types สำหรับ Reports — ข้อมูลจริงดึงจาก DB ใน component
-export type AttendanceStatus = "present" | "absent" | "late" | "activity";
+export type AttendanceStatus = "present" | "absent" | "late" | "activity" | "leave";
 
 export type ReportRow = {
   id: string;

@@ -503,6 +503,12 @@ export default function StudentsPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  useEffect(() => {
+    const handleFilter = () => setStatus("unregistered");
+    window.addEventListener("filter-unregistered", handleFilter);
+    return () => window.removeEventListener("filter-unregistered", handleFilter);
+  }, []);
+
   const openEditStudent = (s: Student) => {
     setForm({
       code: s.studentId,

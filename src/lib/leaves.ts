@@ -56,7 +56,7 @@ function toItem(r: DbLeaveRow): LeaveItem | null {
   };
 }
 
-/** ดึงใบลารอ evident — คืน null ถ้าต่อ DB ไม่ได้ */
+/** ดึงใบลารออนุมัติ — คืน null ถ้าต่อ DB ไม่ได้ */
 export async function fetchPendingLeaves(): Promise<LeaveItem[] | null> {
   if (!isSupabaseConfigured) return null;
   try {
@@ -99,6 +99,36 @@ export async function fetchStudentLeaves(studentCode: string): Promise<LeaveItem
     return null;
   }
 }
+
+/** ดึงรายการใบลาที่ได้รับอนุมัติในวันที่กำหนด (สำหรับแสดงในตารางสรุปรายวัน) */
+export async function fetchApprovedLeavesForDate(
+  date: string,
+): Promise<Array<{ studentCode: string; type: LeaveType; reason: string }> | null> {
+  if (!isSupabaseConfigured) return null;
+  try {
+    const { data, error } = await supabase
+      .from("leave_requests")
+      .select("type,reason,students!inner(student_code)")
+      .eq("status", "approved")
+      .lte("date_from", date)
+      .gte("date_to", date);
+    if (error || !data) return null;
+    return (
+      data as unknown as Array<{
+        type: LeaveType;
+        reason: string | null;
+        students: { student_code: string };
+      }>
+    ).map((r) => ({
+      studentCode: r.students.student_code,
+      type: r.type,
+      reason: r.reason ?? "",
+    }));
+  } catch {
+    return null;
+  }
+}
+
 /** ยื่นใบลา — คืน id ที่สร้าง, null ถ้าล้มเหลว */
 export async function createLeave(input: {
   studentCode: string;
@@ -106,6 +136,7 @@ export async function createLeave(input: {
   dateTo: string;
   type: LeaveType;
   reason: string;
+  status?: LeaveStatus;
 }): Promise<string | null> {
   if (!isSupabaseConfigured) return null;
   try {
@@ -124,7 +155,7 @@ export async function createLeave(input: {
         date_to: input.dateTo,
         type: input.type,
         reason: input.reason || null,
-        status: "pending",
+        status: input.status || "pending",
       })
       .select("id")
       .single();
