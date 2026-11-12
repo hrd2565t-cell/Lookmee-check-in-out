@@ -44,6 +44,7 @@ import {
     type AttendanceStatus as DbAttendanceStatus,
     updateAttendanceRecord,
     deleteAttendanceRecord,
+    deleteSessionFull,
   } from "@/lib/attendance";
 import { downloadCsv } from "@/lib/export";
 import { useRoster } from "@/lib/school-data";
@@ -522,6 +523,35 @@ export default function ReportsPage() {
   const [actNotice, setActNotice] = useState("");
   const [actSaving, setActSaving] = useState(false);
   const [actBanner, setActBanner] = useState("");
+
+  /* ---------- ลบรอบเช็คชื่อของวันนั้น (ยกเลิกข้อมูลทั้งห้อง) ---------- */
+  const [deleteSessionModalOpen, setDeleteSessionModalOpen] = useState(false);
+  const [deleteSessionConfirmed, setDeleteSessionConfirmed] = useState(false);
+  const [deleteSessionBusy, setDeleteSessionBusy] = useState(false);
+  const [deleteSessionBanner, setDeleteSessionBanner] = useState("");
+
+  const handleDeleteSession = async () => {
+    setDeleteSessionBusy(true);
+    const res = await deleteSessionFull(group, date, session?.id);
+    setDeleteSessionBusy(false);
+    if (!res.success) {
+      alert(`ลบข้อมูลไม่สำเร็จ: ${res.error || "เกิดข้อผิดพลาด"}`);
+      return;
+    }
+    setDeleteSessionModalOpen(false);
+    setDeleteSessionConfirmed(false);
+    setDeleteSessionBanner(
+      res.deletedRecordsCount > 0
+        ? `✓ ลบข้อมูลรอบเช็คชื่อห้อง ${group} วันที่ ${fmtDate(date)} และล้างข้อมูลนักเรียน ${res.deletedRecordsCount} คนเรียบร้อยแล้ว (รีเซ็ตเป็นยังไม่เปิดรอบ)`
+        : `✓ ยกเลิกรอบเช็คชื่อห้อง ${group} วันที่ ${fmtDate(date)} เรียบร้อยแล้ว (รีเซ็ตเป็นยังไม่เปิดรอบ)`,
+    );
+    try {
+      playSuccessChime();
+    } catch {
+      // ignore
+    }
+    setRefreshKey((k) => k + 1);
+  };
 
   const openActivityModal = () => {
     if (isDateWeekend) {
@@ -1229,7 +1259,32 @@ export default function ReportsPage() {
               >
                 + บันทึกกิจกรรม
               </button>
+              {(session || grec.length > 0) && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setDeleteSessionConfirmed(false);
+                    setDeleteSessionModalOpen(true);
+                  }}
+                  className="rounded-md border border-[#fed7d7] bg-[#fff5f5] px-2.5 py-1 text-[12.5px] font-bold text-[#c62828] shadow-2xs transition hover:bg-[#fdecec] active:scale-95 cursor-pointer"
+                  title="ลบข้อมูลการเปิดรอบและข้อมูลเช็คชื่อของห้องนี้ในวันนี้ทั้งหมด"
+                >
+                  🗑️ ลบข้อมูลรอบวันนี้
+                </button>
+              )}
             </div>
+            {deleteSessionBanner ? (
+              <p role="status" className="mt-2 flex items-center justify-between rounded-lg border border-[#a7f3d0] bg-[#ecfdf5] px-3.5 py-2 text-[13.5px] font-medium text-[#065f46]">
+                <span>{deleteSessionBanner}</span>
+                <button
+                  type="button"
+                  onClick={() => setDeleteSessionBanner("")}
+                  className="text-[14px] font-bold text-[#059669] hover:text-[#065f46] cursor-pointer"
+                >
+                  ×
+                </button>
+              </p>
+            ) : null}
             {actBanner ? (
               <p role="status" className="mt-2 rounded-lg bg-[#e0f2f1] px-3 py-2 text-[13.5px] font-medium text-[#00695c]">
                 {actBanner}
@@ -2568,6 +2623,102 @@ export default function ReportsPage() {
                 className="rounded-md bg-[#16233a] px-4 py-1.5 text-[13px] font-bold text-white shadow-2xs hover:bg-[#20314f] cursor-pointer"
               >
                 ปิดหน้าต่าง
+              </button>
+            </div>
+          </div>
+        </Modal>
+      )}
+
+      {/* Modal ยืนยันการลบรอบ / รีเซ็ตข้อมูลวันนี้ของห้องนี้ */}
+      {deleteSessionModalOpen && (
+        <Modal
+          title={
+            grec.length > 0
+              ? `⚠️ ยืนยันลบข้อมูลรอบเช็คชื่อห้อง ${group}`
+              : `ยกเลิกรอบเช็คชื่อห้อง ${group}`
+          }
+          onClose={() => {
+            if (!deleteSessionBusy) {
+              setDeleteSessionModalOpen(false);
+              setDeleteSessionConfirmed(false);
+            }
+          }}
+          maxWidth="max-w-lg"
+        >
+          <div className="space-y-4 pt-1">
+            <div className="rounded-lg border border-[#eef2f7] bg-[#f8fafc] p-3 text-[13px] text-[#5b6b82]">
+              <p>
+                <span className="font-semibold text-[#16233a]">กลุ่ม/ห้อง:</span>{" "}
+                <span className="font-bold text-[#2474c6]">{group}</span>
+              </p>
+              <p className="mt-1">
+                <span className="font-semibold text-[#16233a]">ประจำวันที่:</span>{" "}
+                <span className="font-bold text-[#16233a]">{fmtDate(date)}</span>
+              </p>
+            </div>
+
+            {grec.length === 0 ? (
+              <div className="rounded-lg border border-[#d1fae5] bg-[#ecfdf5] p-3 text-[13.5px] text-[#065f46]">
+                <p className="font-bold">✓ ยังไม่มีนักเรียนเช็คชื่อเข้ามาในรอบนี้</p>
+                <p className="mt-1 text-[12.5px] text-[#047857]">
+                  คุณสามารถยกเลิกการเปิดรอบได้ทันทีโดยไม่มีข้อมูลสูญหาย และห้องนี้จะกลับสู่สถานะยังไม่เคยเปิดรอบ
+                </p>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                <div className="rounded-lg border border-[#fed7aa] bg-[#fff7ed] p-3 text-[13px] text-[#9a3412]">
+                  <p className="font-bold text-[14px] text-[#c2410c]">
+                    ⚠️ มีข้อมูลการเช็คชื่อในรอบนี้แล้ว {grec.length} คน
+                  </p>
+                  <p className="mt-0.5 text-[12px] font-medium text-[#9a3412]">
+                    (มา {summary.present} คน, สาย {summary.late} คน, กิจกรรม {summary.activity} คน)
+                  </p>
+                  <p className="mt-2 leading-relaxed text-[#7c2d12]">
+                    หากยืนยันลบ ข้อมูลการเช็คชื่อของนักเรียนทั้งหมด{" "}
+                    <span className="font-bold">{grec.length} คน</span>{" "}
+                    จะถูกลบออกจากฐานข้อมูล และห้องนี้จะถูกรีเซ็ตเหมือนยังไม่เคยเปิดเช็คชื่อในวันที่ {fmtDate(date)}
+                    (จะไม่ถูกนำไปคิดสถิติการเรียนหรือคะแนนจิตพิสัย)
+                  </p>
+                </div>
+
+                <label className="flex cursor-pointer items-start gap-2.5 rounded-lg border border-[#fed7d7] bg-[#fff5f5] p-3 transition hover:bg-[#fee2e2]">
+                  <input
+                    type="checkbox"
+                    checked={deleteSessionConfirmed}
+                    onChange={(e) => setDeleteSessionConfirmed(e.target.checked)}
+                    disabled={deleteSessionBusy}
+                    className="mt-0.5 h-4 w-4 rounded border-[#e53e3e] accent-[#c62828]"
+                  />
+                  <span className="text-[13px] font-bold text-[#c62828] select-none">
+                    ฉันเข้าใจและยืนยันว่าต้องการลบข้อมูลเช็คชื่อของนักเรียนทั้งหมด {grec.length} คนในรอบนี้
+                  </span>
+                </label>
+              </div>
+            )}
+
+            <div className="flex items-center justify-end gap-2 border-t border-[#eef2f7] pt-3">
+              <button
+                type="button"
+                onClick={() => {
+                  setDeleteSessionModalOpen(false);
+                  setDeleteSessionConfirmed(false);
+                }}
+                disabled={deleteSessionBusy}
+                className="rounded-lg border border-[#d8e0ec] bg-white px-3.5 py-2 text-[13px] font-semibold text-[#5b6b82] hover:bg-[#f1f5fa] disabled:opacity-40 cursor-pointer"
+              >
+                ยกเลิก
+              </button>
+              <button
+                type="button"
+                onClick={() => void handleDeleteSession()}
+                disabled={deleteSessionBusy || (grec.length > 0 && !deleteSessionConfirmed)}
+                className="rounded-lg bg-[#c62828] px-4 py-2 text-[13px] font-bold text-white shadow-2xs transition hover:bg-[#b71c1c] disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+              >
+                {deleteSessionBusy
+                  ? "กำลังลบข้อมูล..."
+                  : grec.length > 0
+                    ? "ยืนยันลบข้อมูลทั้งหมด"
+                    : "ยืนยันยกเลิกรอบ"}
               </button>
             </div>
           </div>

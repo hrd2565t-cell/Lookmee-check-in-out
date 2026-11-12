@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { AppShell } from "@/components/layout";
 import { CameraSwitchIcon, ChevronDownIcon, RefreshIcon, ScanIcon } from "@/components/icons";
-import { Avatar, Card, UIButton } from "@/components/ui";
+import { Avatar, Card, Modal, UIButton } from "@/components/ui";
 import { cn } from "@/lib/cn";
 import {
   buildCurrentMatch,
@@ -16,6 +16,7 @@ import {
   isWeekend,
   bulkMarkStatus,
   closeSessionFull,
+  deleteSessionFull,
   ensureSessionFull,
   fetchRecordsByDate,
   manualCheckIn,
@@ -353,6 +354,34 @@ export default function ScannerPage() {
     }
     setRound({ ...round, status: "completed" });
     setNotice(`ปิดรอบ ${activeGroup} แล้ว`);
+  };
+
+  const [deleteModalOpen, setDeleteModalOpen] = useState(false);
+  const [deleteConfirmed, setDeleteConfirmed] = useState(false);
+  const [deleteBusy, setDeleteBusy] = useState(false);
+
+  const handleDeleteRound = async () => {
+    setDeleteBusy(true);
+    const res = await deleteSessionFull(activeGroup, todayStr(), round?.id);
+    setDeleteBusy(false);
+    if (!res.success) {
+      setNotice(`ลบรอบไม่สำเร็จ: ${res.error || "เกิดข้อผิดพลาด"}`);
+      return;
+    }
+    setDeleteModalOpen(false);
+    setDeleteConfirmed(false);
+    setRound(null);
+    await reloadDayRecords();
+    try {
+      playSuccessChime();
+    } catch {
+      // ignore
+    }
+    setNotice(
+      res.deletedRecordsCount > 0
+        ? `✓ ลบรอบ ${activeGroup} และล้างข้อมูลเช็คชื่อ ${res.deletedRecordsCount} คนเรียบร้อยแล้ว (รีเซ็ตเป็นยังไม่เปิดรอบ)`
+        : `✓ ยกเลิกรอบ ${activeGroup} เรียบร้อยแล้ว (รีเซ็ตเป็นยังไม่เปิดรอบ)`,
+    );
   };
   const [online, setOnline] = useState(
     typeof window === "undefined" ? true : window.navigator.onLine,
@@ -989,19 +1018,35 @@ export default function ScannerPage() {
                 )}
               </p>
             </div>
-            {!round || round.status === "completed" ? (
-              <UIButton variant="green" onClick={() => void openRound()} className="h-10 shrink-0">
-                เปิดรอบวันนี้
-              </UIButton>
-            ) : (
-              <UIButton
-                variant="blue"
-                onClick={() => void closeRound()}
-                className="h-10 shrink-0 bg-[#5b6b82] hover:bg-[#465364] focus-visible:ring-[#5b6b82]/40"
-              >
-                ปิดรอบ
-              </UIButton>
-            )}
+            <div className="flex flex-wrap items-center gap-2">
+              {!round || round.status === "completed" ? (
+                <UIButton variant="green" onClick={() => void openRound()} className="h-10 shrink-0">
+                  เปิดรอบวันนี้
+                </UIButton>
+              ) : (
+                <UIButton
+                  variant="blue"
+                  onClick={() => void closeRound()}
+                  className="h-10 shrink-0 bg-[#5b6b82] hover:bg-[#465364] focus-visible:ring-[#5b6b82]/40"
+                >
+                  ปิดรอบ
+                </UIButton>
+              )}
+
+              {(round !== null || checkedStudentsCount > 0) && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setDeleteConfirmed(false);
+                    setDeleteModalOpen(true);
+                  }}
+                  className="inline-flex h-10 shrink-0 items-center gap-1.5 rounded-lg border border-[#fed7d7] bg-[#fff5f5] px-3 text-[12.5px] font-bold text-[#c62828] shadow-2xs transition hover:bg-[#fdecec] active:scale-95 cursor-pointer"
+                  title="ยกเลิกรอบและลบข้อมูลเช็คชื่อของห้องนี้ในวันนี้ทั้งหมด"
+                >
+                  <span>🗑️ ลบรอบวันนี้</span>
+                </button>
+              )}
+            </div>
 
             {round && round.status !== "completed" && (
               <div className="flex w-full flex-wrap items-center gap-2 border-t border-[#eef2f7] pt-3">
@@ -1472,6 +1517,95 @@ export default function ScannerPage() {
         groupName={activeGroup}
         pin={round?.pin ?? null}
       />
+
+      {/* Modal ยืนยันการลบรอบ / รีเซ็ตข้อมูลวันนี้ */}
+      {deleteModalOpen && (
+        <Modal
+          title={
+            checkedStudentsCount > 0
+              ? `⚠️ ยืนยันลบข้อมูลรอบเช็คชื่อ ${activeGroup}`
+              : `ยกเลิกรอบเช็คชื่อ ${activeGroup}`
+          }
+          onClose={() => {
+            if (!deleteBusy) {
+              setDeleteModalOpen(false);
+              setDeleteConfirmed(false);
+            }
+          }}
+          maxWidth="max-w-lg"
+        >
+          <div className="space-y-4 pt-1">
+            <div className="rounded-lg border border-[#eef2f7] bg-[#f8fafc] p-3 text-[13px] text-[#5b6b82]">
+              <p>
+                <span className="font-semibold text-[#16233a]">กลุ่ม/ห้อง:</span>{" "}
+                <span className="font-bold text-[#2474c6]">{activeGroup}</span>
+              </p>
+              <p className="mt-1">
+                <span className="font-semibold text-[#16233a]">ประจำวันที่:</span>{" "}
+                <span className="font-bold text-[#16233a]">{todayStr()}</span>
+              </p>
+            </div>
+
+            {checkedStudentsCount === 0 ? (
+              <div className="rounded-lg border border-[#d1fae5] bg-[#ecfdf5] p-3 text-[13.5px] text-[#065f46]">
+                <p className="font-bold">✓ ยังไม่มีนักเรียนเช็คชื่อเข้ามาในรอบนี้</p>
+                <p className="mt-1 text-[12.5px] text-[#047857]">
+                  คุณสามารถยกเลิกการเปิดรอบได้ทันทีโดยไม่มีข้อมูลสูญหาย และห้องนี้จะกลับสู่สถานะยังไม่เคยเปิดรอบ
+                </p>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                <div className="rounded-lg border border-[#fed7aa] bg-[#fff7ed] p-3 text-[13px] text-[#9a3412]">
+                  <p className="font-bold text-[14px] text-[#c2410c]">
+                    ⚠️ มีนักเรียนเช็คชื่อในรอบนี้แล้ว {checkedStudentsCount} คน
+                  </p>
+                  <p className="mt-1 leading-relaxed text-[#7c2d12]">
+                    หากลบรอบนี้ ข้อมูลการเช็คชื่อของนักเรียนทั้ง{" "}
+                    <span className="font-bold">{checkedStudentsCount} คน</span>{" "}
+                    จะถูกลบออกจากฐานข้อมูลทั้งหมด และห้องนี้จะถูกรีเซ็ตเหมือนยังไม่เคยเปิดเช็คชื่อในวันนี้
+                    (ไม่นำไปนับในสถิติการเรียนหรือคะแนนจิตพิสัย)
+                  </p>
+                </div>
+
+                <label className="flex cursor-pointer items-start gap-2.5 rounded-lg border border-[#fed7d7] bg-[#fff5f5] p-3 transition hover:bg-[#fee2e2]">
+                  <input
+                    type="checkbox"
+                    checked={deleteConfirmed}
+                    onChange={(e) => setDeleteConfirmed(e.target.checked)}
+                    disabled={deleteBusy}
+                    className="mt-0.5 h-4 w-4 rounded border-[#e53e3e] accent-[#c62828]"
+                  />
+                  <span className="text-[13px] font-bold text-[#c62828] select-none">
+                    ฉันเข้าใจและยืนยันว่าต้องการลบข้อมูลเช็คชื่อของนักเรียนทั้งหมด {checkedStudentsCount} คนในรอบนี้
+                  </span>
+                </label>
+              </div>
+            )}
+
+            <div className="flex items-center justify-end gap-2 border-t border-[#eef2f7] pt-3">
+              <button
+                type="button"
+                onClick={() => {
+                  setDeleteModalOpen(false);
+                  setDeleteConfirmed(false);
+                }}
+                disabled={deleteBusy}
+                className="rounded-lg border border-[#d8e0ec] bg-white px-3.5 py-2 text-[13px] font-semibold text-[#5b6b82] hover:bg-[#f1f5fa] disabled:opacity-40 cursor-pointer"
+              >
+                ยกเลิก
+              </button>
+              <button
+                type="button"
+                onClick={() => void handleDeleteRound()}
+                disabled={deleteBusy || (checkedStudentsCount > 0 && !deleteConfirmed)}
+                className="rounded-lg bg-[#c62828] px-4 py-2 text-[13px] font-bold text-white shadow-2xs transition hover:bg-[#b71c1c] disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+              >
+                {deleteBusy ? "กำลังลบข้อมูล..." : checkedStudentsCount > 0 ? "ยืนยันลบข้อมูลทั้งหมด" : "ยืนยันยกเลิกรอบ"}
+              </button>
+            </div>
+          </div>
+        </Modal>
+      )}
     </AppShell>
   );
 }

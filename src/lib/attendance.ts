@@ -215,6 +215,88 @@ export async function closeSessionFull(groupName: string, date: string, sessionI
   }
 }
 
+/** ลบรอบเดี่ยวตาม session id */
+export async function deleteSession(sessionId: string): Promise<boolean> {
+  if (!isSupabaseConfigured) return false;
+  try {
+    await supabase.from("attendance_records").delete().eq("session_id", sessionId);
+    const { error } = await supabase.from("attendance_sessions").delete().eq("id", sessionId);
+    return !error;
+  } catch {
+    return false;
+  }
+}
+
+/** ลบรอบเช็คชื่อและล้างข้อมูลนักเรียนที่สแกนในรอบนั้นออกทั้งหมด (รองรับกลุ่มรวม ม.1 และกลุ่มห้องเดี่ยว) */
+export async function deleteSessionFull(
+  groupName: string,
+  date: string,
+  sessionId?: string,
+): Promise<{ success: boolean; deletedRecordsCount: number; error?: string }> {
+  if (!isSupabaseConfigured) return { success: false, deletedRecordsCount: 0, error: "Database not configured" };
+  try {
+    let sessionIds: string[] = [];
+
+    if (sessionId) {
+      sessionIds = [sessionId];
+    } else if (isCombinedM1(groupName)) {
+      const { data: gList } = await supabase
+        .from("class_groups")
+        .select("id")
+        .in("name", M1_SUBGROUPS);
+      if (!gList || gList.length === 0) return { success: false, deletedRecordsCount: 0 };
+      const gIds = gList.map((g) => g.id);
+      const { data: sList } = await supabase
+        .from("attendance_sessions")
+        .select("id")
+        .in("group_id", gIds)
+        .eq("session_date", date);
+      sessionIds = (sList ?? []).map((s) => s.id);
+    } else {
+      const { data: g } = await supabase
+        .from("class_groups")
+        .select("id")
+        .eq("name", groupName)
+        .maybeSingle();
+      if (!g) return { success: false, deletedRecordsCount: 0, error: "ไม่พบกลุ่มเรียนนี้" };
+      const { data: sList } = await supabase
+        .from("attendance_sessions")
+        .select("id")
+        .eq("group_id", g.id)
+        .eq("session_date", date);
+      sessionIds = (sList ?? []).map((s) => s.id);
+    }
+
+    if (sessionIds.length === 0) {
+      return { success: true, deletedRecordsCount: 0 };
+    }
+
+    // นับจำนวน attendance_records ก่อนลบ
+    const { count: recCount } = await supabase
+      .from("attendance_records")
+      .select("id", { count: "exact", head: true })
+      .in("session_id", sessionIds);
+
+    // ลบ attendance_records โดยตรงเพื่อความปลอดภัย
+    await supabase.from("attendance_records").delete().in("session_id", sessionIds);
+
+    // ลบ attendance_sessions
+    const { error: sessionDelError } = await supabase
+      .from("attendance_sessions")
+      .delete()
+      .in("id", sessionIds);
+
+    if (sessionDelError) {
+      return { success: false, deletedRecordsCount: 0, error: sessionDelError.message };
+    }
+
+    return { success: true, deletedRecordsCount: recCount ?? 0 };
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err);
+    return { success: false, deletedRecordsCount: 0, error: msg };
+  }
+}
+
 /** ครูเช็กชื่อให้นักเรียนด้วยตนเอง (Manual Override) เช่น เด็กเปิดกล้องไม่ได้ */
 export async function manualCheckIn(
   studentGroup: string,
