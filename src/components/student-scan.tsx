@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { StudentSummaryShell } from "@/components/student-summary";
-import { Card, CardTitle, UIButton } from "@/components/ui";
+import { Card, CardTitle, Modal, UIButton } from "@/components/ui";
 import { CameraSwitchIcon, RefreshIcon } from "@/components/icons";
 import {
   closeCamera,
@@ -19,6 +19,8 @@ import {
   getStudentToken,
   lookupStudent,
   studentCheckin,
+  studentGetHelpStatus,
+  studentRequestCheckinHelp,
   verifyPin,
   type StudentIdentity,
 } from "@/lib/student";
@@ -47,6 +49,11 @@ export default function StudentScanPage() {
   const [notice, setNotice] = useState("");
   const [done, setDone] = useState(false);
   const [isCheckingIn, setIsCheckingIn] = useState(false);
+  const [isScanning, setIsScanning] = useState(false);
+  const [helpModalOpen, setHelpModalOpen] = useState(false);
+  const [helpSending, setHelpSending] = useState(false);
+  const [helpPending, setHelpPending] = useState(false);
+  const [helpMsg, setHelpMsg] = useState("");
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const identityRef = useRef<StudentIdentity | null>(null);
   const cooldownRef = useRef(0);
@@ -111,6 +118,89 @@ export default function StudentScanPage() {
       setIsCheckingIn(false);
     }
   }, []);
+
+  // โหมดกดถ่ายภาพสแกนใบหน้า (Single Shot) — ทำงานครั้งเดียว ไม่กินแรม ไม่ค้าง
+  const captureSingleScan = async () => {
+    const id = identityRef.current;
+    const video = videoRef.current;
+    if (!video || !id?.descriptor || isScanning || isCheckingIn || done) return;
+    setIsScanning(true);
+    setCamStatus("กำลังตรวจจับและเทียบใบหน้า...");
+    try {
+      const desc = await descriptorFromVideo(video);
+      if (!desc) {
+        setCamStatus("ไม่พบใบหน้า — ขยับหน้าให้อยู่ในกรอบวงรีแล้วแตะสแกนใหม่");
+        return;
+      }
+      let sum = 0;
+      for (let i = 0; i < desc.length; i++) {
+        const diff = (desc[i] ?? 0) - (id.descriptor?.[i] ?? 0);
+        sum += diff * diff;
+      }
+      const dist = Math.sqrt(sum);
+      if (dist <= THRESHOLD) {
+        setCamStatus("✓ ยืนยันใบหน้าตรงกัน — กำลังบันทึก...");
+        await doCheckin();
+      } else {
+        setCamStatus("ใบหน้ายังไม่ตรงกับที่ลงทะเบียน — จัดมุมหน้าและแสงให้สว่าง แล้วแตะสแกนใหม่");
+      }
+    } catch (err) {
+      console.error("Single scan error:", err);
+      setCamStatus("ตรวจจับใบหน้าไม่สำเร็จ — ลองแตะสแกนใหม่ หรือกดขอให้ครูช่วยเช็คชื่อ");
+    } finally {
+      setIsScanning(false);
+    }
+  };
+
+  // ส่งคำขอให้ครูช่วยเช็คชื่อกรณีโทรศัพท์ค้าง / กล้องมีปัญหา
+  const requestHelp = async () => {
+    const code = identityRef.current?.code;
+    if (!code || helpSending) return;
+    setHelpSending(true);
+    setHelpMsg("");
+    try {
+      const res = await studentRequestCheckinHelp(code, pinRef.current || undefined);
+      if (res.ok) {
+        setHelpPending(true);
+        setHelpModalOpen(false);
+        setNotice("⏳ ส่งคำขอให้คุณครูแล้ว — กำลังรอคุณครูกดอนุมัติที่หน้าจอครู...");
+      } else if (res.result === "already_checked") {
+        setNotice("เช็คชื่อวันนี้ไปแล้ว");
+        setDone(true);
+        setHelpModalOpen(false);
+      } else {
+        setHelpMsg(res.message || "ส่งคำขอไม่สำเร็จ — ตรวจสอบรหัส PIN ประจำรอบ");
+      }
+    } finally {
+      setHelpSending(false);
+    }
+  };
+
+  // คอยตรวจสอบสถานะเมื่อส่งคำขอช่วยเช็คชื่อไปหาครู
+  useEffect(() => {
+    if (!helpPending || done) return;
+    const code = identityRef.current?.code;
+    if (!code) return;
+
+    const timer = setInterval(() => {
+      void (async () => {
+        const res = await studentGetHelpStatus(code);
+        if (res.status === "approved") {
+          playSuccessChime();
+          setNotice(`✓ คุณครูอนุมัติการเช็คชื่อให้แล้วเรียบร้อย — ${new Date().toLocaleTimeString("th-TH", { hour: "2-digit", minute: "2-digit" })} น.`);
+          setDone(true);
+          setHelpPending(false);
+          if (videoRef.current) closeCamera(videoRef.current);
+          setCamOn(false);
+        } else if (res.status === "rejected") {
+          setNotice("คุณครูปฏิเสธคำขอ — โปรดติดต่อคุณครูผู้สอน");
+          setHelpPending(false);
+        }
+      })();
+    }, 3000);
+
+    return () => clearInterval(timer);
+  }, [helpPending, done]);
 
   // หากเปิดผ่าน LINE พยายามดีดตัวออกไป Chrome/Safari อัตโนมัติ 1 ครั้ง
   useEffect(() => {
@@ -417,10 +507,16 @@ export default function StudentScanPage() {
             playsInline
             className={camOn ? `aspect-[4/3] w-full object-cover ${facingMode === "user" ? "-scale-x-100" : ""}` : "hidden"}
           />
-          {/* Oval Face Guide */}
+          {/* Biometric Face Oval Guide */}
           {camOn && (
             <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
-              <div className="h-[210px] w-[160px] rounded-[50%] border-2 border-dashed border-[#3ecf6f]/70 shadow-[0_0_0_9999px_rgba(0,0,0,0.25)]" />
+              <div
+                className={`h-[210px] w-[160px] rounded-[50%] border-2 transition-all duration-300 ${
+                  isScanning || isCheckingIn
+                    ? "border-[#42a5f5] shadow-[0_0_20px_rgba(66,165,245,0.8),0_0_0_9999px_rgba(0,0,0,0.35)]"
+                    : "border-emerald-400 shadow-[0_0_15px_rgba(52,211,153,0.5),0_0_0_9999px_rgba(0,0,0,0.25)]"
+                }`}
+              />
             </div>
           )}
           {/* ปุ่มสลับกล้องแบบลอยบนมุมขวา (แสดงเฉพาะตอนกล้องเปิดทำงาน) */}
@@ -540,44 +636,115 @@ export default function StudentScanPage() {
               {notice}
             </p>
           ) : null}
-          <div className="mt-3">
+          <div className="mt-3 space-y-2.5">
             {done ? (
               <div className="flex h-12 w-full items-center justify-center gap-2 rounded-xl bg-emerald-600 text-[15px] font-bold text-white shadow-sm">
                 <span>✓</span>
                 <span>เช็กชื่อเรียบร้อยแล้ว</span>
               </div>
-            ) : isCheckingIn ? (
-              <div className="flex h-12 w-full items-center justify-center gap-2 rounded-xl bg-[#2474c6] text-[15px] font-bold text-white shadow-sm">
-                <RefreshIcon className="h-4 w-4 animate-spin" />
-                <span>ตรวจพบใบหน้าตรงกัน — กำลังบันทึก...</span>
-              </div>
-            ) : camOn ? (
-              <div className="flex h-12 w-full items-center justify-center gap-2 rounded-xl bg-[#16233a] text-[14px] font-semibold text-white">
-                <span className="relative flex h-2.5 w-2.5">
-                  <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75" />
-                  <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-emerald-500" />
-                </span>
-                <span>กำลังสแกนใบหน้า... กรุณามองตรงที่กล้อง</span>
-              </div>
             ) : (
-              <div className="rounded-xl border border-rose-200 bg-rose-50 p-3 text-center text-[13px] text-rose-800">
-                <p className="font-bold">⚠️ กล้องไม่พร้อมใช้งาน</p>
-                <p className="mt-0.5 text-[12px] text-rose-600">
-                  เพื่อป้องกันการเช็กชื่อแทนกัน ระบบต้องสแกนใบหน้าเท่านั้น — หากกล้องมีปัญหา โปรดแจ้งให้ครูผู้สอนกดเช็กชื่อให้ที่หน้าจอครู
-                </p>
-              </div>
+              <>
+                {camOn && (
+                  <UIButton
+                    variant="green"
+                    onClick={() => void captureSingleScan()}
+                    disabled={isScanning || isCheckingIn}
+                    className="h-12 w-full text-[15.5px] font-extrabold shadow-md transition active:scale-98"
+                  >
+                    {isScanning || isCheckingIn ? (
+                      <span className="inline-flex items-center gap-2">
+                        <RefreshIcon className="h-4 w-4 animate-spin" />
+                        <span>กำลังสแกนและบันทึก...</span>
+                      </span>
+                    ) : (
+                      <span className="inline-flex items-center gap-2">
+                        <span>📸</span>
+                        <span>แตะเพื่อสแกนใบหน้า</span>
+                      </span>
+                    )}
+                  </UIButton>
+                )}
+
+                {!camOn && (
+                  <div className="rounded-xl border border-rose-200 bg-rose-50 p-3 text-center text-[13px] text-rose-800">
+                    <p className="font-bold">⚠️ กล้องไม่พร้อมใช้งาน</p>
+                    <p className="mt-0.5 text-[12px] text-rose-600">
+                      หากกล้องเปิดไม่ได้หรือโทรศัพท์ค้าง สามารถแตะปุ่มขอให้ครูช่วยเช็คชื่อด้านล่างได้ทันที
+                    </p>
+                  </div>
+                )}
+
+                {/* ปุ่มขอความช่วยเหลือฉุกเฉินกรณีโทรศัพท์ค้าง */}
+                <button
+                  type="button"
+                  onClick={() => setHelpModalOpen(true)}
+                  disabled={helpPending || isCheckingIn}
+                  className={`flex w-full items-center justify-center gap-2 rounded-xl border py-2.5 px-3 text-[13px] font-bold shadow-2xs transition active:scale-98 ${
+                    helpPending
+                      ? "border-emerald-300 bg-emerald-50 text-emerald-800 animate-pulse"
+                      : "border-amber-300 bg-amber-50/90 text-amber-900 hover:bg-amber-100"
+                  }`}
+                >
+                  <span>{helpPending ? "⏳" : "🚨"}</span>
+                  <span>
+                    {helpPending
+                      ? "ส่งคำขอแล้ว — กำลังรอคุณครูกดอนุมัติที่หน้าจอ"
+                      : "โทรศัพท์ค้าง / สแกนไม่ติด? ส่งคำขอให้ครูช่วยเช็คชื่อ"}
+                  </span>
+                </button>
+              </>
             )}
           </div>
           <p className="mt-2 text-center text-[12px] text-[#8a97ab]">
-            เมื่อใบหน้าตรงกับที่ลงทะเบียน ระบบจะบันทึกให้อัตโนมัติทันที
+            มองตรงที่กล้องให้อยู่ในกรอบ แล้วแตะปุ่มสแกน หรือรอระบบจับภาพอัตโนมัติ
           </p>
-          {camOn && (
-            <div className="mt-3 rounded-lg border border-[#e2e8f0] bg-[#f8fafc] p-2.5 text-center text-[12px] text-[#5b6b82]">
-              💡 หากเครื่องโหลดช้าหรือกล้องค้าง สามารถแจ้งคุณครูผู้สอนเพื่อกดเช็กชื่อให้ที่หน้าจอครูได้ทันที
-            </div>
-          )}
         </div>
       </Card>
+      )}
+
+      {/* Modal ยืนยันส่งคำขอให้ครูช่วยเช็คชื่อ */}
+      {helpModalOpen && (
+        <Modal title="🚨 ขอให้คุณครูช่วยเช็คชื่อ" onClose={() => setHelpModalOpen(false)}>
+          <div className="space-y-3">
+            <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-center">
+              <p className="text-[15px] font-bold text-amber-900">{identity.name}</p>
+              <p className="text-[12.5px] text-amber-800">
+                รหัส <span className="font-mono font-semibold">{identity.code}</span> · {identity.group}
+              </p>
+              <p className="mt-1 text-[12px] text-amber-700">
+                รหัสประจำรอบ: <span className="font-mono font-bold">{pinRef.current || pin}</span>
+              </p>
+            </div>
+
+            <p className="text-[13px] leading-relaxed text-[#5b6b82]">
+              สำหรับกรณีโทรศัพท์ค้าง หน้าจอไม่ตอบสนอง หรือกล้องเปิดไม่ได้ ระบบจะส่งชื่อของคุณไปยังหน้าจอของคุณครูทันที เพื่อให้คุณครูกดยืนยันให้ที่หน้าห้อง
+            </p>
+
+            {helpMsg && (
+              <p className="rounded-lg bg-rose-50 p-2 text-center text-[12.5px] font-semibold text-rose-700">
+                {helpMsg}
+              </p>
+            )}
+
+            <div className="flex gap-2 pt-1">
+              <UIButton
+                variant="green"
+                onClick={() => void requestHelp()}
+                disabled={helpSending}
+                className="h-11 flex-1 font-bold"
+              >
+                {helpSending ? "กำลังส่งคำขอ..." : "✓ ยืนยันส่งคำขอให้ครู"}
+              </UIButton>
+              <button
+                type="button"
+                onClick={() => setHelpModalOpen(false)}
+                className="h-11 rounded-lg border border-[#d8e0ec] px-4 text-[13px] font-semibold text-[#5b6b82] hover:bg-[#f1f5fa]"
+              >
+                ยกเลิก
+              </button>
+            </div>
+          </div>
+        </Modal>
       )}
     </StudentSummaryShell>
   );

@@ -47,6 +47,12 @@ import {
 import { isSupabaseConfigured, supabase } from "@/lib/supabase/client";
 import { useRoster, type RosterStudent } from "@/lib/school-data";
 import { useTeacherGroup } from "@/lib/teacher-scope";
+import {
+  type CheckinHelpRequest,
+  fetchPendingHelpRequests,
+  teacherApproveCheckinHelp,
+  teacherRejectCheckinHelp,
+} from "@/lib/student";
 
 /* ---------- Group select (styled native select) ---------- */
 function GroupSelect({
@@ -391,7 +397,43 @@ export default function ScannerPage() {
   );
   const [dayRecords, setDayRecords] = useState<DayRecord[]>([]);
   const [dayLive, setDayLive] = useState(false);
+  const [helpRequests, setHelpRequests] = useState<CheckinHelpRequest[]>([]);
   const isReloadingRef = useRef(false);
+  const roundRef = useRef<SessionFull | null>(null);
+  roundRef.current = round;
+
+  const loadHelpRequests = async () => {
+    if (!roundRef.current?.id) {
+      setHelpRequests([]);
+      return;
+    }
+    const reqs = await fetchPendingHelpRequests(roundRef.current.id);
+    setHelpRequests(reqs);
+  };
+
+  const handleApproveHelp = async (req: CheckinHelpRequest, status: "present" | "late") => {
+    const ok = await teacherApproveCheckinHelp(req.id, status);
+    if (ok) {
+      try {
+        playSuccessChime();
+      } catch {
+        // ignore
+      }
+      setNotice(`✓ อนุมัติการเช็คชื่อ (${status === "present" ? "มาเรียน" : "มาสาย"}) ให้ ${req.student_name} แล้ว`);
+      setHelpRequests((prev) => prev.filter((r) => r.id !== req.id));
+      await reloadDayRecords();
+    } else {
+      setNotice("บันทึกไม่สำเร็จ — ตรวจสอบการเชื่อมต่อ");
+    }
+  };
+
+  const handleRejectHelp = async (req: CheckinHelpRequest) => {
+    const ok = await teacherRejectCheckinHelp(req.id);
+    if (ok) {
+      setNotice(`ปฏิเสธคำขอของ ${req.student_name} แล้ว`);
+      setHelpRequests((prev) => prev.filter((r) => r.id !== req.id));
+    }
+  };
 
   const reloadDayRecords = async () => {
     if (isReloadingRef.current) return;
@@ -463,6 +505,7 @@ export default function ScannerPage() {
     const pollTimer = setInterval(() => {
       if (typeof document !== "undefined" && !document.hidden && window.navigator.onLine) {
         void reloadDayRecords();
+        void loadHelpRequests();
       }
     }, 6000);
 
@@ -473,6 +516,10 @@ export default function ScannerPage() {
       clearInterval(pollTimer);
     };
   }, []);
+
+  useEffect(() => {
+    void loadHelpRequests();
+  }, [round?.id]);
   const [mode, setMode] = useState<"face" | "manual">("face");
   const [manualCode, setManualCode] = useState("");
   const [manualFound, setManualFound] = useState<{
@@ -1078,6 +1125,68 @@ export default function ScannerPage() {
               </div>
             )}
           </Card>
+
+          {/* แบนเนอร์แจ้งเตือนคำขอช่วยเช็คชื่อจากนักเรียนที่เครื่องค้าง/กล้องมีปัญหา */}
+          {helpRequests.length > 0 && (
+            <Card className="mt-3 border-2 border-amber-400 bg-amber-50/90 p-4 shadow-md">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <span className="text-2xl animate-bounce">🚨</span>
+                  <div>
+                    <p className="text-[15px] font-bold text-amber-950">
+                      นักเรียนแจ้งโทรศัพท์มีปัญหา / ขอให้ครูช่วยเช็คชื่อ ({helpRequests.length} คน)
+                    </p>
+                    <p className="text-[12px] text-amber-800">
+                      นักเรียนกรอกรหัสรอบถูกต้องแล้ว — ตรวจสอบนักเรียนในห้องแล้วกดอนุมัติ
+                    </p>
+                  </div>
+                </div>
+              </div>
+              <div className="mt-3 divide-y divide-amber-200">
+                {helpRequests.map((req) => (
+                  <div key={req.id} className="flex flex-wrap items-center justify-between gap-2 py-2.5">
+                    <div className="flex items-center gap-2.5">
+                      <span className="flex h-9 w-9 items-center justify-center rounded-full bg-amber-200 text-base font-bold text-amber-900 shadow-2xs">
+                        👤
+                      </span>
+                      <div>
+                        <p className="text-[14.5px] font-bold text-[#16233a]">{req.student_name}</p>
+                        <p className="text-[12px] text-[#5b6b82]">
+                          รหัส <span className="font-mono font-semibold text-[#16233a]">{req.student_code}</span> · {req.group_name}
+                          <span className="ml-2 font-medium text-amber-700">({new Date(req.created_at).toLocaleTimeString("th-TH", { hour: "2-digit", minute: "2-digit" })} น.)</span>
+                        </p>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => void handleApproveHelp(req, "present")}
+                        className="inline-flex items-center gap-1 rounded-lg bg-emerald-600 px-3.5 py-1.5 text-[12.5px] font-bold text-white shadow-sm hover:bg-emerald-700 active:scale-95"
+                      >
+                        <span>✓ อนุมัติ (มาเรียน)</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => void handleApproveHelp(req, "late")}
+                        className="inline-flex items-center gap-1 rounded-lg bg-amber-600 px-3 py-1.5 text-[12.5px] font-bold text-white shadow-sm hover:bg-amber-700 active:scale-95"
+                      >
+                        <span>⏰ สาย</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => void handleRejectHelp(req)}
+                        className="rounded-lg border border-gray-300 bg-white px-2.5 py-1.5 text-[12px] font-semibold text-gray-600 hover:bg-gray-100"
+                        title="ปฏิเสธคำขอ"
+                      >
+                        ✕
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </Card>
+          )}
+
           <div className="mt-2 flex gap-2" role="tablist" aria-label="โหมดสแกน">
             {(["face", "manual"] as const).map((m) => (
               <button

@@ -514,3 +514,104 @@ export async function submitDispute(code: string, message: string): Promise<"sav
     return "failed";
   }
 }
+
+export type CheckinHelpRequest = {
+  id: string;
+  session_id: string;
+  student_id: string;
+  student_code: string;
+  student_name: string;
+  group_name: string;
+  status: "pending" | "approved" | "rejected";
+  created_at: string;
+  resolved_at: string | null;
+};
+
+/** นักเรียนส่งคำขอช่วยเช็คชื่อกรณีโทรศัพท์ค้าง / กล้องมีปัญหา */
+export async function studentRequestCheckinHelp(
+  code: string,
+  pin?: string,
+): Promise<{ ok: boolean; result: string; message?: string }> {
+  try {
+    const { data, error } = await supabase.rpc("student_request_checkin_help", {
+      p_code: code.trim(),
+      p_pin: pin ? pin.trim() : null,
+    });
+    if (error || !data) {
+      return { ok: false, result: "failed", message: error?.message || "ส่งคำขอไม่สำเร็จ" };
+    }
+    const r = data as { result: string; message?: string };
+    return { ok: r.result === "saved", result: r.result, message: r.message };
+  } catch (err) {
+    return { ok: false, result: "failed", message: String(err) };
+  }
+}
+
+/** นักเรียนตรวจสอบสถานะคำขอช่วยเช็คชื่อ */
+export async function studentGetHelpStatus(
+  code: string,
+): Promise<{ status: "none" | "pending" | "approved" | "rejected"; resolvedAt?: string | null }> {
+  try {
+    const { data, error } = await supabase.rpc("student_get_help_status", {
+      p_code: code.trim(),
+    });
+    if (error || !data) return { status: "none" };
+    const r = data as { result: string; status?: "pending" | "approved" | "rejected"; resolved_at?: string };
+    if (r.result === "ok" && r.status) {
+      return { status: r.status, resolvedAt: r.resolved_at ?? null };
+    }
+    return { status: "none" };
+  } catch {
+    return { status: "none" };
+  }
+}
+
+/** ครูดึงรายการคำขอช่วยเช็คชื่อที่รอดำเนินการของรอบ */
+export async function fetchPendingHelpRequests(
+  sessionId: string,
+): Promise<CheckinHelpRequest[]> {
+  try {
+    const { data, error } = await supabase
+      .from("checkin_help_requests")
+      .select("*")
+      .eq("session_id", sessionId)
+      .eq("status", "pending")
+      .order("created_at", { ascending: true });
+    if (error || !data) return [];
+    return data as CheckinHelpRequest[];
+  } catch {
+    return [];
+  }
+}
+
+/** ครูอนุมัติการขอเช็คชื่อ */
+export async function teacherApproveCheckinHelp(
+  requestId: string,
+  status: "present" | "late" | "activity" = "present",
+): Promise<boolean> {
+  try {
+    const { data, error } = await supabase.rpc("teacher_approve_checkin_help", {
+      p_request_id: requestId,
+      p_status: status,
+    });
+    if (error || !data) return false;
+    const r = data as { result: string };
+    return r.result === "saved";
+  } catch {
+    return false;
+  }
+}
+
+/** ครูปฏิเสธคำขอช่วยเช็คชื่อ */
+export async function teacherRejectCheckinHelp(requestId: string): Promise<boolean> {
+  try {
+    const { data, error } = await supabase.rpc("teacher_reject_checkin_help", {
+      p_request_id: requestId,
+    });
+    if (error || !data) return false;
+    const r = data as { result: string };
+    return r.result === "saved";
+  } catch {
+    return false;
+  }
+}

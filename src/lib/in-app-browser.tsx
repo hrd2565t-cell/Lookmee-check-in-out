@@ -114,19 +114,19 @@ export function InAppBrowserNotice() {
   const directHref = getExternalBrowserHref();
 
   return (
-    <div className="mb-3 overflow-hidden rounded-xl border border-amber-300 bg-gradient-to-r from-amber-50 to-orange-50 p-3.5 text-[#7c2d12] shadow-sm">
-      <div className="flex items-start gap-2.5">
-        <span className="text-2xl leading-none">⚠️</span>
+    <div className="mb-3 overflow-hidden rounded-xl border-2 border-amber-400 bg-gradient-to-r from-amber-50 to-orange-50 p-4 text-[#7c2d12] shadow-sm">
+      <div className="flex items-start gap-3">
+        <span className="text-3xl leading-none">⚠️</span>
         <div className="min-w-0 flex-1">
-          <p className="text-[13.5px] font-bold text-[#9a3412]">
+          <p className="text-[14px] font-bold text-[#9a3412]">
             {info.isLine
-              ? "ตรวจพบว่ากำลังเปิดผ่านแอป LINE (กล้องอาจถูกบล็อก)"
-              : "ตรวจพบว่าเปิดผ่านเบราว์เซอร์ในแอป (In-App Browser)"}
+              ? "กำลังเปิดในแอป LINE — แนะนำเปิดใน Chrome / Safari เพื่อไม่ให้เครื่องค้าง"
+              : "เปิดในเบราว์เซอร์ของแอป — แนะนำเปิดใน Chrome / Safari"}
           </p>
-          <p className="mt-0.5 text-[12px] leading-relaxed text-[#7c2d12]">
-            ระบบ Webview ของแอปมักไม่อนุญาตให้ใช้กล้องสแกนใบหน้า เพื่อให้เปิดกล้องได้ปกติ 100% โปรดแตะปุ่มด้านล่างเพื่อเปิดใน <strong>Google Chrome</strong> หรือ <strong>Safari</strong>
+          <p className="mt-1 text-[12.5px] leading-relaxed text-[#7c2d12]">
+            เบราว์เซอร์ในแอปมีหน่วยความจำจำกัดและอาจทำให้กล้องค้างหรือสแกนไม่ติด เพื่อความลื่นไหล 100% โปรดแตะปุ่มด้านล่างเพื่อเปิดผ่าน <strong>Google Chrome</strong> หรือ <strong>Safari</strong>
           </p>
-          <div className="mt-2.5 flex flex-wrap items-center gap-2">
+          <div className="mt-3 flex flex-wrap items-center gap-2">
             <a
               href={directHref}
               onClick={() => {
@@ -135,13 +135,13 @@ export function InAppBrowserNotice() {
                   openInExternalBrowser();
                 }
               }}
-              className="inline-flex items-center gap-1.5 rounded-lg bg-[#16a34a] px-3.5 py-1.5 text-[12.5px] font-bold text-white shadow-sm transition hover:bg-[#15803d] active:scale-95"
+              className="inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-emerald-600 to-green-600 px-4 py-2 text-[13px] font-extrabold text-white shadow-md transition hover:from-emerald-500 hover:to-green-500 active:scale-95 animate-pulse"
             >
               <span>🚀 เปิดใน Chrome / Safari ทันที</span>
             </a>
-            <span className="text-[11.5px] text-[#9a3412]">
+            <span className="text-[12px] text-[#9a3412]">
               {info.isLine
-                ? "(หรือแตะปุ่ม ⋮ ด้านล่างขวา แล้วเลือก “เปิดในเบราว์เซอร์เริ่มต้น”)"
+                ? "(หรือแตะปุ่มจุดสามจุด ⋮ ด้านล่างขวา แล้วเลือก “เปิดในเบราว์เซอร์อื่น”)"
                 : "(หรือแตะปุ่มแชร์แล้วเลือกเปิดในเบราว์เซอร์ภายนอก)"}
             </span>
           </div>
