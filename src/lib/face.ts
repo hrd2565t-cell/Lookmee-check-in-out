@@ -5,21 +5,35 @@ type FaceApi = typeof import("@vladmandic/face-api");
 
 let faceapi: FaceApi | null = null;
 let modelsReady = false;
+let modelsPromise: Promise<void> | null = null;
 
 async function getApi(): Promise<FaceApi> {
   if (!faceapi) faceapi = await import("@vladmandic/face-api");
   return faceapi;
 }
 
-/** โหลดโมเดลครั้งแรก (เรียกครั้งเดียว, cache ไว้) */
+/** โหลดโมเดลครั้งแรก (เรียกครั้งเดียว, cache ไว้, ป้องกันการดาวน์โหลดซ้ำซ้อน) */
 export async function ensureFaceModels(onProgress?: (msg: string) => void): Promise<void> {
   if (modelsReady) return;
-  const api = await getApi();
-  onProgress?.("กำลังโหลดโมเดลใบหน้า...");
-  await api.nets.tinyFaceDetector.loadFromUri("/models");
-  await api.nets.faceLandmark68TinyNet.loadFromUri("/models");
-  await api.nets.faceRecognitionNet.loadFromUri("/models");
-  modelsReady = true;
+  if (modelsPromise) return modelsPromise;
+
+  modelsPromise = (async () => {
+    try {
+      const api = await getApi();
+      onProgress?.("กำลังโหลดโมเดลใบหน้า...");
+      await Promise.all([
+        api.nets.tinyFaceDetector.loadFromUri("/models"),
+        api.nets.faceLandmark68TinyNet.loadFromUri("/models"),
+        api.nets.faceRecognitionNet.loadFromUri("/models"),
+      ]);
+      modelsReady = true;
+    } catch (err) {
+      modelsPromise = null; // หากล้มเหลวให้สามารถ retry ได้
+      throw err;
+    }
+  })();
+
+  return modelsPromise;
 }
 
 /** สกัด descriptor (128 มิติ) จากเฟรมวิดีโอ — ไม่เจอหน้าคืน null */
@@ -170,11 +184,17 @@ export async function openCamera(
 
   let stream: MediaStream | null = null;
 
+  // จำกัดความละเอียด 640x480 เพื่อประหยัด RAM/GPU บนมือถือ และป้องกันเบราว์เซอร์ค้าง/กระตุก
+  const idealRes = {
+    width: { ideal: 640 },
+    height: { ideal: 480 },
+  };
+
   // 1. ลองเปิดตาม deviceId (ถ้ามีระบุ)
   if (opts.deviceId) {
     try {
       stream = await navigator.mediaDevices.getUserMedia({
-        video: { deviceId: { exact: opts.deviceId } },
+        video: { deviceId: { exact: opts.deviceId }, ...idealRes },
         audio: false,
       });
     } catch {
@@ -186,19 +206,22 @@ export async function openCamera(
   if (!stream) {
     try {
       stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: { exact: targetFacing } },
+        video: { facingMode: { exact: targetFacing }, ...idealRes },
         audio: false,
       });
     } catch {
       // 3. ถ้า exact ไม่ผ่าน (เช่น webcam บน desktop) ให้ลอง ideal
       try {
         stream = await navigator.mediaDevices.getUserMedia({
-          video: { facingMode: { ideal: targetFacing } },
+          video: { facingMode: { ideal: targetFacing }, ...idealRes },
           audio: false,
         });
       } catch {
         // 4. สุดท้ายถ้ายังไม่ได้ ค่อยเปิดกล้องใดก็ได้
-        stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+        stream = await navigator.mediaDevices.getUserMedia({
+          video: { ...idealRes },
+          audio: false,
+        });
       }
     }
   }

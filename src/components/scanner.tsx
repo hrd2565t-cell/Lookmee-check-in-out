@@ -391,12 +391,19 @@ export default function ScannerPage() {
   );
   const [dayRecords, setDayRecords] = useState<DayRecord[]>([]);
   const [dayLive, setDayLive] = useState(false);
+  const isReloadingRef = useRef(false);
 
   const reloadDayRecords = async () => {
-    const r = await fetchRecordsByDate(todayStr());
-    if (r) {
-      setDayRecords(r);
-      setDayLive(true);
+    if (isReloadingRef.current) return;
+    isReloadingRef.current = true;
+    try {
+      const r = await fetchRecordsByDate(todayStr());
+      if (r) {
+        setDayRecords(r);
+        setDayLive(true);
+      }
+    } finally {
+      isReloadingRef.current = false;
     }
   };
 
@@ -452,12 +459,12 @@ export default function ScannerPage() {
       })();
     }, 30_000);
 
-    // ซิงก์ข้อมูลเช็กชื่อล่าสุดทุก 4 วินาที เพื่อให้นักเรียนที่เช็กผ่านมือถือตนเองปรากฏบนจอครูแบบ Realtime อัตโนมัติ
+    // ซิงก์ข้อมูลเช็กชื่อล่าสุดทุก 6 วินาที เพื่อให้นักเรียนที่เช็กผ่านมือถือตนเองปรากฏบนจอครูแบบ Realtime
     const pollTimer = setInterval(() => {
       if (typeof document !== "undefined" && !document.hidden && window.navigator.onLine) {
         void reloadDayRecords();
       }
-    }, 4000);
+    }, 6000);
 
     return () => {
       window.removeEventListener("online", onOnline);

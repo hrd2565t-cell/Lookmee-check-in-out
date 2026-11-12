@@ -174,6 +174,14 @@ function FaceUnlockCamera({
           if (res.ok && res.token) {
             setStatus("✓ ยืนยันใบหน้าสำเร็จ!");
             playSuccessChime();
+            if (typeof window !== "undefined") {
+              try {
+                sessionStorage.setItem("lookmee_face_verified_at", Date.now().toString());
+                sessionStorage.setItem("lookmee_face_verified_code", student.code);
+              } catch {
+                // ignore
+              }
+            }
             onSuccess(res.token, res.expires_at, res.has_pin);
             return;
           }

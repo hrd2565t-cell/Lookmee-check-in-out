@@ -203,6 +203,27 @@ export default function StudentScanPage() {
     let loopTimer: ReturnType<typeof setTimeout> | null = null;
     const video = videoRef.current;
 
+    // ตรวจสอบว่าเพิ่งผ่านการยืนยันใบหน้าจากการล็อกอินมาไม่เกิน 90 วินาทีหรือไม่
+    // หากเพิ่งสแกนหน้าล็อกอินมาหมาดๆ ไม่จำเป็นต้องเปิดกล้องสแกนซ้ำสอง ช่วยลดภาระมือถือและเน็ตในห้องเรียนทันที
+    if (typeof window !== "undefined") {
+      try {
+        const verifiedAt = sessionStorage.getItem("lookmee_face_verified_at");
+        const verifiedCode = sessionStorage.getItem("lookmee_face_verified_code");
+        if (verifiedAt && verifiedCode === id.code) {
+          const diff = Date.now() - Number(verifiedAt);
+          if (diff >= 0 && diff < 90_000) {
+            sessionStorage.removeItem("lookmee_face_verified_at");
+            sessionStorage.removeItem("lookmee_face_verified_code");
+            setNotice("✓ ยืนยันตัวตนด้วยใบหน้าจากการเข้าสู่ระบบเรียบร้อย — กำลังบันทึกการเช็กชื่อ...");
+            void doCheckin();
+            return;
+          }
+        }
+      } catch {
+        // ignore
+      }
+    }
+
     const runScanLoop = async () => {
       if (cancelled || !videoRef.current || !id.descriptor || isBusy) return;
       isBusy = true;
@@ -218,10 +239,15 @@ export default function StudentScanPage() {
           if (dist <= THRESHOLD) {
             if (Date.now() - cooldownRef.current >= 30_000) {
               cooldownRef.current = Date.now();
+              setCamStatus("✓ ยืนยันใบหน้าตรงกัน — กำลังบันทึก...");
               await doCheckin();
               return; // หยุดลูปเมื่อเช็คชื่อสำเร็จ
             }
+          } else {
+            setCamStatus("ตรวจพบใบหน้าแล้ว กรุณามองตรงและนิ่งสักครู่...");
           }
+        } else if (!cancelled) {
+          setCamStatus(`ส่องหน้าด้วย${facingMode === "user" ? "กล้องหน้า" : "กล้องหลัง"} — ให้ใบหน้าอยู่ในกรอบ`);
         }
       } catch (err) {
         console.error("Face scan error:", err);
@@ -230,7 +256,7 @@ export default function StudentScanPage() {
         if (!cancelled) {
           loopTimer = setTimeout(() => {
             void runScanLoop();
-          }, 600);
+          }, 1000); // 1000ms เพื่อป้องกัน CPU/GPU มือถือร้อนจัดและไม่ทำให้เครื่องค้าง
         }
       }
     };
@@ -246,7 +272,7 @@ export default function StudentScanPage() {
           return;
         }
         setCamStatus("กำลังโหลดโมเดลใบหน้า...");
-        await ensureFaceModels();
+        await ensureFaceModels((msg) => setCamStatus(msg));
         if (cancelled || !video) return;
         await openCamera(video, facingMode);
         if (cancelled) return;
@@ -545,6 +571,11 @@ export default function StudentScanPage() {
           <p className="mt-2 text-center text-[12px] text-[#8a97ab]">
             เมื่อใบหน้าตรงกับที่ลงทะเบียน ระบบจะบันทึกให้อัตโนมัติทันที
           </p>
+          {camOn && (
+            <div className="mt-3 rounded-lg border border-[#e2e8f0] bg-[#f8fafc] p-2.5 text-center text-[12px] text-[#5b6b82]">
+              💡 หากเครื่องโหลดช้าหรือกล้องค้าง สามารถแจ้งคุณครูผู้สอนเพื่อกดเช็กชื่อให้ที่หน้าจอครูได้ทันที
+            </div>
+          )}
         </div>
       </Card>
       )}
