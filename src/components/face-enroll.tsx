@@ -43,6 +43,7 @@ export function FaceEnrollModal({
   const [ready, setReady] = useState(false);
   const [status, setStatus] = useState("กำลังเตรียมกล้อง...");
   const [shots, setShots] = useState<Float32Array[]>([]);
+  const [capturing, setCapturing] = useState(false);
   const [saving, setSaving] = useState(false);
   const [facingMode, setFacingMode] = useState<CameraFacingMode>("user");
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -208,22 +209,27 @@ export function FaceEnrollModal({
   };
 
   const capture = async () => {
-    if (!videoRef.current || shots.length >= POSES.length) return;
-    const pose = POSES[shots.length];
-    setStatus(`กำลังจับใบหน้า${pose ? ` (${pose.label})` : ""}...`);
-    const d = await descriptorFromVideo(videoRef.current);
-    if (!d) {
-      setStatus("ไม่พบใบหน้า — ขยับให้หน้าชัดแล้วถ่ายใหม่");
-      return;
+    if (!videoRef.current || shots.length >= POSES.length || capturing) return;
+    setCapturing(true);
+    try {
+      const pose = POSES[shots.length];
+      setStatus(`กำลังจับใบหน้า${pose ? ` (${pose.label})` : ""}...`);
+      const d = await descriptorFromVideo(videoRef.current);
+      if (!d) {
+        setStatus("ไม่พบใบหน้า — ขยับให้หน้าตรงและอยู่ในกรอบแล้วถ่ายใหม่");
+        return;
+      }
+      const next = [...shots, d];
+      if (shots.length === 0) snapshotFrontPhoto(); // ท่าหน้าตรง = รูปอ้างอิง
+      setShots(next);
+      setStatus(
+        next.length >= POSES.length
+          ? "ครบ 3 ท่า — กดบันทึกได้เลย"
+          : `${POSES[next.length]?.label ?? ""}: ${POSES[next.length]?.hint ?? ""}`,
+      );
+    } finally {
+      setCapturing(false);
     }
-    const next = [...shots, d];
-    if (shots.length === 0) snapshotFrontPhoto(); // ท่าหน้าตรง = รูปอ้างอิง
-    setShots(next);
-    setStatus(
-      next.length >= POSES.length
-        ? "ครบ 3 ท่า — กดบันทึกได้เลย"
-        : `${POSES[next.length]?.label ?? ""}: ${POSES[next.length]?.hint ?? ""}`,
-    );
   };
 
   const save = async () => {
@@ -344,6 +350,43 @@ export function FaceEnrollModal({
           playsInline
           className={`aspect-[4/3] w-full object-cover ${facingMode === "user" ? "-scale-x-100" : ""}`}
         />
+
+        {/* Biometric Face Oval Guide (กรอบวงรีสแกนใบหน้า) */}
+        {ready && (
+          <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
+            <div
+              className={`h-[210px] w-[160px] sm:h-[230px] sm:w-[175px] rounded-[50%] border-2 transition-all duration-300 ${
+                capturing
+                  ? "border-[#42a5f5] shadow-[0_0_20px_rgba(66,165,245,0.8),0_0_0_9999px_rgba(0,0,0,0.35)]"
+                  : shots.length >= POSES.length
+                    ? "border-emerald-400 shadow-[0_0_20px_rgba(52,211,153,0.8),0_0_0_9999px_rgba(0,0,0,0.35)]"
+                    : "border-emerald-400/90 shadow-[0_0_15px_rgba(52,211,153,0.5),0_0_0_9999px_rgba(0,0,0,0.30)]"
+              }`}
+            />
+          </div>
+        )}
+
+        {/* Floating Pose Badge */}
+        {ready && (
+          <div className="pointer-events-none absolute inset-x-0 bottom-3 z-10 flex justify-center">
+            <span className="inline-flex items-center gap-1.5 rounded-full border border-white/20 bg-black/65 px-3 py-1 text-[12px] font-semibold text-white shadow-md backdrop-blur-xs">
+              {shots.length >= POSES.length ? (
+                <>
+                  <span className="font-bold text-emerald-400">✓</span>
+                  <span>ครบ 3 ท่าแล้ว กด &quot;บันทึกใบหน้า&quot; ได้เลย</span>
+                </>
+              ) : (
+                <>
+                  <span className="inline-block h-2 w-2 animate-pulse rounded-full bg-emerald-400" />
+                  <span>
+                    {POSES[shots.length]?.label}: {POSES[shots.length]?.hint}
+                  </span>
+                </>
+              )}
+            </span>
+          </div>
+        )}
+
         {/* ปุ่มสลับกล้อง */}
         <button
           type="button"
