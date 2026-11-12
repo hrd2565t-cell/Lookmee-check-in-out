@@ -1,8 +1,14 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useMemo } from "react";
 import QRCode from "qrcode";
 import { Modal, UIButton } from "@/components/ui";
+import {
+  fetchSchoolSecuritySettings,
+  computeRollingToken,
+  getCurrentTimeStep,
+  type SchoolSecuritySettings,
+} from "@/lib/school-security";
 
 export function SessionQrModal({
   open,
@@ -17,11 +23,48 @@ export function SessionQrModal({
 }) {
   const [qrDataUrl, setQrDataUrl] = useState<string>("");
   const [copied, setCopied] = useState(false);
+  const [securitySettings, setSecuritySettings] = useState<SchoolSecuritySettings | null>(null);
+  const [nowSec, setNowSec] = useState<number>(() => Math.floor(Date.now() / 1000));
 
-  // สร้าง URL ที่มี ?openExternalBrowser=1 และ &pin=XXXX เพื่อให้นักเรียนไม่ต้องพิมพ์รหัสเอง และส่งตรงเข้าหน้าสแกน
-  const shareUrl = typeof window !== "undefined"
-    ? `${window.location.origin}/student/scan?openExternalBrowser=1${pin ? `&pin=${encodeURIComponent(pin)}` : ""}`
-    : "";
+  // โหลดการตั้งค่าความปลอดภัย
+  useEffect(() => {
+    if (!open) return;
+    let cancelled = false;
+    (async () => {
+      const s = await fetchSchoolSecuritySettings();
+      if (!cancelled) setSecuritySettings(s);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [open]);
+
+  // ตัวนับเวลาถอยหลัง 1 วินาที เพื่อหมุนเวียน QR Code สด
+  useEffect(() => {
+    if (!open) return;
+    const interval = setInterval(() => {
+      setNowSec(Math.floor(Date.now() / 1000));
+    }, 1000);
+    return () => clearInterval(interval);
+  }, [open]);
+
+  const dynamicEnabled = securitySettings?.dynamic_qr_enabled ?? true;
+  const intervalSec = securitySettings?.dynamic_qr_interval_sec || 30;
+  const remainingSec = intervalSec - (nowSec % intervalSec);
+  const currentStep = Math.floor(nowSec / intervalSec);
+
+  // คำนวณ shareUrl แบบ Dynamic หรือ Static
+  const shareUrl = useMemo(() => {
+    if (typeof window === "undefined") return "";
+    const base = `${window.location.origin}/student/scan?openExternalBrowser=1`;
+    if (!pin) return base;
+
+    if (dynamicEnabled) {
+      const token = computeRollingToken(pin, currentStep);
+      return `${base}&pin=${encodeURIComponent(pin)}&token=${encodeURIComponent(token)}&ts=${currentStep}`;
+    }
+    return `${base}&pin=${encodeURIComponent(pin)}`;
+  }, [dynamicEnabled, pin, currentStep]);
 
   useEffect(() => {
     if (!open || !shareUrl) return;
@@ -50,6 +93,8 @@ export function SessionQrModal({
 
   if (!open) return null;
 
+  const progressPercent = Math.round((remainingSec / intervalSec) * 100);
+
   return (
     <Modal
       title={`QR Code เช็กชื่อ — ${groupName}`}
@@ -72,8 +117,33 @@ export function SessionQrModal({
           </div>
         ) : null}
 
+        {/* Dynamic Rolling Notice & Countdown */}
+        {dynamicEnabled && pin ? (
+          <div className="mt-3 w-full max-w-sm rounded-xl border border-emerald-200 bg-emerald-50/80 px-3 py-2 text-center shadow-2xs">
+            <div className="flex items-center justify-between text-[12px] font-bold text-emerald-800">
+              <span className="flex items-center gap-1.5">
+                <span className="relative flex h-2.5 w-2.5">
+                  <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75"></span>
+                  <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-emerald-600"></span>
+                </span>
+                <span>QR Code สด ป้องกันการแคปจอ</span>
+              </span>
+              <span className="font-mono text-[13px] text-emerald-900">
+                เปลี่ยนใน {remainingSec} วินาที
+              </span>
+            </div>
+            {/* Progress Bar */}
+            <div className="mt-1.5 h-1.5 w-full overflow-hidden rounded-full bg-emerald-200/60">
+              <div
+                className="h-full bg-emerald-500 transition-all duration-1000 ease-linear"
+                style={{ width: `${progressPercent}%` }}
+              ></div>
+            </div>
+          </div>
+        ) : null}
+
         {/* QR Code Canvas / Image */}
-        <div className="relative mt-4 flex items-center justify-center rounded-2xl border-4 border-[#16233a] bg-white p-3 shadow-lg">
+        <div className="relative mt-3 flex items-center justify-center rounded-2xl border-4 border-[#16233a] bg-white p-3 shadow-lg">
           {qrDataUrl ? (
             /* eslint-disable-next-line @next/next/no-img-element */
             <img
@@ -105,7 +175,7 @@ export function SessionQrModal({
             onClick={() => void copyLineLink()}
             className="h-11 px-5 text-[14px] font-bold shadow-sm"
           >
-            {copied ? "✓ คัดลอกลิงก์ส่ง LINE เรียบร้อย!" : "📋 คัดลอกลิงก์ส่งใน LINE (เปิด Chrome ทันที)"}
+            {copied ? "✓ คัดลอกลิงก์เรียบร้อย!" : "📋 คัดลอกลิงก์ส่งให้นักเรียน"}
           </UIButton>
           <UIButton
             variant="blue"

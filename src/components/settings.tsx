@@ -37,6 +37,13 @@ import {
   type RestoreResult,
 } from "@/lib/backup";
 import { flushQueue, pendingCount } from "@/lib/offline-queue";
+import {
+  fetchSchoolSecuritySettings,
+  saveSchoolSecuritySettings,
+  getUserCurrentCoordinates,
+  DEFAULT_SECURITY_SETTINGS,
+  type SchoolSecuritySettings,
+} from "@/lib/school-security";
 import { cn } from "@/lib/cn";
 
 const inputCls =
@@ -108,6 +115,12 @@ export default function SettingsPage() {
   const [activeLocalGroup, setActiveLocalGroup] = useState<string>(() =>
     typeof window === "undefined" ? "" : localStorage.getItem("lookmee-teacher-group") || "ม.1/1",
   );
+
+  const [securitySettings, setSecuritySettings] = useState<SchoolSecuritySettings>(DEFAULT_SECURITY_SETTINGS);
+  const [securityLoading, setSecurityLoading] = useState(false);
+  const [securitySaving, setSecuritySaving] = useState(false);
+  const [securityMsg, setSecurityMsg] = useState<{ text: string; type: "success" | "error" } | null>(null);
+  const [gpsLocating, setGpsLocating] = useState(false);
 
   const testConnection = async () => {
     setDbPingStatus("testing");
@@ -199,6 +212,21 @@ export default function SettingsPage() {
         setDbMode(true);
       }
       if (l) setLimits(l);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      setSecurityLoading(true);
+      const s = await fetchSchoolSecuritySettings();
+      if (!cancelled) {
+        setSecuritySettings(s);
+        setSecurityLoading(false);
+      }
     })();
     return () => {
       cancelled = true;
@@ -456,6 +484,51 @@ export default function SettingsPage() {
       setPasswordMsg({ text: `เกิดข้อผิดพลาด: ${msg}`, type: "error" });
     } finally {
       setPasswordBusy(false);
+    }
+  };
+
+  /* ---------- ความปลอดภัยและการเช็คชื่อ (School Geofencing & Anti-Cheat) ---------- */
+
+  const handleGetGpsCurrent = async () => {
+    setGpsLocating(true);
+    setSecurityMsg(null);
+    try {
+      const pos = await getUserCurrentCoordinates();
+      setSecuritySettings((prev) => ({
+        ...prev,
+        school_lat: Number(pos.lat.toFixed(6)),
+        school_lng: Number(pos.lng.toFixed(6)),
+      }));
+      setSecurityMsg({
+        text: `📍 ดึงพิกัดตำแหน่งปัจจุบันสำเร็จ (${pos.lat.toFixed(6)}, ${pos.lng.toFixed(6)}) ความแม่นยำ ±${pos.accuracy} ม.`,
+        type: "success",
+      });
+    } catch (err: any) {
+      setSecurityMsg({
+        text: err?.message || "ไม่สามารถดึงพิกัดได้ กรุณาอนุญาตการเข้าถึงตำแหน่งในเบราว์เซอร์",
+        type: "error",
+      });
+    } finally {
+      setGpsLocating(false);
+    }
+  };
+
+  const handleSaveSecurity = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setSecuritySaving(true);
+    setSecurityMsg(null);
+    const res = await saveSchoolSecuritySettings(securitySettings);
+    setSecuritySaving(false);
+    if (res.ok) {
+      setSecurityMsg({
+        text: "✓ บันทึกการตั้งค่าความปลอดภัยและการเช็คชื่อเรียบร้อยแล้ว",
+        type: "success",
+      });
+    } else {
+      setSecurityMsg({
+        text: res.error || "เกิดข้อผิดพลาดในการบันทึก",
+        type: "error",
+      });
     }
   };
 
@@ -1210,6 +1283,207 @@ export default function SettingsPage() {
             คุณยังไม่ได้เข้าสู่ระบบครู กรุณาเข้าสู่ระบบผ่านหน้าระบบครูเพื่อเปลี่ยนรหัสผ่าน
           </p>
         )}
+      </Card>
+
+      {/* ความปลอดภัยและการเช็คชื่อ (School Geofencing & Anti-Cheat) */}
+      <Card className="mt-3 p-4 sm:p-5">
+        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-[#eef2f6] pb-3">
+          <div>
+            <CardTitle className="mb-0.5 text-[17px] font-bold text-[#16233a]">
+              🛡️ ความปลอดภัยและการเช็คชื่อ (Geofencing & Anti-Cheat)
+            </CardTitle>
+            <p className="text-[12.5px] text-[#5b6b82]">
+              กำหนดรัศมีพิกัดโรงเรียนและระบบ QR Code สด เพื่อป้องกันการทุจริตเช็คชื่อแทนกันหรือเช็คชื่อจากที่บ้าน
+            </p>
+          </div>
+          {securityLoading && (
+            <span className="text-[12px] text-[#5b6b82]">กำลังโหลดการตั้งค่า...</span>
+          )}
+        </div>
+
+        <form onSubmit={(e) => void handleSaveSecurity(e)} className="mt-4 space-y-5">
+          {/* Tier 1: รัศมีพิกัดโรงเรียน (GPS Geofencing) */}
+          <div className="rounded-xl border border-[#e2e8f0] bg-[#f8fafc] p-4">
+            <div className="flex items-start justify-between gap-4">
+              <div className="space-y-1">
+                <span className="inline-flex items-center gap-1.5 rounded-full bg-blue-100 px-2.5 py-0.5 text-[11px] font-bold text-blue-800">
+                  ชั้นความปลอดภัยที่ 1 (รอบนอก)
+                </span>
+                <h4 className="text-[14.5px] font-bold text-[#16233a]">
+                  📍 ระบบตรวจสอบพิกัดโรงเรียน (GPS Geofencing)
+                </h4>
+                <p className="text-[12px] leading-relaxed text-[#5b6b82]">
+                  ป้องกันนักเรียนที่ไม่ได้มาโรงเรียน แอบเช็คชื่อจากที่บ้าน — ระบบจะคำนวณระยะทางจริงจาก GPS มือถือนักเรียน หากอยู่นอกรัศมีจะไม่สามารถเช็คชื่อได้
+                </p>
+              </div>
+
+              {/* Toggle Switch */}
+              <label className="relative inline-flex cursor-pointer items-center">
+                <input
+                  type="checkbox"
+                  checked={securitySettings.geofence_enabled}
+                  onChange={(e) =>
+                    setSecuritySettings((prev) => ({
+                      ...prev,
+                      geofence_enabled: e.target.checked,
+                    }))
+                  }
+                  className="peer sr-only"
+                />
+                <div className="peer h-6 w-11 rounded-full bg-gray-300 after:absolute after:left-[2px] after:top-[2px] after:h-5 after:w-5 after:rounded-full after:bg-white after:transition-all after:content-[''] peer-checked:bg-[#2474c6] peer-checked:after:translate-x-full"></div>
+              </label>
+            </div>
+
+            {securitySettings.geofence_enabled && (
+              <div className="mt-4 space-y-3.5 border-t border-[#e2e8f0] pt-3.5">
+                <div className="flex flex-wrap items-center gap-2">
+                  <UIButton
+                    variant="blue"
+                    type="button"
+                    onClick={() => void handleGetGpsCurrent()}
+                    disabled={gpsLocating}
+                    className="h-9 px-3 text-[12.5px] font-semibold"
+                  >
+                    {gpsLocating ? "⏳ กำลังดึงพิกัดจากเครื่องนี้..." : "📍 ปักหมุดพิกัดโรงเรียนจากตำแหน่งนี้"}
+                  </UIButton>
+
+                  {securitySettings.school_lat && securitySettings.school_lng && (
+                    <a
+                      href={`https://www.google.com/maps?q=${securitySettings.school_lat},${securitySettings.school_lng}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-1 text-[12px] font-medium text-[#2474c6] hover:underline"
+                    >
+                      🗺️ ดูบน Google Maps
+                    </a>
+                  )}
+                </div>
+
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+                  <div>
+                    <label className="block text-[12.5px] font-medium text-[#16233a]">
+                      ละติจูด (Latitude)
+                      <input
+                        type="number"
+                        step="any"
+                        value={securitySettings.school_lat ?? ""}
+                        onChange={(e) =>
+                          setSecuritySettings((prev) => ({
+                            ...prev,
+                            school_lat: e.target.value ? Number(e.target.value) : null,
+                          }))
+                        }
+                        placeholder="เช่น 13.756331"
+                        className={cn(inputCls, "mt-1 text-[13px]")}
+                      />
+                    </label>
+                  </div>
+
+                  <div>
+                    <label className="block text-[12.5px] font-medium text-[#16233a]">
+                      ลองจิจูด (Longitude)
+                      <input
+                        type="number"
+                        step="any"
+                        value={securitySettings.school_lng ?? ""}
+                        onChange={(e) =>
+                          setSecuritySettings((prev) => ({
+                            ...prev,
+                            school_lng: e.target.value ? Number(e.target.value) : null,
+                          }))
+                        }
+                        placeholder="เช่น 100.501765"
+                        className={cn(inputCls, "mt-1 text-[13px]")}
+                      />
+                    </label>
+                  </div>
+
+                  <div>
+                    <label className="block text-[12.5px] font-medium text-[#16233a]">
+                      รัศมีปลอดภัย (เมตร)
+                      <input
+                        type="number"
+                        min="50"
+                        max="2000"
+                        step="10"
+                        value={securitySettings.school_radius_meters}
+                        onChange={(e) =>
+                          setSecuritySettings((prev) => ({
+                            ...prev,
+                            school_radius_meters: Math.max(50, Number(e.target.value) || 250),
+                          }))
+                        }
+                        placeholder="250"
+                        className={cn(inputCls, "mt-1 text-[13px]")}
+                      />
+                    </label>
+                    <span className="mt-0.5 block text-[11px] text-[#5b6b82]">
+                      ครอบคลุมอาณาเขตโรงเรียน (แนะนำ 200 - 300 ม.)
+                    </span>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Tier 2: Dynamic Rolling QR Code */}
+          <div className="rounded-xl border border-[#e2e8f0] bg-[#f8fafc] p-4">
+            <div className="flex items-start justify-between gap-4">
+              <div className="space-y-1">
+                <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-100 px-2.5 py-0.5 text-[11px] font-bold text-emerald-800">
+                  ชั้นความปลอดภัยที่ 2 (ภายในห้องเรียน)
+                </span>
+                <h4 className="text-[14.5px] font-bold text-[#16233a]">
+                  ⏱️ QR Code หมุนเวียนสดหน้าห้อง (Dynamic Time-based QR)
+                </h4>
+                <p className="text-[12px] leading-relaxed text-[#5b6b82]">
+                  ป้องกันนักเรียนในโรงเรียนแต่โดดเรียน แล้วให้เพื่อนในห้องแคปหน้าจอส่งไลน์ไปให้ — รหัส QR หน้าจอครูจะเปลี่ยนใหม่ทุก 30 วินาที หากนำรูปแคปเก่ามาเปิด ระบบจะไม่อนุญาตให้เช็คชื่อ
+                </p>
+              </div>
+
+              {/* Toggle Switch */}
+              <label className="relative inline-flex cursor-pointer items-center">
+                <input
+                  type="checkbox"
+                  checked={securitySettings.dynamic_qr_enabled}
+                  onChange={(e) =>
+                    setSecuritySettings((prev) => ({
+                      ...prev,
+                      dynamic_qr_enabled: e.target.checked,
+                    }))
+                  }
+                  className="peer sr-only"
+                />
+                <div className="peer h-6 w-11 rounded-full bg-gray-300 after:absolute after:left-[2px] after:top-[2px] after:h-5 after:w-5 after:rounded-full after:bg-white after:transition-all after:content-[''] peer-checked:bg-[#166c2e] peer-checked:after:translate-x-full"></div>
+              </label>
+            </div>
+          </div>
+
+          {securityMsg && (
+            <p
+              role="status"
+              className={cn(
+                "rounded-lg px-3.5 py-2.5 text-[13.5px] font-medium leading-relaxed",
+                securityMsg.type === "success"
+                  ? "bg-[#e6f4ea] text-[#166c2e] border border-[#a6d7b0]"
+                  : "bg-[#fdecec] text-[#c62828] border border-[#f5c2c7]"
+              )}
+            >
+              {securityMsg.text}
+            </p>
+          )}
+
+          <div>
+            <UIButton
+              variant="green"
+              type="submit"
+              disabled={securitySaving}
+              className="h-10 px-6 text-[13.5px] font-bold shadow-sm disabled:opacity-50"
+            >
+              {securitySaving ? "กำลังบันทึก..." : "💾 บันทึกการตั้งค่าความปลอดภัย"}
+            </UIButton>
+          </div>
+        </form>
       </Card>
 
       {termModal ? (

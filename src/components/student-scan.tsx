@@ -32,6 +32,13 @@ import {
 } from "@/lib/in-app-browser";
 import { playSuccessChime } from "@/lib/sound";
 import { StudentSelfEnroll } from "@/components/student-self-enroll";
+import {
+  fetchSchoolSecuritySettings,
+  calculateDistanceMeters,
+  verifyRollingToken,
+  getUserCurrentCoordinates,
+  type SchoolSecuritySettings,
+} from "@/lib/school-security";
 
 const THRESHOLD = 0.55;
 
@@ -54,9 +61,58 @@ export default function StudentScanPage() {
   const [helpSending, setHelpSending] = useState(false);
   const [helpPending, setHelpPending] = useState(false);
   const [helpMsg, setHelpMsg] = useState("");
+  const [securitySettings, setSecuritySettings] = useState<SchoolSecuritySettings | null>(null);
+  const [geoChecking, setGeoChecking] = useState(false);
+  const [geoVerified, setGeoVerified] = useState<boolean | null>(null);
+  const [geoDistance, setGeoDistance] = useState<number | null>(null);
+  const [geoError, setGeoError] = useState<string | null>(null);
+  const [qrExpired, setQrExpired] = useState(false);
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const identityRef = useRef<StudentIdentity | null>(null);
   const cooldownRef = useRef(0);
+  const geoVerifiedRef = useRef<boolean | null>(null);
+  const securitySettingsRef = useRef<SchoolSecuritySettings | null>(null);
+
+  const checkGeofence = useCallback(async (): Promise<boolean> => {
+    const s = securitySettingsRef.current;
+    if (!s?.geofence_enabled || !s.school_lat || !s.school_lng) {
+      geoVerifiedRef.current = true;
+      setGeoVerified(true);
+      return true;
+    }
+    setGeoChecking(true);
+    setGeoError(null);
+    try {
+      const pos = await getUserCurrentCoordinates();
+      const dist = calculateDistanceMeters(
+        pos.lat,
+        pos.lng,
+        s.school_lat,
+        s.school_lng
+      );
+      setGeoDistance(dist);
+      const maxRadius = s.school_radius_meters || 250;
+      if (dist > maxRadius) {
+        geoVerifiedRef.current = false;
+        setGeoVerified(false);
+        setGeoError(
+          `🚫 คุณอยู่นอกพื้นที่โรงเรียน (ระยะห่างประมาณ ${dist.toLocaleString()} ม. / กำหนดไม่เกิน ${maxRadius} ม.) ไม่สามารถเช็คชื่อได้`
+        );
+        return false;
+      }
+      geoVerifiedRef.current = true;
+      setGeoVerified(true);
+      setGeoError(null);
+      return true;
+    } catch (err: any) {
+      geoVerifiedRef.current = false;
+      setGeoVerified(false);
+      setGeoError(err?.message || "ไม่สามารถระบุพิกัด GPS ได้ กรุณาเปิดตำแหน่ง (Location) บนโทรศัพท์");
+      return false;
+    } finally {
+      setGeoChecking(false);
+    }
+  }, []);
 
   const toggleCamera = async () => {
     const nextMode: CameraFacingMode = facingMode === "user" ? "environment" : "user";
@@ -91,6 +147,19 @@ export default function StudentScanPage() {
   const doCheckin = useCallback(async () => {
     const code = identityRef.current?.code;
     if (!code) return;
+
+    // ตรวจสอบ Geofence ก่อนเช็คชื่อจริง
+    const s = securitySettingsRef.current;
+    if (s?.geofence_enabled && s.school_lat && s.school_lng) {
+      if (geoVerifiedRef.current !== true) {
+        const ok = await checkGeofence();
+        if (!ok) {
+          setNotice("🚫 คุณอยู่นอกพื้นที่โรงเรียน ไม่สามารถเช็คชื่อได้");
+          return;
+        }
+      }
+    }
+
     setIsCheckingIn(true);
     setNotice("กำลังบันทึก...");
     try {
@@ -117,13 +186,26 @@ export default function StudentScanPage() {
     } finally {
       setIsCheckingIn(false);
     }
-  }, []);
+  }, [checkGeofence]);
 
   // โหมดกดถ่ายภาพสแกนใบหน้า (Single Shot) — ทำงานครั้งเดียว ไม่กินแรม ไม่ค้าง
   const captureSingleScan = async () => {
     const id = identityRef.current;
     const video = videoRef.current;
     if (!video || !id?.descriptor || isScanning || isCheckingIn || done) return;
+
+    // ตรวจสอบ Geofence ก่อนสแกน
+    const s = securitySettingsRef.current;
+    if (s?.geofence_enabled && s.school_lat && s.school_lng) {
+      if (geoVerifiedRef.current !== true) {
+        const ok = await checkGeofence();
+        if (!ok) {
+          setCamStatus("🚫 คุณอยู่นอกพื้นที่โรงเรียน — ไม่สามารถเช็คชื่อได้");
+          return;
+        }
+      }
+    }
+
     setIsScanning(true);
     setCamStatus("กำลังตรวจจับและเทียบใบหน้า...");
     try {
@@ -156,6 +238,19 @@ export default function StudentScanPage() {
   const requestHelp = async () => {
     const code = identityRef.current?.code;
     if (!code || helpSending) return;
+
+    // ตรวจสอบ Geofence ก่อนส่งคำขอ SOS
+    const s = securitySettingsRef.current;
+    if (s?.geofence_enabled && s.school_lat && s.school_lng) {
+      if (geoVerifiedRef.current !== true) {
+        const ok = await checkGeofence();
+        if (!ok) {
+          setHelpMsg("คุณอยู่นอกพื้นที่โรงเรียน ไม่สามารถส่งคำขอให้ครูช่วยเช็คชื่อได้");
+          return;
+        }
+      }
+    }
+
     setHelpSending(true);
     setHelpMsg("");
     try {
@@ -230,9 +325,10 @@ export default function StudentScanPage() {
     // โหลดโมเดลล่วงหน้าขณะรอตรวจ PIN ช่วยลดเวลารอเปิดกล้องได้ 5-10 วินาที
     void ensureFaceModels();
     (async () => {
-      const [id, myDescriptor] = await Promise.all([
+      const [id, myDescriptor, secSettings] = await Promise.all([
         lookupStudent(code),
         getMyFaceDescriptor(),
+        fetchSchoolSecuritySettings(),
       ]);
       if (cancelled) return;
       if (!id) {
@@ -244,12 +340,34 @@ export default function StudentScanPage() {
       }
       identityRef.current = id;
       setIdentity(id);
+      setSecuritySettings(secSettings);
+      securitySettingsRef.current = secSettings;
 
       // ตรวจสอบ query string เผื่อสแกน QR Code เข้ามา
       if (typeof window !== "undefined") {
         const params = new URLSearchParams(window.location.search);
         const qPin = params.get("pin");
+        const qToken = params.get("token");
+        const qTs = params.get("ts");
+
         if (qPin && qPin.trim().length === 4) {
+          // ตรวจสอบ Dynamic Rolling QR Code หากเปิดใช้งาน
+          if (secSettings.dynamic_qr_enabled && qToken && qTs) {
+            const isValid = verifyRollingToken(
+              qPin.trim(),
+              qToken.trim(),
+              Number(qTs),
+              secSettings.dynamic_qr_interval_sec || 30,
+              2 // ยอมรับความล่าช้า 60-90 วินาที
+            );
+
+            if (!isValid) {
+              setQrExpired(true);
+              setPinMsg("⚠️ QR Code นี้หมดอายุแล้ว (เปลี่ยนใหม่ทุก 30 วินาที เพื่อป้องกันการแคปจอส่งต่อ) กรุณาสแกนใหม่จากหน้าจอคุณครู");
+              return;
+            }
+          }
+
           setPin(qPin.trim());
           const v = await verifyPin(id.code, qPin.trim());
           if (!cancelled && v.ok) {
@@ -263,6 +381,13 @@ export default function StudentScanPage() {
       cancelled = true;
     };
   }, [router]);
+
+  // ตรวจสอบพิกัดโรงเรียนอัตโนมัติเบื้องหลังเมื่อโหลดหน้าเสร็จ
+  useEffect(() => {
+    if (securitySettings?.geofence_enabled && securitySettings.school_lat && securitySettings.school_lng) {
+      void checkGeofence();
+    }
+  }, [securitySettings, checkGeofence]);
 
   // ขั้น 2: ตรวจ PIN แล้วค่อยเปิดกล้อง
   const verifyAndStart = async () => {
@@ -466,6 +591,72 @@ export default function StudentScanPage() {
   return (
     <StudentSummaryShell identity={identity} active="scan">
       <InAppBrowserNotice />
+
+      {/* Dynamic QR Expired Warning */}
+      {qrExpired && (
+        <div className="mb-3 rounded-xl border border-rose-300 bg-rose-50 p-4 text-center shadow-xs">
+          <div className="flex items-center justify-center gap-1.5 text-[15px] font-bold text-rose-900">
+            <span>⏱️</span>
+            <span>QR Code นี้หมดอายุแล้ว</span>
+          </div>
+          <p className="mt-1 text-[13px] leading-relaxed text-rose-800">
+            เพื่อความปลอดภัยและป้องกันการแคปภาพหน้าจอส่งต่อ QR Code จะเปลี่ยนรหัสใหม่ทุก 30 วินาที<br />
+            <strong>กรุณาสแกน QR Code จากหน้าจอของคุณครูใหม่อีกครั้ง</strong>
+          </p>
+        </div>
+      )}
+
+      {/* Geofence Alert / Status */}
+      {securitySettings?.geofence_enabled && securitySettings.school_lat && securitySettings.school_lng && (
+        <div className="mb-3">
+          {geoVerified === true ? (
+            <div className="flex items-center justify-between rounded-xl border border-emerald-200 bg-emerald-50 px-3.5 py-2 text-[12px] font-medium text-emerald-900 shadow-2xs">
+              <span className="flex items-center gap-1.5">
+                <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse"></span>
+                <span>📍 อยู่ในบริเวณโรงเรียน</span>
+              </span>
+              {geoDistance !== null && (
+                <span className="text-[11px] text-emerald-700">ห่างศูนย์กลาง {geoDistance} ม.</span>
+              )}
+            </div>
+          ) : geoError ? (
+            <div className="rounded-xl border border-rose-300 bg-rose-50 p-3.5 text-center shadow-xs">
+              <p className="text-[13.5px] font-bold text-rose-900 flex items-center justify-center gap-1">
+                <span>🚫</span>
+                <span>ไม่สามารถเช็คชื่อนอกโรงเรียนได้</span>
+              </p>
+              <p className="mt-1 text-[12.5px] leading-relaxed text-rose-800">
+                {geoError}
+              </p>
+              <UIButton
+                variant="blue"
+                type="button"
+                onClick={() => void checkGeofence()}
+                disabled={geoChecking}
+                className="mt-2.5 h-8 px-4 text-[12px] font-bold"
+              >
+                {geoChecking ? "⏳ กำลังดึงพิกัด..." : "🔄 ตรวจสอบตำแหน่ง GPS อีกครั้ง"}
+              </UIButton>
+            </div>
+          ) : (
+            <div className="flex items-center justify-between rounded-xl border border-blue-200 bg-blue-50 px-3.5 py-2 text-[12px] text-blue-900">
+              <span className="flex items-center gap-1">
+                <span>📍</span>
+                <span>ระบบกำลังตรวจสอบพิกัดโรงเรียน...</span>
+              </span>
+              <button
+                type="button"
+                onClick={() => void checkGeofence()}
+                disabled={geoChecking}
+                className="rounded bg-blue-600 px-2.5 py-1 text-[11px] font-bold text-white hover:bg-blue-700 disabled:opacity-50"
+              >
+                {geoChecking ? "กำลังตรวจ..." : "ยืนยันพิกัด GPS"}
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+
       {!pinOk ? (
         <Card className="p-5">
           <CardTitle className="mb-1">รหัสประจำรอบจากครู</CardTitle>
