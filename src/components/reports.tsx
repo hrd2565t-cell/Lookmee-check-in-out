@@ -209,7 +209,7 @@ export default function ReportsPage() {
   const [daySessions, setDaySessions] = useState<SessionInfo[]>([]);
   const [dayRecords, setDayRecords] = useState<DayRecord[]>([]);
   const [approvedDayLeaves, setApprovedDayLeaves] = useState<
-    Map<string, { type: LeaveType; reason: string }>
+    Map<string, { id?: string; type: LeaveType; reason: string }>
   >(new Map());
   const [refreshKey, setRefreshKey] = useState(0);
 
@@ -224,10 +224,10 @@ export default function ReportsPage() {
       if (!cancelled) {
         setDaySessions(s ?? []);
         setDayRecords(r ?? []);
-        const m = new Map<string, { type: LeaveType; reason: string }>();
+        const m = new Map<string, { id?: string; type: LeaveType; reason: string }>();
         if (l) {
           for (const item of l) {
-            m.set(item.studentCode, { type: item.type, reason: item.reason });
+            m.set(item.studentCode, { id: item.id, type: item.type, reason: item.reason });
           }
         }
         setApprovedDayLeaves(m);
@@ -261,8 +261,10 @@ export default function ReportsPage() {
 
   const [statusFilter, setStatusFilter] = useState<AttendanceStatus | null>(null);
   const [statusModal, setStatusModal] = useState<AttendanceStatus | null>(null);
+  const [statusModalPinnedIds, setStatusModalPinnedIds] = useState<string[] | null>(null);
   const [modalSearch, setModalSearch] = useState("");
   const [modalRoomFilter, setModalRoomFilter] = useState("all");
+  const [quickActionBusy, setQuickActionBusy] = useState<string | null>(null);
 
   const isDateWeekend = isWeekend(date);
 
@@ -938,12 +940,34 @@ export default function ReportsPage() {
     });
   }, [allRosterRows, query, statusFilter, reportSortBy]);
 
+  /* ---------- ควบคุมการเปิด/ปิด Quick View Modal แบบคงรายชื่อ (Option 1) ---------- */
+  const openStatusModal = (status: AttendanceStatus) => {
+    // บันทึกรายชื่อรหัสนักเรียนที่มีสถานะนี้ ณ ตอนเปิด เพื่อให้รายชื่อคงอยู่เมื่อครูกดเปลี่ยนสถานะ
+    const initialIds = allRosterRows
+      .filter((r) => r.status === status)
+      .map((r) => r.id);
+    setStatusModalPinnedIds(initialIds);
+    setStatusModal(status);
+  };
+
+  const closeStatusModal = () => {
+    setStatusModal(null);
+    setStatusModalPinnedIds(null);
+    setModalSearch("");
+    setModalRoomFilter("all");
+  };
+
   /* ---------- รายชื่อนักเรียนสำหรับ Quick View Modal ป๊อปอัป ---------- */
   const statusModalRows = useMemo(() => {
     if (!statusModal) return [];
     const q = modalSearch.trim().toLowerCase();
-    const filtered = allRosterRows.filter((row) => {
-      if (row.status !== statusModal) return false;
+
+    // หากมีการตรึงรายชื่อตอนเปิด modal ให้ดึงนักเรียนกลุ่มนี้ แม้สถานะจะถูกเปลี่ยนระหว่างเปิด modal อยู่ (แบบที่ 1)
+    const baseRows = statusModalPinnedIds && statusModalPinnedIds.length > 0
+      ? allRosterRows.filter((row) => statusModalPinnedIds.includes(row.id))
+      : allRosterRows.filter((row) => row.status === statusModal);
+
+    const filtered = baseRows.filter((row) => {
       if (modalRoomFilter !== "all" && row.group !== modalRoomFilter) return false;
       if (!q) return true;
       return (
@@ -958,7 +982,7 @@ export default function ReportsPage() {
       const numB = Number(b.number) || 999;
       return numA - numB || a.id.localeCompare(b.id, "th", { numeric: true });
     });
-  }, [allRosterRows, statusModal, modalSearch, modalRoomFilter]);
+  }, [allRosterRows, statusModal, statusModalPinnedIds, modalSearch, modalRoomFilter]);
 
   /* ---------- ฟังก์ชันบันทึกการลาป่วยด่วนในคลิกเดียว ---------- */
   const handleQuickMarkSickLeave = async (studentCode: string) => {
@@ -969,28 +993,33 @@ export default function ReportsPage() {
     const st = groupStudents.find((s) => s.code === studentCode);
     if (!st) return;
 
-    // ถ้ามีแถวเช็คชื่อเดิม ให้ลบออก เพื่อไม่ให้ชนกับสถานะลา
-    const existingRec = grec.find((x) => x.studentCode === studentCode);
-    if (existingRec) {
-      await deleteAttendanceRecord(existingRec.id);
-    }
-
-    // สร้างใบลาประเภทลาป่วยสถานะ approved ทันที
-    await createLeave({
-      studentCode,
-      dateFrom: date,
-      dateTo: date,
-      type: "sick",
-      reason: "ครูบันทึกแทน (ลาป่วย)",
-      status: "approved",
-    });
-
+    setQuickActionBusy(studentCode);
     try {
-      playSuccessChime();
-    } catch {
-      // ignore
+      // ถ้ามีแถวเช็คชื่อเดิม ให้ลบออก เพื่อไม่ให้ชนกับสถานะลา
+      const existingRec = grec.find((x) => x.studentCode === studentCode);
+      if (existingRec) {
+        await deleteAttendanceRecord(existingRec.id);
+      }
+
+      // สร้างใบลาประเภทลาป่วยสถานะ approved ทันที
+      await createLeave({
+        studentCode,
+        dateFrom: date,
+        dateTo: date,
+        type: "sick",
+        reason: "ครูบันทึกแทน (ลาป่วย)",
+        status: "approved",
+      });
+
+      try {
+        playSuccessChime();
+      } catch {
+        // ignore
+      }
+    } finally {
+      setQuickActionBusy(null);
+      setRefreshKey((k) => k + 1);
     }
-    setRefreshKey((k) => k + 1);
   };
 
   /* ---------- ฟังก์ชันเปลี่ยนสถานะด่วนในคลิกเดียว (Quick Check-in) ---------- */
@@ -1003,32 +1032,43 @@ export default function ReportsPage() {
     const st = groupStudents.find((s) => s.code === studentCode);
     if (!st) return;
 
-    if (!existingRec) {
-      const sessionId = await ensureSession(st.group, date);
-      if (!sessionId) return;
-      if (targetStatus === "activity") {
-        await markActivity(sessionId, studentCode, "กิจกรรมโรงเรียน");
-      } else if (targetStatus === "absent") {
-        await bulkMarkStatus([{ group: st.group, code: studentCode }], "absent");
+    setQuickActionBusy(studentCode);
+    try {
+      // หากมีใบลาเดิมอยู่ ให้ลบออกเพื่อไม่ให้ซ้ำซ้อนกับสถานะใหม่
+      const existingLeave = approvedDayLeaves.get(studentCode);
+      if (existingLeave?.id) {
+        await deleteLeave(existingLeave.id);
+      }
+
+      if (!existingRec) {
+        const sessionId = await ensureSession(st.group, date);
+        if (!sessionId) return;
+        if (targetStatus === "activity") {
+          await markActivity(sessionId, studentCode, "กิจกรรมโรงเรียน");
+        } else if (targetStatus === "absent") {
+          await bulkMarkStatus([{ group: st.group, code: studentCode }], "absent");
+        } else {
+          await checkIn(sessionId, studentCode, 1.0, {
+            status: targetStatus,
+            method: "manual",
+          });
+        }
       } else {
-        await checkIn(sessionId, studentCode, 1.0, {
+        await updateAttendanceRecord(existingRec.id, {
           status: targetStatus,
-          method: "manual",
+          check_in_at: targetStatus === "absent" ? null : (existingRec.checkInAt || new Date().toISOString()),
+          activity_name: targetStatus === "activity" ? "กิจกรรมโรงเรียน" : null,
         });
       }
-    } else {
-      await updateAttendanceRecord(existingRec.id, {
-        status: targetStatus,
-        check_in_at: targetStatus === "absent" ? null : (existingRec.checkInAt || new Date().toISOString()),
-        activity_name: targetStatus === "activity" ? "กิจกรรมโรงเรียน" : null,
-      });
+      try {
+        playSuccessChime();
+      } catch {
+        // ignore
+      }
+    } finally {
+      setQuickActionBusy(null);
+      setRefreshKey((k) => k + 1);
     }
-    try {
-      playSuccessChime();
-    } catch {
-      // ignore
-    }
-    setRefreshKey((k) => k + 1);
   };
 
   const totalPages = Math.max(1, Math.ceil(rows.length / PAGE_SIZE));
@@ -1167,11 +1207,11 @@ export default function ReportsPage() {
                 active={statusFilter === "present"}
                 onClick={() => {
                   setStatusFilter((prev) => (prev === "present" ? null : "present"));
-                  setStatusModal("present");
+                  openStatusModal("present");
                   setPage(1);
                   document.getElementById("daily-roster-section")?.scrollIntoView({ behavior: "smooth" });
                 }}
-                onOpenModal={() => setStatusModal("present")}
+                onOpenModal={() => openStatusModal("present")}
               />
               <SummaryBox
                 label="ขาดเรียน"
@@ -1181,11 +1221,11 @@ export default function ReportsPage() {
                 active={statusFilter === "absent"}
                 onClick={() => {
                   setStatusFilter((prev) => (prev === "absent" ? null : "absent"));
-                  setStatusModal("absent");
+                  openStatusModal("absent");
                   setPage(1);
                   document.getElementById("daily-roster-section")?.scrollIntoView({ behavior: "smooth" });
                 }}
-                onOpenModal={() => setStatusModal("absent")}
+                onOpenModal={() => openStatusModal("absent")}
               />
               <SummaryBox
                 label="มาสาย"
@@ -1195,11 +1235,11 @@ export default function ReportsPage() {
                 active={statusFilter === "late"}
                 onClick={() => {
                   setStatusFilter((prev) => (prev === "late" ? null : "late"));
-                  setStatusModal("late");
+                  openStatusModal("late");
                   setPage(1);
                   document.getElementById("daily-roster-section")?.scrollIntoView({ behavior: "smooth" });
                 }}
-                onOpenModal={() => setStatusModal("late")}
+                onOpenModal={() => openStatusModal("late")}
               />
               <SummaryBox
                 label="กิจกรรม"
@@ -1209,11 +1249,11 @@ export default function ReportsPage() {
                 active={statusFilter === "activity"}
                 onClick={() => {
                   setStatusFilter((prev) => (prev === "activity" ? null : "activity"));
-                  setStatusModal("activity");
+                  openStatusModal("activity");
                   setPage(1);
                   document.getElementById("daily-roster-section")?.scrollIntoView({ behavior: "smooth" });
                 }}
-                onOpenModal={() => setStatusModal("activity")}
+                onOpenModal={() => openStatusModal("activity")}
               />
             </div>
           </Card>
@@ -1317,7 +1357,9 @@ export default function ReportsPage() {
                 <div className="flex items-center gap-2">
                   <button
                     type="button"
-                    onClick={() => setStatusModal(statusFilter)}
+                    onClick={() => {
+                      if (statusFilter) openStatusModal(statusFilter);
+                    }}
                     className="rounded-md bg-[#16233a] px-2.5 py-1 text-[12px] font-bold text-white shadow-2xs hover:bg-[#20314f]"
                   >
                     👁️ เปิดป๊อปอัปรายชื่อ
@@ -2435,11 +2477,7 @@ export default function ReportsPage() {
                   : "★ ร่วมกิจกรรม"
           } (${statusModalRows.length} คน)`}
           maxWidth="max-w-2xl"
-          onClose={() => {
-            setStatusModal(null);
-            setModalSearch("");
-            setModalRoomFilter("all");
-          }}
+          onClose={closeStatusModal}
         >
           <div className="space-y-3">
             {/* Context Subtitle */}
@@ -2465,6 +2503,12 @@ export default function ReportsPage() {
                   📥 ส่งออก Excel ({statusModalRows.length})
                 </button>
               </div>
+            </div>
+
+            {/* Quick action helper tip */}
+            <div className="flex flex-wrap items-center justify-between gap-1.5 rounded-lg border border-blue-200 bg-blue-50/80 px-3 py-1.5 text-[12px] text-blue-900">
+              <span>💡 <strong>คำแนะนำ:</strong> แตะปุ่มสถานะ (✓ มา / ⏱ สาย / 🏥 ลาป่วย / ✗ ขาด) เพื่อเปลี่ยนสถานะได้ทันทีโดยหน้าต่างไม่ปิด</span>
+              <span className="font-semibold text-blue-950">กำลังแสดง {statusModalRows.length} คน</span>
             </div>
 
             {/* Filter controls inside modal */}
@@ -2517,94 +2561,141 @@ export default function ReportsPage() {
               </div>
             ) : (
               <div className="slim-scroll max-h-[380px] divide-y divide-[#eef2f7] overflow-y-auto rounded-lg border border-[#eef2f7] bg-white pr-1">
-                {statusModalRows.map((r, i) => (
-                  <div
-                    key={r.id}
-                    className="flex flex-wrap items-center justify-between gap-2.5 p-2.5 transition hover:bg-[#f8fafc]"
-                  >
-                    <div className="flex items-center gap-3">
-                      <span className="w-5 text-center text-[12px] font-semibold text-[#8a97ab]">
-                        {i + 1}
-                      </span>
-                      <Avatar initials={r.initials} color={r.color} size="sm" />
-                      <div>
-                        <div className="flex items-center gap-2">
-                          <span className="rounded bg-[#f1f5fa] px-1.5 py-0.2 text-[12px] font-bold text-[#2474c6]">
-                            เลขที่ {r.number || "-"}
-                          </span>
-                          <span className="text-[14px] font-bold text-[#16233a]">
-                            {r.name}
-                          </span>
+                {statusModalRows.map((r, i) => {
+                  const isBusy = quickActionBusy === r.id;
+                  const isPresent = r.status === "present";
+                  const isLate = r.status === "late";
+                  const isSick = r.status === "leave";
+                  const isAbsent = r.status === "absent";
+                  const isActivity = r.status === "activity";
+
+                  return (
+                    <div
+                      key={r.id}
+                      className={cn(
+                        "flex flex-wrap items-center justify-between gap-2.5 p-2.5 transition",
+                        isBusy ? "opacity-60 bg-[#f1f5fa]" : "hover:bg-[#f8fafc]"
+                      )}
+                    >
+                      <div className="flex items-center gap-3">
+                        <span className="w-5 text-center text-[12px] font-semibold text-[#8a97ab]">
+                          {i + 1}
+                        </span>
+                        <Avatar initials={r.initials} color={r.color} size="sm" />
+                        <div>
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span className="rounded bg-[#f1f5fa] px-1.5 py-0.2 text-[12px] font-bold text-[#2474c6]">
+                              เลขที่ {r.number || "-"}
+                            </span>
+                            <span className="text-[14px] font-bold text-[#16233a]">
+                              {r.name}
+                            </span>
+                            {/* ป้ายแสดงสถานะปัจจุบัน */}
+                            <span
+                              className={cn(
+                                "inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-bold shadow-2xs",
+                                isPresent && "bg-emerald-100 text-emerald-800 border border-emerald-300",
+                                isLate && "bg-amber-100 text-amber-900 border border-amber-300",
+                                isSick && "bg-sky-100 text-sky-800 border border-sky-300",
+                                isAbsent && "bg-rose-100 text-rose-800 border border-rose-300",
+                                isActivity && "bg-teal-100 text-teal-800 border border-teal-300"
+                              )}
+                            >
+                              {isPresent ? "✓ มาเรียน" :
+                               isLate ? "⏱ มาสาย" :
+                               isSick ? "🏥 ลาป่วย" :
+                               isAbsent ? "✗ ขาดเรียน" : "🎪 กิจกรรม"}
+                            </span>
+                          </div>
+                          <p className="text-[12.5px] text-[#5b6b82]">
+                            รหัส: <span className="font-mono font-medium">{r.id}</span> · {r.group}
+                            {r.time !== "-" ? ` · เวลา ${r.time} น.` : ""}
+                          </p>
                         </div>
-                        <p className="text-[12.5px] text-[#5b6b82]">
-                          รหัส: <span className="font-mono font-medium">{r.id}</span> · {r.group}
-                          {r.time !== "-" ? ` · เวลา ${r.time} น.` : ""}
-                        </p>
+                      </div>
+
+                      {/* ชุดปุ่มเปลี่ยนสถานะด่วนในคลิกเดียว */}
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        {/* มาเรียน */}
+                        <button
+                          type="button"
+                          disabled={isBusy}
+                          onClick={() => void handleQuickMarkStatus(r.id, "present")}
+                          className={cn(
+                            "rounded-md px-2.5 py-1 text-[12px] font-bold shadow-2xs transition active:scale-95 cursor-pointer disabled:opacity-50",
+                            isPresent
+                              ? "bg-[#1e8e3e] text-white ring-2 ring-emerald-400 ring-offset-1"
+                              : "border border-emerald-300 bg-emerald-50 text-emerald-800 hover:bg-emerald-100"
+                          )}
+                          title="เปลี่ยนสถานะเป็น: มาเรียน"
+                        >
+                          ✓ มา
+                        </button>
+
+                        {/* มาสาย */}
+                        <button
+                          type="button"
+                          disabled={isBusy}
+                          onClick={() => void handleQuickMarkStatus(r.id, "late")}
+                          className={cn(
+                            "rounded-md px-2 py-1 text-[12px] font-bold shadow-2xs transition active:scale-95 cursor-pointer disabled:opacity-50",
+                            isLate
+                              ? "bg-[#ef8c1a] text-white ring-2 ring-amber-400 ring-offset-1"
+                              : "border border-amber-300 bg-amber-50 text-amber-900 hover:bg-amber-100"
+                          )}
+                          title="เปลี่ยนสถานะเป็น: มาสาย"
+                        >
+                          ⏱ สาย
+                        </button>
+
+                        {/* ลาป่วย */}
+                        <button
+                          type="button"
+                          disabled={isBusy}
+                          onClick={() => void handleQuickMarkSickLeave(r.id)}
+                          className={cn(
+                            "rounded-md px-2.5 py-1 text-[12px] font-bold shadow-2xs transition active:scale-95 cursor-pointer disabled:opacity-50",
+                            isSick
+                              ? "bg-[#0284c7] text-white ring-2 ring-sky-400 ring-offset-1"
+                              : "border border-sky-300 bg-sky-50 text-sky-800 hover:bg-sky-100"
+                          )}
+                          title="บันทึกใบลาป่วย"
+                        >
+                          🏥 ลาป่วย
+                        </button>
+
+                        {/* ขาดเรียน */}
+                        <button
+                          type="button"
+                          disabled={isBusy}
+                          onClick={() => void handleQuickMarkStatus(r.id, "absent")}
+                          className={cn(
+                            "rounded-md px-2 py-1 text-[12px] font-bold shadow-2xs transition active:scale-95 cursor-pointer disabled:opacity-50",
+                            isAbsent
+                              ? "bg-[#c62828] text-white ring-2 ring-rose-400 ring-offset-1"
+                              : "border border-rose-300 bg-rose-50 text-rose-800 hover:bg-rose-100"
+                          )}
+                          title="เปลี่ยนสถานะเป็น: ขาดเรียน"
+                        >
+                          ✗ ขาด
+                        </button>
+
+                        {/* ปุ่มแก้ไขรายละเอียดเพิ่มเติม */}
+                        <button
+                          type="button"
+                          disabled={isBusy}
+                          onClick={() => {
+                            void openEditRecord(r.id);
+                          }}
+                          className="rounded-md border border-[#d8e0ec] bg-white px-2 py-1 text-[12px] font-semibold text-[#5b6b82] shadow-2xs hover:bg-[#eef2f7] cursor-pointer"
+                          title="แก้ไขเวลาเช็คชื่อ หรือหมายเหตุเพิ่มเติม"
+                        >
+                          ✏️ แก้ไข
+                        </button>
                       </div>
                     </div>
-
-                    <div className="flex items-center gap-1.5">
-                      {statusModal === "absent" ? (
-                        <>
-                          <button
-                            type="button"
-                            onClick={() => void handleQuickMarkStatus(r.id, "present")}
-                            className="rounded-md bg-[#1e8e3e] px-2.5 py-1 text-[12px] font-bold text-white shadow-2xs transition hover:brightness-110 active:scale-95 cursor-pointer"
-                            title="เช็คชื่อให้นักเรียนเป็นมาเรียน"
-                          >
-                            ✓ เช็คชื่อให้ (มา)
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => void handleQuickMarkStatus(r.id, "late")}
-                            className="rounded-md bg-[#ef8c1a] px-2 py-1 text-[12px] font-bold text-white shadow-2xs transition hover:brightness-110 active:scale-95 cursor-pointer"
-                            title="เช็คชื่อให้นักเรียนเป็นมาสาย"
-                          >
-                            ⏱ สาย
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => void handleQuickMarkSickLeave(r.id)}
-                            className="rounded-md bg-[#0284c7] px-2.5 py-1 text-[12px] font-bold text-white shadow-2xs transition hover:brightness-110 active:scale-95 cursor-pointer"
-                            title="บันทึกว่านักเรียนลาป่วย"
-                          >
-                            🏥 ลาป่วย
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => void handleQuickMarkStatus(r.id, "activity")}
-                            className="rounded-md bg-[#00897b] px-2.5 py-1 text-[12px] font-bold text-white shadow-2xs transition hover:brightness-110 active:scale-95 cursor-pointer"
-                            title="เช็คชื่อให้นักเรียนไปร่วมกิจกรรม"
-                          >
-                            🎪 กิจกรรม
-                          </button>
-                        </>
-                      ) : (
-                        <>
-                          <button
-                            type="button"
-                            onClick={() => void handleQuickMarkStatus(r.id, "absent")}
-                            className="rounded-md border border-[#fed7d7] bg-[#fff5f5] px-2 py-1 text-[12px] font-bold text-[#c62828] shadow-2xs transition hover:bg-[#fdecec] active:scale-95 cursor-pointer"
-                            title="เปลี่ยนสถานะเป็นขาดเรียน"
-                          >
-                            ✗ ขาด
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setStatusModal(null);
-                              void openEditRecord(r.id);
-                            }}
-                            className="rounded-md border border-[#d8e0ec] bg-white px-2 py-1 text-[12px] font-semibold text-[#5b6b82] shadow-2xs hover:bg-[#eef2f7] cursor-pointer"
-                            title="แก้ไขรายละเอียด"
-                          >
-                            ✏️ แก้ไข
-                          </button>
-                        </>
-                      )}
-                    </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             )}
 
@@ -2615,11 +2706,7 @@ export default function ReportsPage() {
               </span>
               <button
                 type="button"
-                onClick={() => {
-                  setStatusModal(null);
-                  setModalSearch("");
-                  setModalRoomFilter("all");
-                }}
+                onClick={closeStatusModal}
                 className="rounded-md bg-[#16233a] px-4 py-1.5 text-[13px] font-bold text-white shadow-2xs hover:bg-[#20314f] cursor-pointer"
               >
                 ปิดหน้าต่าง

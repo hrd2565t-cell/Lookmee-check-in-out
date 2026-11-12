@@ -103,23 +103,25 @@ export async function fetchStudentLeaves(studentCode: string): Promise<LeaveItem
 /** ดึงรายการใบลาที่ได้รับอนุมัติในวันที่กำหนด (สำหรับแสดงในตารางสรุปรายวัน) */
 export async function fetchApprovedLeavesForDate(
   date: string,
-): Promise<Array<{ studentCode: string; type: LeaveType; reason: string }> | null> {
+): Promise<Array<{ id: string; studentCode: string; type: LeaveType; reason: string }> | null> {
   if (!isSupabaseConfigured) return null;
   try {
     const { data, error } = await supabase
       .from("leave_requests")
-      .select("type,reason,students!inner(student_code)")
+      .select("id,type,reason,students!inner(student_code)")
       .eq("status", "approved")
       .lte("date_from", date)
       .gte("date_to", date);
     if (error || !data) return null;
     return (
       data as unknown as Array<{
+        id: string;
         type: LeaveType;
         reason: string | null;
         students: { student_code: string };
       }>
     ).map((r) => ({
+      id: r.id,
       studentCode: r.students.student_code,
       type: r.type,
       reason: r.reason ?? "",
