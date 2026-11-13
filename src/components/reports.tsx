@@ -92,11 +92,11 @@ const STATUS_STYLE: Record<AttendanceStatus, string> = {
 };
 
 const STATUS_LABEL: Record<AttendanceStatus, string> = {
-  present: "Present",
-  absent: "Absent",
-  late: "Late",
-  activity: "Activity",
-  leave: "Leave",
+  present: "มาเรียน",
+  absent: "ขาดเรียน",
+  late: "มาสาย",
+  activity: "กิจกรรม",
+  leave: "ลาป่วย/ลา",
 };
 
 function StatusBadge({ status }: { status: AttendanceStatus }) {
@@ -1198,7 +1198,7 @@ export default function ReportsPage() {
                 💡 คลิกที่การ์ดเพื่อดูรายชื่อนักเรียนกลุ่มนั้น (เปิดป๊อปอัป + กรองตารางทันที)
               </span>
             </div>
-            <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-4">
+            <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3 lg:grid-cols-5">
               <SummaryBox
                 label="มาเรียน"
                 value={`${summary.present}/${summary.total}`}
@@ -1240,6 +1240,20 @@ export default function ReportsPage() {
                   document.getElementById("daily-roster-section")?.scrollIntoView({ behavior: "smooth" });
                 }}
                 onOpenModal={() => openStatusModal("late")}
+              />
+              <SummaryBox
+                label="ลาป่วย / ลา"
+                value={`${summary.leave}/${summary.total}`}
+                pct={pct(summary.leave)}
+                className="bg-[#0284c7]"
+                active={statusFilter === "leave"}
+                onClick={() => {
+                  setStatusFilter((prev) => (prev === "leave" ? null : "leave"));
+                  openStatusModal("leave");
+                  setPage(1);
+                  document.getElementById("daily-roster-section")?.scrollIntoView({ behavior: "smooth" });
+                }}
+                onOpenModal={() => openStatusModal("leave")}
               />
               <SummaryBox
                 label="กิจกรรม"
@@ -1341,6 +1355,7 @@ export default function ReportsPage() {
                       statusFilter === "present" && "bg-[#1e8e3e]",
                       statusFilter === "absent" && "bg-[#c62828]",
                       statusFilter === "late" && "bg-[#ef8c1a]",
+                      statusFilter === "leave" && "bg-[#0284c7]",
                       statusFilter === "activity" && "bg-[#00897b]",
                     )}
                   >
@@ -1350,7 +1365,9 @@ export default function ReportsPage() {
                         ? "✗ ขาดเรียน"
                         : statusFilter === "late"
                           ? "⏱ มาสาย"
-                          : "★ กิจกรรม"}{" "}
+                          : statusFilter === "leave"
+                            ? "🏥 ลาป่วย"
+                            : "★ กิจกรรม"}{" "}
                     ({rows.length} คน)
                   </span>
                 </span>
@@ -1486,6 +1503,36 @@ export default function ReportsPage() {
                       )}
                     >
                       สาย ({summary.late})
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setStatusFilter("leave");
+                        setPage(1);
+                      }}
+                      className={cn(
+                        "rounded px-2 py-0.5 font-bold transition-colors",
+                        statusFilter === "leave"
+                          ? "bg-[#0284c7] text-white"
+                          : "text-[#0284c7] hover:bg-[#e0f2fe]",
+                      )}
+                    >
+                      ลาป่วย ({summary.leave})
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setStatusFilter("activity");
+                        setPage(1);
+                      }}
+                      className={cn(
+                        "rounded px-2 py-0.5 font-bold transition-colors",
+                        statusFilter === "activity"
+                          ? "bg-[#00897b] text-white"
+                          : "text-[#00897b] hover:bg-[#e0f2f1]",
+                      )}
+                    >
+                      กิจกรรม ({summary.activity})
                     </button>
                   </div>
                 </div>
@@ -2474,7 +2521,9 @@ export default function ReportsPage() {
                 ? "✗ ขาดเรียน"
                 : statusModal === "late"
                   ? "⏱ มาสาย"
-                  : "★ ร่วมกิจกรรม"
+                  : statusModal === "leave"
+                    ? "🏥 ลาป่วย"
+                    : "★ ร่วมกิจกรรม"
           } (${statusModalRows.length} คน)`}
           maxWidth="max-w-2xl"
           onClose={closeStatusModal}
@@ -2507,7 +2556,7 @@ export default function ReportsPage() {
 
             {/* Quick action helper tip */}
             <div className="flex flex-wrap items-center justify-between gap-1.5 rounded-lg border border-blue-200 bg-blue-50/80 px-3 py-1.5 text-[12px] text-blue-900">
-              <span>💡 <strong>คำแนะนำ:</strong> แตะปุ่มสถานะ (✓ มา / ⏱ สาย / 🏥 ลาป่วย / ✗ ขาด) เพื่อเปลี่ยนสถานะได้ทันทีโดยหน้าต่างไม่ปิด</span>
+              <span>💡 <strong>คำแนะนำ:</strong> แตะปุ่มสถานะ (✓ มา / ⏱ สาย / 🏥 ลาป่วย / 🎪 กิจกรรม / ✗ ขาด) เพื่อเปลี่ยนสถานะได้ทันทีโดยหน้าต่างไม่ปิด</span>
               <span className="font-semibold text-blue-950">กำลังแสดง {statusModalRows.length} คน</span>
             </div>
 
@@ -2557,7 +2606,11 @@ export default function ReportsPage() {
                     ? "🎉 ยอดเยี่ยม! ไม่มีนักเรียนขาดเรียนในวันนี้ (มาครบ 100%)"
                     : statusModal === "present"
                       ? "ยังไม่มีนักเรียนที่มาเรียนในกลุ่มนี้"
-                      : "ไม่มีข้อมูลนักเรียนในสถานะนี้"}
+                      : statusModal === "leave"
+                        ? "ไม่มีนักเรียนลาป่วยในวันนี้"
+                        : statusModal === "activity"
+                          ? "ไม่มีนักเรียนร่วมกิจกรรมในวันนี้"
+                          : "ไม่มีข้อมูลนักเรียนในสถานะนี้"}
               </div>
             ) : (
               <div className="slim-scroll max-h-[380px] divide-y divide-[#eef2f7] overflow-y-auto rounded-lg border border-[#eef2f7] bg-white pr-1">
@@ -2662,6 +2715,22 @@ export default function ReportsPage() {
                           title="บันทึกใบลาป่วย"
                         >
                           🏥 ลาป่วย
+                        </button>
+
+                        {/* ร่วมกิจกรรม */}
+                        <button
+                          type="button"
+                          disabled={isBusy}
+                          onClick={() => void handleQuickMarkStatus(r.id, "activity")}
+                          className={cn(
+                            "rounded-md px-2.5 py-1 text-[12px] font-bold shadow-2xs transition active:scale-95 cursor-pointer disabled:opacity-50",
+                            isActivity
+                              ? "bg-[#00897b] text-white ring-2 ring-teal-400 ring-offset-1"
+                              : "border border-teal-300 bg-teal-50 text-teal-800 hover:bg-teal-100"
+                          )}
+                          title="เปลี่ยนสถานะเป็น: กิจกรรมโรงเรียน"
+                        >
+                          🎪 กิจกรรม
                         </button>
 
                         {/* ขาดเรียน */}
