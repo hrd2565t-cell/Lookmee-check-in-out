@@ -218,18 +218,16 @@ export function StudentDetail({
 
   const deleteLeaveItem = async (id: string) => {
     const target = leaves?.find((l) => l.id === id) ?? null;
-    if (!target || target.status !== "pending") {
-      setLeaveNotice("ลบได้เฉพาะใบลาที่ยังรออนุมัติเท่านั้น");
-      return;
-    }
-    if (!window.confirm("ลบใบลารายการนี้หรือไม่?")) return;
+    if (!target) return;
+    const leaveLabel = `${LEAVE_TYPE_LABEL[target.type] || "ใบลา"} วันที่ ${fmtDate(target.dateFrom)}`;
+    if (!window.confirm(`ต้องการลบรายการนี้ (${leaveLabel}) ออกจากระบบหรือไม่?`)) return;
     const ok = await deleteLeave(id);
     if (!ok) {
-      setLeaveNotice("ลบใบลาไม่สำเร็จ");
+      setLeaveNotice("ลบใบลาไม่สำเร็จ — โปรดลองอีกครั้ง");
       return;
     }
     setLeaves((rows) => rows?.filter((x) => x.id !== id) ?? []);
-    setLeaveNotice("ลบใบลาแล้ว");
+    setLeaveNotice("ลบรายการใบลาเรียบร้อยแล้ว");
   };
 
   const openEditLeave = (l: LeaveItem) => {
@@ -845,9 +843,14 @@ export function StudentDetail({
         </div>
       </div>
 
-      <h4 className="mb-1.5 mt-4 text-[14.5px] font-bold text-[#16233a]">
-        ประวัติการลา ({leaves?.length ?? 0})
-      </h4>
+      <div className="mb-1.5 mt-4 flex items-center justify-between">
+        <h4 className="text-[14.5px] font-bold text-[#16233a]">
+          ประวัติการลา ({leaves?.length ?? 0})
+        </h4>
+        {leaveNotice && !editingLeaveId ? (
+          <span className="text-[12px] font-semibold text-[#1e8e3e]">{leaveNotice}</span>
+        ) : null}
+      </div>
       {loading ? (
         <p className="py-2 text-center text-[13.5px] text-[#5b6b82]">กำลังโหลด...</p>
       ) : leaves && leaves.length > 0 ? (
@@ -878,17 +881,15 @@ export function StudentDetail({
               >
                 <PencilIcon className="h-4 w-4" />
               </button>
-              {l.status === "pending" ? (
-                <button
-                  type="button"
-                  aria-label={`ลบใบลา ${l.id}`}
-                  title="ลบรายการใบลา"
-                  onClick={() => void deleteLeaveItem(l.id)}
-                  className="ml-2 rounded p-1 text-[#c62828] hover:bg-[#fdecec]"
-                >
-                  <TrashIcon className="h-4 w-4" />
-                </button>
-              ) : null}
+              <button
+                type="button"
+                aria-label={`ลบใบลา ${l.id}`}
+                title="ลบรายการใบลา"
+                onClick={() => void deleteLeaveItem(l.id)}
+                className="ml-1 rounded p-1 text-[#c62828] hover:bg-[#fdecec]"
+              >
+                <TrashIcon className="h-4 w-4" />
+              </button>
             </li>
           ))}
         </ul>

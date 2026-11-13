@@ -2374,7 +2374,10 @@ export default function ReportsPage() {
             code={st.code}
             name={st.name}
             group={st.group}
-            onClose={() => setDetailCode(null)}
+            onClose={() => {
+              setDetailCode(null);
+              setRefreshKey((k) => k + 1);
+            }}
             onEnroll={(code) => {
               setDetailCode(null);
               setEnrollCode(code);
