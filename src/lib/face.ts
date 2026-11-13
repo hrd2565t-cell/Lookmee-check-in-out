@@ -36,18 +36,31 @@ export async function ensureFaceModels(onProgress?: (msg: string) => void): Prom
   return modelsPromise;
 }
 
-/** สกัด descriptor (128 มิติ) จากเฟรมวิดีโอ — ไม่เจอหน้าคืน null */
+let isDescriptorBusy = false;
+
+/** สกัด descriptor (128 มิติ) จากเฟรมวิดีโอ — ไม่เจอหน้าคืน null
+ * มีตัวแปร isDescriptorBusy ทำหน้าที่เป็น Concurrency Lock ป้องกันการรันโมเดล WebGL ซ้อนกัน ซึ่งเป็นสาเหตุหลักที่ทำให้เบราว์เซอร์มือถือค้าง
+ */
 export async function descriptorFromVideo(
   video: HTMLVideoElement,
 ): Promise<Float32Array | null> {
-  const api = await getApi();
-  if (!modelsReady) return null;
-  if (video.readyState < 2 || video.videoWidth === 0) return null;
-  const det = await api
-    .detectSingleFace(video, new api.TinyFaceDetectorOptions({ inputSize: 320, scoreThreshold: 0.5 }))
-    .withFaceLandmarks(true)
-    .withFaceDescriptor();
-  return det?.descriptor ?? null;
+  if (isDescriptorBusy) return null;
+  isDescriptorBusy = true;
+  try {
+    const api = await getApi();
+    if (!modelsReady) return null;
+    if (video.readyState < 2 || video.videoWidth === 0) return null;
+    const det = await api
+      .detectSingleFace(video, new api.TinyFaceDetectorOptions({ inputSize: 320, scoreThreshold: 0.5 }))
+      .withFaceLandmarks(true)
+      .withFaceDescriptor();
+    return det?.descriptor ?? null;
+  } catch (err) {
+    console.error("descriptorFromVideo error:", err);
+    return null;
+  } finally {
+    isDescriptorBusy = false;
+  }
 }
 
 /** เฉลี่ย descriptor หลายช็อต (ตอนลงทะเบียน) → number[] เก็บลง DB */

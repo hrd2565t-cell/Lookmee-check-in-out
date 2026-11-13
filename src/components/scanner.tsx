@@ -294,6 +294,11 @@ export default function ScannerPage() {
   const [notice, setNotice] = useState("");
   const [round, setRound] = useState<SessionFull | null>(null);
   const [qrModalOpen, setQrModalOpen] = useState(false);
+  const [cameraPaused, setCameraPaused] = useState(false);
+  const qrModalOpenRef = useRef(false);
+  qrModalOpenRef.current = qrModalOpen;
+  const cameraPausedRef = useRef(false);
+  cameraPausedRef.current = cameraPaused;
 
   useEffect(() => {
     const url = new URL(window.location.href);
@@ -802,7 +807,23 @@ export default function ScannerPage() {
         let isBusy = false;
 
         const runScanLoop = async () => {
-          if (cancelled || enrolledRef.current.length === 0 || isBusy || !videoRef.current) return;
+          if (
+            cancelled ||
+            enrolledRef.current.length === 0 ||
+            isBusy ||
+            !videoRef.current ||
+            qrModalOpenRef.current ||
+            cameraPausedRef.current ||
+            (typeof document !== "undefined" && document.hidden)
+          ) {
+            // เมื่อเปิด QR Code Modal หรือกดพักกล้อง หรือแท็บพับอยู่ ให้หยุดการทำงาน AI เพื่อป้องกันเครื่องครูร้อน/ค้าง
+            if (!cancelled) {
+              loopTimer = setTimeout(() => {
+                void runScanLoop();
+              }, 1000);
+            }
+            return;
+          }
           isBusy = true;
           try {
             const desc = await descriptorFromVideo(videoRef.current);
@@ -1222,6 +1243,18 @@ export default function ScannerPage() {
               )}
             </span>
             <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setCameraPaused((v) => !v)}
+                className={`inline-flex items-center gap-1 rounded-md border px-2.5 py-1 text-[11.5px] font-semibold shadow-2xs transition hover:opacity-90 active:scale-95 ${
+                  cameraPaused
+                    ? "border-amber-300 bg-amber-50 text-amber-800"
+                    : "border-[#d8e0ec] bg-white text-[#16233a] hover:bg-[#f1f5fa]"
+                }`}
+                title={cameraPaused ? "คลิกเพื่อเปิดกล้องสแกนต่อ" : "คลิกเพื่อพักการทำงานกล้องและประหยัดแบตเตอรี่"}
+              >
+                {cameraPaused ? "▶ ดำเนินการกล้องต่อ" : "⏸ พักกล้อง"}
+              </button>
               <button
                 type="button"
                 onClick={() => void toggleCamera()}

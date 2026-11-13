@@ -557,7 +557,9 @@ function StudentForm() {
     }
     setFound(st);
     if (st.faceStatus === "registered") {
-      setMode("face_unlock");
+      // หากนักเรียนมีรหัส PIN ส่วนตัวอยู่แล้ว ให้เปิดหน้า PIN เป็นค่าเริ่มต้นทันที
+      // ช่วยประหยัดแบตเตอรี่ ไม่ต้องโหลดโมเดล AI 6MB และแก้ปัญหามือถือค้างได้ 100%
+      setMode(st.hasPin ? "pin_unlock" : "face_unlock");
     } else {
       setMode("search");
     }

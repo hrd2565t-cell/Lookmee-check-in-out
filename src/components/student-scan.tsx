@@ -57,6 +57,10 @@ export default function StudentScanPage() {
   const [done, setDone] = useState(false);
   const [isCheckingIn, setIsCheckingIn] = useState(false);
   const [isScanning, setIsScanning] = useState(false);
+  const isScanningRef = useRef(false);
+  const autoScanPausedRef = useRef(false);
+  const scanAttemptsRef = useRef(0);
+  const [autoScanPaused, setAutoScanPaused] = useState(false);
   const [helpModalOpen, setHelpModalOpen] = useState(false);
   const [helpSending, setHelpSending] = useState(false);
   const [helpPending, setHelpPending] = useState(false);
@@ -192,7 +196,7 @@ export default function StudentScanPage() {
   const captureSingleScan = async () => {
     const id = identityRef.current;
     const video = videoRef.current;
-    if (!video || !id?.descriptor || isScanning || isCheckingIn || done) return;
+    if (!video || !id?.descriptor || isScanning || isScanningRef.current || isCheckingIn || done) return;
 
     // ตรวจสอบ Geofence ก่อนสแกน
     const s = securitySettingsRef.current;
@@ -207,6 +211,12 @@ export default function StudentScanPage() {
     }
 
     setIsScanning(true);
+    isScanningRef.current = true;
+    // ปลด pause และรีเซ็ตตัวนับรอบ เพื่อให้สแกนได้ทันที
+    autoScanPausedRef.current = false;
+    setAutoScanPaused(false);
+    scanAttemptsRef.current = 0;
+
     setCamStatus("กำลังตรวจจับและเทียบใบหน้า...");
     try {
       const desc = await descriptorFromVideo(video);
@@ -231,6 +241,7 @@ export default function StudentScanPage() {
       setCamStatus("ตรวจจับใบหน้าไม่สำเร็จ — ลองแตะสแกนใหม่ หรือกดขอให้ครูช่วยเช็คชื่อ");
     } finally {
       setIsScanning(false);
+      isScanningRef.current = false;
     }
   };
 
@@ -358,7 +369,7 @@ export default function StudentScanPage() {
               qToken.trim(),
               Number(qTs),
               secSettings.dynamic_qr_interval_sec || 30,
-              2 // ยอมรับความล่าช้า 60-90 วินาที
+              6 // ยอมรับความล่าช้า 3 นาที เพื่อรองรับเน็ตช้าและเวลาเครื่องไม่ตรง
             );
 
             if (!isValid) {
@@ -440,11 +451,21 @@ export default function StudentScanPage() {
     }
 
     const runScanLoop = async () => {
-      if (cancelled || !videoRef.current || !id.descriptor || isBusy) return;
+      if (
+        cancelled ||
+        !videoRef.current ||
+        !id.descriptor ||
+        isBusy ||
+        isScanningRef.current ||
+        autoScanPausedRef.current
+      ) {
+        return;
+      }
       isBusy = true;
       try {
         const desc = await descriptorFromVideo(videoRef.current);
         if (desc && !cancelled) {
+          scanAttemptsRef.current = 0; // รีเซ็ตตัวนับเมื่อพบใบหน้า
           let sum = 0;
           for (let i = 0; i < desc.length; i++) {
             const diff = (desc[i] ?? 0) - (id.descriptor?.[i] ?? 0);
@@ -462,16 +483,24 @@ export default function StudentScanPage() {
             setCamStatus("ตรวจพบใบหน้าแล้ว กรุณามองตรงและนิ่งสักครู่...");
           }
         } else if (!cancelled) {
+          scanAttemptsRef.current += 1;
+          if (scanAttemptsRef.current >= 6) {
+            // หากลอง 6 ครั้ง (~8 วินาที) แล้วยังไม่เจอหน้า ให้พักลูปเพื่อป้องกัน CPU ร้อนและมือถือค้าง
+            autoScanPausedRef.current = true;
+            setAutoScanPaused(true);
+            setCamStatus("💡 หากตรวจจับไม่ติด ให้แตะปุ่ม '📸 แตะเพื่อสแกนใบหน้า' เพื่อสแกนทันที");
+            return;
+          }
           setCamStatus(`ส่องหน้าด้วย${facingMode === "user" ? "กล้องหน้า" : "กล้องหลัง"} — ให้ใบหน้าอยู่ในกรอบ`);
         }
       } catch (err) {
         console.error("Face scan error:", err);
       } finally {
         isBusy = false;
-        if (!cancelled) {
+        if (!cancelled && !autoScanPausedRef.current) {
           loopTimer = setTimeout(() => {
             void runScanLoop();
-          }, 1000); // 1000ms เพื่อป้องกัน CPU/GPU มือถือร้อนจัดและไม่ทำให้เครื่องค้าง
+          }, 1200); // 1200ms เพื่อถนอม CPU/GPU มือถือ
         }
       }
     };
@@ -835,6 +864,11 @@ export default function StudentScanPage() {
               </div>
             ) : (
               <>
+                {camOn && autoScanPaused && !isScanning && !isCheckingIn && (
+                  <p className="text-center text-[12px] font-medium text-amber-700 bg-amber-50 rounded-lg py-1 px-2 border border-amber-200">
+                    ⚡ พักการสแกนอัตโนมัติเพื่อถนอมเครื่อง — แตะปุ่มด้านล่างเพื่อสแกนใบหน้าทันที
+                  </p>
+                )}
                 {camOn && (
                   <UIButton
                     variant="green"

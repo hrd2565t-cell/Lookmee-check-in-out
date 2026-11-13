@@ -174,15 +174,15 @@ export function computeRollingToken(pin: string, step: number): string {
 
 /**
  * ตรวจสอบความถูกต้องของ Rolling Token
- * - ยอมรับ time-step ได้ +/- toleranceSteps (ค่าเริ่มต้น 2 steps = ประมาณ 60-90 วินาที)
- *   เพื่อรองรับ network delay และ clock drift เล็กน้อย
+ * - ยอมรับ time-step ได้ +/- toleranceSteps (ค่าเริ่มต้น 6 steps = ประมาณ 3 นาที)
+ *   เพื่อรองรับ network delay ในห้องเรียน, เวลาโหลดหน้าเว็บ และ clock drift ของมือถือ
  */
 export function verifyRollingToken(
   pin: string,
   token: string,
   passedStep: number,
   intervalSec = 30,
-  toleranceSteps = 2
+  toleranceSteps = 6
 ): boolean {
   if (!token || !pin) return false;
   const currentStep = getCurrentTimeStep(intervalSec);
