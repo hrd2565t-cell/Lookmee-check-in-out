@@ -486,8 +486,10 @@ export function StudentDetail({
       }
     }
 
+    const lateDeduction = Math.floor(late / 3);
+    const effectiveAbsences = absent + lateDeduction;
     const totalDays = present + late + activity + absent + leaveDays;
-    const attended = present + late + activity;
+    const attended = Math.max(0, present + late + activity - lateDeduction);
     const pct = totalDays > 0 ? Math.round((attended / totalDays) * 1000) / 10 : 0;
     const passed = totalDays > 0 && pct >= 80;
 
@@ -496,6 +498,8 @@ export function StudentDetail({
       late,
       activity,
       absent,
+      effectiveAbsences,
+      lateDeductionDays: lateDeduction,
       leave: approvedLeaves.length,
       leaveDays,
       sickCount,
@@ -621,7 +625,15 @@ export function StudentDetail({
             <span className="my-0.5 text-[24px] font-black text-rose-600">
               {summary ? summary.absent : "-"}
             </span>
-            <span className="text-[11px] font-medium text-rose-600">ครั้ง</span>
+            <span className="text-[11px] font-medium text-rose-600">
+              {summary && summary.late >= 3 ? (
+                <span title="รวมมาสาย 3 ครั้งเป็นขาด 1 ครั้ง">
+                  (เทียบเท่า {summary.absent + Math.floor(summary.late / 3)})
+                </span>
+              ) : (
+                "ครั้ง"
+              )}
+            </span>
           </div>
 
           {/* ลา */}
@@ -665,6 +677,12 @@ export function StudentDetail({
             <span className="text-[11px] font-medium text-teal-600">ครั้ง</span>
           </div>
         </div>
+
+        {summary && summary.late >= 3 && (
+          <div className="mt-2.5 rounded-lg border border-amber-200 bg-amber-50/80 px-3 py-1.5 text-[12px] text-amber-900">
+            ⏱️ มาสายสะสม <strong>{summary.late}</strong> ครั้ง คิดเทียบเท่าขาดเรียน <strong>{Math.floor(summary.late / 3)}</strong> ครั้ง (ตามเกณฑ์สาย 3 ครั้ง = ขาด 1 คาบ) · ยอดขาดเทียบเท่ารวม: <strong>{summary.absent + Math.floor(summary.late / 3)}</strong> ครั้ง
+          </div>
+        )}
 
         <div className="mt-3 flex flex-wrap items-center justify-between gap-2 border-t border-[#f1f5fa] pt-2 text-[12px] text-[#5b6b82]">
           <span>

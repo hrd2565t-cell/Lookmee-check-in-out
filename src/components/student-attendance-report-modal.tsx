@@ -25,6 +25,8 @@ export type StudentSummaryStats = {
   late: number;
   activity: number;
   absent: number;
+  effectiveAbsences?: number;
+  lateDeductionDays?: number;
   leave: number;
   sickCount: number;
   personalCount: number;
@@ -121,8 +123,10 @@ export function StudentAttendanceReportModal({
       }
     }
 
+    const lateDeduction = Math.floor(late / 3);
+    const effectiveAbsences = absent + lateDeduction;
     const totalDays = present + late + activity + absent + leaveDays;
-    const attended = present + late + activity;
+    const attended = Math.max(0, present + late + activity - lateDeduction);
     const pct = totalDays > 0 ? Math.round((attended / totalDays) * 1000) / 10 : 0;
     const passed = totalDays > 0 && pct >= 80;
 
@@ -131,6 +135,8 @@ export function StudentAttendanceReportModal({
       late,
       activity,
       absent,
+      effectiveAbsences,
+      lateDeductionDays: lateDeduction,
       leave: approvedLeaves.length,
       sickCount,
       personalCount,
@@ -267,7 +273,11 @@ export function StudentAttendanceReportModal({
               <p className="my-0.5 text-[26px] font-black text-rose-600 print:text-black">
                 {summary.absent}
               </p>
-              <p className="text-[11px] text-rose-600 print:text-gray-600">ครั้ง</p>
+              <p className="text-[11px] text-rose-600 print:text-gray-600">
+                {summary.late >= 3
+                  ? `(เทียบเท่า ${summary.effectiveAbsences ?? summary.absent + Math.floor(summary.late / 3)} ครั้ง)`
+                  : "ครั้ง"}
+              </p>
             </div>
 
             {/* ลาเรียน */}
@@ -281,6 +291,12 @@ export function StudentAttendanceReportModal({
               </p>
             </div>
           </div>
+
+          {summary.late >= 3 && (
+            <div className="mt-2.5 rounded-lg border border-amber-200 bg-amber-50/80 px-3 py-1.5 text-[12px] text-amber-900 print:border-gray-400 print:bg-transparent print:text-black">
+              ⏱️ <strong>หมายเหตุเกณฑ์เวลาเรียน:</strong> นักเรียนมีเวลามาสายสะสม {summary.late} ครั้ง คิดเทียบเท่าขาดเรียน {Math.floor(summary.late / 3)} ครั้ง (ตามระเบียบมาสาย 3 ครั้ง หักเป็นขาด 1 ครั้ง) ยอดขาดเทียบเท่ารวม {summary.effectiveAbsences ?? summary.absent + Math.floor(summary.late / 3)} ครั้ง
+            </div>
+          )}
 
           {/* สรุปร้อยละและเกณฑ์ประเมิน */}
           <div className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-[#d8e0ec] bg-white p-3.5 text-[13px] print:border-gray-400">

@@ -223,6 +223,11 @@ function Watchlist({ group }: { group: string }) {
               <p className="truncate text-[14px] font-bold text-[#16233a]">
                 {r.name}
                 <span className="ml-2 font-medium text-[#5b6b82]">{r.group}</span>
+                {r.late >= 3 && (
+                  <span className="ml-2 text-[11.5px] font-normal text-amber-800" title="สาย 3 ครั้ง คิดเป็นขาด 1 ครั้ง">
+                    (ขาดจริง {r.actualAbsent} · สาย {r.late})
+                  </span>
+                )}
               </p>
             </div>
             <span

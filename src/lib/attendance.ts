@@ -359,23 +359,29 @@ export async function bulkMarkStatus(
   return { success, failed };
 }
 
-/** คำนวณคะแนนจิตพิสัย (เต็ม 10) ตามระดับชั้นและจำนวนครั้งที่ขาดเรียน */
-export function calculateAffectiveScore(groupName: string, absentCount: number): number {
-  const abs = Math.max(0, absentCount);
-  if (abs <= 3) return 10;
+/** คำนวณคะแนนจิตพิสัย (เต็ม 10) ตามระดับชั้นและจำนวนครั้งที่ขาดเรียน (รวมมาสาย 3 ครั้ง = ขาด 1 ครั้ง) */
+export function calculateAffectiveScore(
+  groupName: string,
+  absentCount: number,
+  lateCount = 0,
+  lateRatio = 3,
+): number {
+  const ratio = Math.max(1, lateRatio);
+  const effective = Math.max(0, absentCount) + Math.floor(Math.max(0, lateCount) / ratio);
+  if (effective <= 3) return 10;
 
   if (groupName.includes("ม.3")) {
     // ม.3: ขาด 0-3 = 10, ขาด 4 = 9, ..., ขาด 12 = 1, ขาด 13 ขึ้นไป = 0
-    if (abs >= 13) return 0;
-    return Math.max(0, 10 - (abs - 3));
+    if (effective >= 13) return 0;
+    return Math.max(0, 10 - (effective - 3));
   }
 
   // ม.1 และ ม.5 (และระดับชั้นอื่นๆ):
   // ขาด 4 = 8, ขาด 5 = 6, ขาด 6 = 4, ขาด 7 = 2, ขาด 8 ขึ้นไป = 0
-  if (abs === 4) return 8;
-  if (abs === 5) return 6;
-  if (abs === 6) return 4;
-  if (abs === 7) return 2;
+  if (effective === 4) return 8;
+  if (effective === 5) return 6;
+  if (effective === 6) return 4;
+  if (effective === 7) return 2;
   return 0;
 }
 
@@ -828,10 +834,12 @@ export type AbsentCount = {
   code: string;
   name: string;
   group: string;
-  count: number;
+  count: number; // ยอดขาดเทียบเท่า (ขาดจริง + floor(สาย / 3))
+  actualAbsent: number; // ขาดจริง
+  late: number; // มาสาย
 };
 
-/** ยอดขาดรายคนในช่วงวัน (ฝั่งครูล็อกอิน — ใช้ทำ watchlist) */
+/** ยอดขาดรายคนในช่วงวัน (ฝั่งครูล็อกอิน — ใช้ทำ watchlist คิดสาย 3 ครั้ง = ขาด 1 ครั้ง) */
 export async function fetchAbsentCounts(from: string, to: string): Promise<AbsentCount[] | null> {
   if (!isSupabaseConfigured) return null;
   try {
@@ -842,12 +850,13 @@ export async function fetchAbsentCounts(from: string, to: string): Promise<Absen
       )
       .gte("session_date", from)
       .lte("session_date", to)
-      .eq("attendance_records.status", "absent");
+      .in("attendance_records.status", ["absent", "late"]);
     if (error || !data) return null;
-    const map = new Map<string, AbsentCount>();
+    const map = new Map<string, { code: string; name: string; group: string; actualAbsent: number; late: number }>();
     for (const s of data as unknown as Array<{
       class_groups: { name: string };
       attendance_records: Array<{
+        status: string;
         students: { student_code: string | null; prefix: string; first_name: string; last_name: string | null };
       }>;
     }>) {
@@ -859,13 +868,32 @@ export async function fetchAbsentCounts(from: string, to: string): Promise<Absen
           code: st.student_code,
           name: `${st.prefix}${st.first_name}${last ? ` ${last}` : ""}`,
           group: s.class_groups.name,
-          count: 0,
+          actualAbsent: 0,
+          late: 0,
         };
-        cur.count++;
+        if (r.status === "absent") {
+          cur.actualAbsent++;
+        } else if (r.status === "late") {
+          cur.late++;
+        }
         map.set(st.student_code, cur);
       }
     }
-    return [...map.values()].sort((a, b) => b.count - a.count);
+    const result: AbsentCount[] = [...map.values()]
+      .map((st) => {
+        const effective = st.actualAbsent + Math.floor(st.late / 3);
+        return {
+          code: st.code,
+          name: st.name,
+          group: st.group,
+          count: effective,
+          actualAbsent: st.actualAbsent,
+          late: st.late,
+        };
+      })
+      .filter((st) => st.count > 0 || st.actualAbsent > 0 || st.late > 0)
+      .sort((a, b) => b.count - a.count || b.actualAbsent - a.actualAbsent || b.late - a.late);
+    return result;
   } catch {
     return null;
   }

@@ -91,6 +91,8 @@ export default function SettingsPage() {
     group: string;
     level: string;
     absent: number;
+    actualAbsent: number;
+    late: number;
     maxAbsent: number | null;
     warnBefore: number;
   }>>([]);
@@ -258,6 +260,8 @@ export default function SettingsPage() {
               group: r.group,
               level,
               absent: r.count,
+              actualAbsent: r.actualAbsent,
+              late: r.late,
               maxAbsent,
               warnBefore,
             };
@@ -998,7 +1002,12 @@ export default function SettingsPage() {
                         {r.level}
                       </td>
                       <td className="px-3 py-1.5 text-center font-bold text-[#c62828]">
-                        {r.absent}
+                        <div>{r.absent}</div>
+                        {r.late >= 3 && (
+                          <div className="text-[10px] font-normal text-amber-800" title="รวมมาสาย 3 ครั้งเป็นขาด 1 ครั้ง">
+                            (ขาดจริง {r.actualAbsent} · สาย {r.late})
+                          </div>
+                        )}
                       </td>
                       <td className="px-3 py-1.5 text-center">
                         {r.maxAbsent === null ? "ไม่จำกัด" : String(r.maxAbsent)}

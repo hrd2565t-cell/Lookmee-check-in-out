@@ -15,7 +15,7 @@ import {
 } from "@/components/icons";
 import { Avatar, Card, CardTitle, DonutChart, Modal, UIButton } from "@/components/ui";
 import { StudentDetail } from "@/components/student-detail";
-import { StudentAttendanceReportModal, type StudentReportData } from "@/components/student-attendance-report-modal";
+import { StudentAttendanceReportModal, type StudentReportData, type StudentSummaryStats } from "@/components/student-attendance-report-modal";
 import { FaceEnrollModal } from "@/components/face-enroll";
 import type { Student } from "@/data/students";
 import {
@@ -328,19 +328,7 @@ export default function ReportsPage() {
   /* ---------- สรุปรายบุคคล (Individual Summary) ---------- */
   const [individualStudentCode, setIndividualStudentCode] = useState<string>("");
   const [printReportStudent, setPrintReportStudent] = useState<StudentReportData | null>(null);
-  const [individualStats, setIndividualStats] = useState<{
-    present: number;
-    late: number;
-    activity: number;
-    absent: number;
-    leave: number;
-    sickCount: number;
-    personalCount: number;
-    otherCount: number;
-    totalDays: number;
-    pct: number;
-    passed: boolean;
-  } | null>(null);
+  const [individualStats, setIndividualStats] = useState<StudentSummaryStats | null>(null);
   const individualLoading = Boolean(individualStudentCode && !individualStats);
 
   useEffect(() => {
@@ -378,8 +366,10 @@ export default function ReportsPage() {
           leaveDays += 1;
         }
       }
+      const lateDeduction = Math.floor(late / 3);
+      const effectiveAbsences = absent + lateDeduction;
       const totalDays = present + late + activity + absent + leaveDays;
-      const attended = present + late + activity;
+      const attended = Math.max(0, present + late + activity - lateDeduction);
       const pct = totalDays > 0 ? Math.round((attended / totalDays) * 1000) / 10 : 0;
       const passed = totalDays > 0 && pct >= 80;
       setIndividualStats({
@@ -387,6 +377,8 @@ export default function ReportsPage() {
         late,
         activity,
         absent,
+        effectiveAbsences,
+        lateDeductionDays: lateDeduction,
         leave: approvedLeaves.length,
         sickCount,
         personalCount,
@@ -427,13 +419,15 @@ export default function ReportsPage() {
     }
     downloadCsv(
       `summary-${group}-${rangeFrom}-${rangeTo}.csv`,
-      ["ลำดับ", "รหัสประจำตัว", "เลขที่", "ชื่อ-นามสกุล", "มาเรียน", "มาสาย", "กิจกรรม", "ขาด", "ลาเรียน", "วันที่มีข้อมูล", "% มาเรียน", "คะแนนจิตพิสัย (เต็ม 10)"],
+      ["ลำดับ", "รหัสประจำตัว", "เลขที่", "ชื่อ-นามสกุล", "มาเรียน", "มาสาย", "กิจกรรม", "ขาด", "ขาดเทียบเท่า (รวมสาย 3=1)", "ลาเรียน", "วันที่มีข้อมูล", "% มาเรียน", "คะแนนจิตพิสัย (เต็ม 10)"],
       rows.map((r, i) => {
-        const attended = r.present + r.late + r.activity;
-        const score = calculateAffectiveScore(group, r.absent);
+        const lateDeduction = Math.floor(r.late / 3);
+        const effectiveAbs = r.absent + lateDeduction;
+        const attended = Math.max(0, r.present + r.late + r.activity - lateDeduction);
+        const score = calculateAffectiveScore(group, r.absent, r.late);
         return [
           i + 1, r.code, r.number, r.name,
-          r.present, r.late, r.activity, r.absent, r.leave ?? 0, r.days,
+          r.present, r.late, r.activity, r.absent, effectiveAbs, r.leave ?? 0, r.days,
           r.days ? Math.round((attended / r.days) * 100) : 0,
           score,
         ];
@@ -456,13 +450,15 @@ export default function ReportsPage() {
     for (const [room, list] of byRoom.entries()) {
       downloadCsv(
         `summary-${room.replace("/", "-")}-${rangeFrom}-${rangeTo}.csv`,
-        ["ลำดับ", "รหัสประจำตัว", "เลขที่", "ชื่อ-นามสกุล", "ห้อง", "มาเรียน", "มาสาย", "กิจกรรม", "ขาด", "ลาเรียน", "วันที่มีข้อมูล", "% มาเรียน", "คะแนนจิตพิสัย (เต็ม 10)"],
+        ["ลำดับ", "รหัสประจำตัว", "เลขที่", "ชื่อ-นามสกุล", "ห้อง", "มาเรียน", "มาสาย", "กิจกรรม", "ขาด", "ขาดเทียบเท่า (รวมสาย 3=1)", "ลาเรียน", "วันที่มีข้อมูล", "% มาเรียน", "คะแนนจิตพิสัย (เต็ม 10)"],
         list.map((r, i) => {
-          const attended = r.present + r.late + r.activity;
-          const score = calculateAffectiveScore(room, r.absent);
+          const lateDeduction = Math.floor(r.late / 3);
+          const effectiveAbs = r.absent + lateDeduction;
+          const attended = Math.max(0, r.present + r.late + r.activity - lateDeduction);
+          const score = calculateAffectiveScore(room, r.absent, r.late);
           return [
             i + 1, r.code, r.number, r.name, room,
-            r.present, r.late, r.activity, r.absent, r.leave ?? 0, r.days,
+            r.present, r.late, r.activity, r.absent, effectiveAbs, r.leave ?? 0, r.days,
             r.days ? Math.round((attended / r.days) * 100) : 0,
             score,
           ];
@@ -1821,9 +1817,11 @@ export default function ReportsPage() {
                   </thead>
                   <tbody>
                     {rangeRows.map((r, i) => {
-                      const attended = r.present + r.late + r.activity;
+                      const lateDeduction = Math.floor(r.late / 3);
+                      const effectiveAbs = r.absent + lateDeduction;
+                      const attended = Math.max(0, r.present + r.late + r.activity - lateDeduction);
                       const pctAttend = r.days ? Math.round((attended / r.days) * 100) : 0;
-                      const score = calculateAffectiveScore(group, r.absent);
+                      const score = calculateAffectiveScore(group, r.absent, r.late);
                       return (
                         <tr key={r.code} className="border-t border-[#eef2f7] hover:bg-[#f8fafc]">
                           <td className="px-2.5 py-1.5 text-[#5b6b82]">{i + 1}</td>
@@ -1845,7 +1843,14 @@ export default function ReportsPage() {
                           <td className="px-2.5 py-1.5 text-center font-semibold text-[#1e8e3e]">{r.present}</td>
                           <td className="px-2.5 py-1.5 text-center font-semibold text-[#ef8c1a]">{r.late}</td>
                           <td className="px-2.5 py-1.5 text-center font-semibold text-[#00897b]">{r.activity}</td>
-                          <td className="px-2.5 py-1.5 text-center font-semibold text-[#c62828]">{r.absent}</td>
+                          <td className="px-2.5 py-1.5 text-center font-semibold text-[#c62828]">
+                            <div>{r.absent}</div>
+                            {r.late >= 3 && (
+                              <div className="text-[10px] font-medium text-[#c62828]/85" title="รวมมาสาย 3 ครั้งเป็นขาด 1 ครั้ง">
+                                (เทียบเท่า {effectiveAbs})
+                              </div>
+                            )}
+                          </td>
                           <td className="px-2.5 py-1.5 text-center font-semibold text-[#2474c6]">{r.leave ?? 0}</td>
                           <td className="px-2.5 py-1.5 text-center text-[#5b6b82]">{r.days}</td>
                           <td className="px-2.5 py-1.5 text-center font-bold text-[#16233a]">{pctAttend}%</td>
@@ -1970,7 +1975,15 @@ export default function ReportsPage() {
                         <span className="my-0.5 text-[24px] font-black text-rose-600">
                           {individualStats ? individualStats.absent : 0}
                         </span>
-                        <span className="text-[11px] font-medium text-rose-600">ครั้ง</span>
+                        <span className="text-[11px] font-medium text-rose-600">
+                          {individualStats && individualStats.late >= 3 ? (
+                            <span title="รวมมาสาย 3 ครั้งเป็นขาด 1 ครั้ง">
+                              (เทียบเท่า {individualStats.absent + Math.floor(individualStats.late / 3)})
+                            </span>
+                          ) : (
+                            "ครั้ง"
+                          )}
+                        </span>
                       </div>
                       <div className="flex flex-col items-center justify-center rounded-xl border border-sky-200 bg-sky-50/70 p-2.5 text-center">
                         <span className="text-[12px] font-bold text-sky-800">ลาเรียน</span>
@@ -2008,7 +2021,13 @@ export default function ReportsPage() {
                     </div>
 
                     {individualStats && (
-                      <div className="mt-3 flex flex-wrap items-center justify-between gap-2 border-t border-[#eef2f7] pt-2 text-[12px] text-[#5b6b82]">
+                      <>
+                        {individualStats.late >= 3 && (
+                          <div className="mt-2.5 rounded-lg border border-amber-200 bg-amber-50/80 px-3 py-1.5 text-[12px] text-amber-900">
+                            ⏱️ มาสายสะสม <strong>{individualStats.late}</strong> ครั้ง คิดเทียบเท่าขาดเรียน <strong>{Math.floor(individualStats.late / 3)}</strong> ครั้ง (ตามเกณฑ์สาย 3 ครั้ง = ขาด 1 คาบ) · ยอดขาดเทียบเท่ารวม: <strong>{individualStats.absent + Math.floor(individualStats.late / 3)}</strong> ครั้ง
+                          </div>
+                        )}
+                        <div className="mt-3 flex flex-wrap items-center justify-between gap-2 border-t border-[#eef2f7] pt-2 text-[12px] text-[#5b6b82]">
                         <span>
                           รวมวันที่มีข้อมูล: <strong>{individualStats.totalDays}</strong> วัน · ร้อยละการเข้าเรียน:{" "}
                           <strong className={individualStats.passed ? "text-[#1e8e3e]" : "text-[#c62828]"}>
@@ -2030,6 +2049,7 @@ export default function ReportsPage() {
                           🖨️ พิมพ์ใบรายงานผลของนักเรียนคนนี้ (A4 / PDF)
                         </button>
                       </div>
+                    </>
                     )}
                   </>
                 )}
