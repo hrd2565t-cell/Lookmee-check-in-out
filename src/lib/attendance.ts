@@ -819,12 +819,19 @@ export async function fetchGroupRangeSummary(
     const totalDays = days.size;
     return [...map.values()]
       .map((row) => ({ ...row, days: totalDays }))
-      .sort(
-        (a, b) =>
+      .sort((a, b) => {
+        const numA = Number(a.number);
+        const numB = Number(b.number);
+        const hasA = !isNaN(numA) && numA > 0;
+        const hasB = !isNaN(numB) && numB > 0;
+        if (hasA && hasB) return numA - numB;
+        if (hasA) return -1;
+        if (hasB) return 1;
+        return (
           a.code.localeCompare(b.code, "th", { numeric: true }) ||
-          (Number(a.number) || 999) - (Number(b.number) || 999) ||
-          a.name.localeCompare(b.name, "th"),
-      );
+          a.name.localeCompare(b.name, "th")
+        );
+      });
   } catch {
     return null;
   }

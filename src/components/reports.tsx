@@ -324,6 +324,27 @@ export default function ReportsPage() {
   const [rangeRows, setRangeRows] = useState<RangeSummaryRow[] | null>(null);
   const [rangeBusy, setRangeBusy] = useState(false);
   const [rangeNotice, setRangeNotice] = useState("");
+  const [rangeSortBy, setRangeSortBy] = useState<"number" | "code" | "name">("number");
+
+  const sortedRangeRows = useMemo(() => {
+    if (!rangeRows) return null;
+    return [...rangeRows].sort((a, b) => {
+      if (rangeSortBy === "number") {
+        const numA = Number(a.number);
+        const numB = Number(b.number);
+        const hasA = !isNaN(numA) && numA > 0;
+        const hasB = !isNaN(numB) && numB > 0;
+        if (hasA && hasB) return numA - numB;
+        if (hasA) return -1;
+        if (hasB) return 1;
+        return a.code.localeCompare(b.code, "th", { numeric: true });
+      }
+      if (rangeSortBy === "code") {
+        return a.code.localeCompare(b.code, "th", { numeric: true });
+      }
+      return a.name.localeCompare(b.name, "th");
+    });
+  }, [rangeRows, rangeSortBy]);
 
   /* ---------- สรุปรายบุคคล (Individual Summary) ---------- */
   const [individualStudentCode, setIndividualStudentCode] = useState<string>("");
@@ -417,16 +438,32 @@ export default function ReportsPage() {
       setRangeNotice(rows.length ? "" : "ไม่พบข้อมูลในช่วงวันที่นี้");
       return;
     }
+    const exportList = [...rows].sort((a, b) => {
+      if (rangeSortBy === "number") {
+        const numA = Number(a.number);
+        const numB = Number(b.number);
+        const hasA = !isNaN(numA) && numA > 0;
+        const hasB = !isNaN(numB) && numB > 0;
+        if (hasA && hasB) return numA - numB;
+        if (hasA) return -1;
+        if (hasB) return 1;
+        return a.code.localeCompare(b.code, "th", { numeric: true });
+      }
+      if (rangeSortBy === "code") {
+        return a.code.localeCompare(b.code, "th", { numeric: true });
+      }
+      return a.name.localeCompare(b.name, "th");
+    });
     downloadCsv(
       `summary-${group}-${rangeFrom}-${rangeTo}.csv`,
-      ["ลำดับ", "รหัสประจำตัว", "เลขที่", "ชื่อ-นามสกุล", "มาเรียน", "มาสาย", "กิจกรรม", "ขาด", "ขาดเทียบเท่า (รวมสาย 3=1)", "ลาเรียน", "วันที่มีข้อมูล", "% มาเรียน", "คะแนนจิตพิสัย (เต็ม 10)"],
-      rows.map((r, i) => {
+      ["ลำดับ", "เลขที่", "รหัสประจำตัว", "ชื่อ-นามสกุล", "มาเรียน", "มาสาย", "กิจกรรม", "ขาด", "ขาดเทียบเท่า (รวมสาย 3=1)", "ลาเรียน", "วันที่มีข้อมูล", "% มาเรียน", "คะแนนจิตพิสัย (เต็ม 10)"],
+      exportList.map((r, i) => {
         const lateDeduction = Math.floor(r.late / 3);
         const effectiveAbs = r.absent + lateDeduction;
         const attended = Math.max(0, r.present + r.late + r.activity - lateDeduction);
         const score = calculateAffectiveScore(group, r.absent, r.late);
         return [
-          i + 1, r.code, r.number, r.name,
+          i + 1, r.number || "-", r.code, r.name,
           r.present, r.late, r.activity, r.absent, effectiveAbs, r.leave ?? 0, r.days,
           r.days ? Math.round((attended / r.days) * 100) : 0,
           score,
@@ -448,16 +485,26 @@ export default function ReportsPage() {
 
     let exportedCount = 0;
     for (const [room, list] of byRoom.entries()) {
+      const sortedList = [...list].sort((a, b) => {
+        const numA = Number(a.number);
+        const numB = Number(b.number);
+        const hasA = !isNaN(numA) && numA > 0;
+        const hasB = !isNaN(numB) && numB > 0;
+        if (hasA && hasB) return numA - numB;
+        if (hasA) return -1;
+        if (hasB) return 1;
+        return a.code.localeCompare(b.code, "th", { numeric: true });
+      });
       downloadCsv(
         `summary-${room.replace("/", "-")}-${rangeFrom}-${rangeTo}.csv`,
-        ["ลำดับ", "รหัสประจำตัว", "เลขที่", "ชื่อ-นามสกุล", "ห้อง", "มาเรียน", "มาสาย", "กิจกรรม", "ขาด", "ขาดเทียบเท่า (รวมสาย 3=1)", "ลาเรียน", "วันที่มีข้อมูล", "% มาเรียน", "คะแนนจิตพิสัย (เต็ม 10)"],
-        list.map((r, i) => {
+        ["ลำดับ", "เลขที่", "รหัสประจำตัว", "ชื่อ-นามสกุล", "ห้อง", "มาเรียน", "มาสาย", "กิจกรรม", "ขาด", "ขาดเทียบเท่า (รวมสาย 3=1)", "ลาเรียน", "วันที่มีข้อมูล", "% มาเรียน", "คะแนนจิตพิสัย (เต็ม 10)"],
+        sortedList.map((r, i) => {
           const lateDeduction = Math.floor(r.late / 3);
           const effectiveAbs = r.absent + lateDeduction;
           const attended = Math.max(0, r.present + r.late + r.activity - lateDeduction);
           const score = calculateAffectiveScore(room, r.absent, r.late);
           return [
-            i + 1, r.code, r.number, r.name, room,
+            i + 1, r.number || "-", r.code, r.name, room,
             r.present, r.late, r.activity, r.absent, effectiveAbs, r.leave ?? 0, r.days,
             r.days ? Math.round((attended / r.days) * 100) : 0,
             score,
@@ -1796,14 +1843,79 @@ export default function ReportsPage() {
               </p>
             ) : null}
             {rangeRows && rangeRows.length > 0 ? (
-              <div className="slim-scroll mt-2 max-h-64 overflow-auto rounded-lg border border-[#eef2f7]">
-                <table className="w-full min-w-[680px] border-collapse text-left text-[13px]">
-                  <thead className="sticky top-0 bg-[#f8fafc] text-[12.5px] font-bold text-[#16233a]">
-                    <tr>
-                      <th className="px-2.5 py-2">ลำดับ</th>
-                      <th className="px-2.5 py-2">เลขที่</th>
-                      <th className="px-2.5 py-2">รหัส</th>
-                      <th className="px-2.5 py-2">ชื่อ-นามสกุล</th>
+              <>
+                <div className="mt-2.5 flex flex-wrap items-center justify-between gap-2">
+                  <span className="text-[12.5px] text-[#5b6b82]">
+                    พบข้อมูลทั้งหมด <strong>{rangeRows.length}</strong> คน
+                  </span>
+                  <div className="flex items-center gap-1.5 text-[12.5px]">
+                    <span className="font-medium text-[#5b6b82]">เรียงตาม:</span>
+                    <div className="inline-flex rounded-md border border-[#d8e0ec] bg-white p-0.5">
+                      <button
+                        type="button"
+                        onClick={() => setRangeSortBy("number")}
+                        className={cn(
+                          "rounded px-2.5 py-0.5 font-bold transition-colors",
+                          rangeSortBy === "number"
+                            ? "bg-[#16233a] text-white shadow-xs"
+                            : "text-[#5b6b82] hover:bg-[#f1f5fa]",
+                        )}
+                      >
+                        เลขที่ (แนะนำ)
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setRangeSortBy("code")}
+                        className={cn(
+                          "rounded px-2.5 py-0.5 font-bold transition-colors",
+                          rangeSortBy === "code"
+                            ? "bg-[#16233a] text-white shadow-xs"
+                            : "text-[#5b6b82] hover:bg-[#f1f5fa]",
+                        )}
+                      >
+                        รหัส
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setRangeSortBy("name")}
+                        className={cn(
+                          "rounded px-2.5 py-0.5 font-bold transition-colors",
+                          rangeSortBy === "name"
+                            ? "bg-[#16233a] text-white shadow-xs"
+                            : "text-[#5b6b82] hover:bg-[#f1f5fa]",
+                        )}
+                      >
+                        ชื่อ
+                      </button>
+                    </div>
+                  </div>
+                </div>
+                <div className="slim-scroll mt-2 max-h-64 overflow-auto rounded-lg border border-[#eef2f7]">
+                  <table className="w-full min-w-[680px] border-collapse text-left text-[13px]">
+                    <thead className="sticky top-0 bg-[#f8fafc] text-[12.5px] font-bold text-[#16233a]">
+                      <tr>
+                        <th className="px-2.5 py-2">ลำดับ</th>
+                        <th
+                          className="cursor-pointer px-2.5 py-2 text-[#2474c6] hover:underline"
+                          onClick={() => setRangeSortBy("number")}
+                          title="คลิกเพื่อเรียงตามเลขที่"
+                        >
+                          เลขที่ {rangeSortBy === "number" ? "▼" : ""}
+                        </th>
+                        <th
+                          className="cursor-pointer px-2.5 py-2 hover:underline"
+                          onClick={() => setRangeSortBy("code")}
+                          title="คลิกเพื่อเรียงตามรหัส"
+                        >
+                          รหัส {rangeSortBy === "code" ? "▼" : ""}
+                        </th>
+                        <th
+                          className="cursor-pointer px-2.5 py-2 hover:underline"
+                          onClick={() => setRangeSortBy("name")}
+                          title="คลิกเพื่อเรียงตามชื่อ"
+                        >
+                          ชื่อ-นามสกุล {rangeSortBy === "name" ? "▼" : ""}
+                        </th>
                       <th className="px-2.5 py-2 text-center text-[#1e8e3e]">มา</th>
                       <th className="px-2.5 py-2 text-center text-[#ef8c1a]">สาย</th>
                       <th className="px-2.5 py-2 text-center text-[#00897b]">กิจกรรม</th>
@@ -1816,7 +1928,7 @@ export default function ReportsPage() {
                     </tr>
                   </thead>
                   <tbody>
-                    {rangeRows.map((r, i) => {
+                    {(sortedRangeRows ?? rangeRows).map((r, i) => {
                       const lateDeduction = Math.floor(r.late / 3);
                       const effectiveAbs = r.absent + lateDeduction;
                       const attended = Math.max(0, r.present + r.late + r.activity - lateDeduction);
@@ -1873,6 +1985,7 @@ export default function ReportsPage() {
                   </tbody>
                 </table>
               </div>
+            </>
             ) : null}
           </Card>
 
