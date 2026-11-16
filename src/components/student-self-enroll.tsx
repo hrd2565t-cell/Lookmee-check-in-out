@@ -84,13 +84,16 @@ export function StudentSelfEnroll({
           setStatus("ต้องเปิดผ่าน HTTPS หรือ localhost กล้องถึงจะทำงาน");
           return;
         }
-        await ensureFaceModels((m) => {
+        if (!video) return;
+        setStatus("กำลังเปิดกล้อง...");
+        const camPromise = openCamera(video, facingMode);
+        const modelPromise = ensureFaceModels((m) => {
           if (!cancelled) setStatus(m);
         });
-        if (cancelled || !video) return;
-        await openCamera(video, facingMode);
+        await camPromise;
+        if (!cancelled) setReady(true);
+        await modelPromise;
         if (!cancelled) {
-          setReady(true);
           setStatus(`${POSES[0]?.label ?? ""}: ${POSES[0]?.hint ?? ""}`);
         }
       } catch (err) {

@@ -154,6 +154,9 @@ export function getCameraErrorMessage(err: unknown): string {
   if (msg.includes("HTTPS") || msg.includes("isSecureContext")) {
     return "ต้องเปิดผ่าน HTTPS หรือ localhost กล้องถึงจะทำงาน";
   }
+  if (/fetch|network|loadFromUri|shard/i.test(msg) || name === "TypeError") {
+    return "ดาวน์โหลดระบบตรวจจับใบหน้าไม่สำเร็จ — ตรวจสอบสัญญาณอินเทอร์เน็ตแล้วกดลองใหม่";
+  }
   return `เปิดกล้องไม่ได้ (${name || "Error"}): ${msg}`;
 }
 
@@ -230,13 +233,25 @@ export async function openCamera(
           audio: false,
         });
       } catch {
-        // 4. สุดท้ายถ้ายังไม่ได้ ค่อยเปิดกล้องใดก็ได้
-        stream = await navigator.mediaDevices.getUserMedia({
-          video: { ...idealRes },
-          audio: false,
-        });
+        // 4. ลองเปิดกล้องใดก็ได้ด้วย idealRes
+        try {
+          stream = await navigator.mediaDevices.getUserMedia({
+            video: { ...idealRes },
+            audio: false,
+          });
+        } catch {
+          // 5. Fallback ขั้นสุดท้าย: ขอแค่เปิดกล้องใดก็ได้ (video: true) โดยไม่กำหนดเงื่อนไขความละเอียด เพื่อรองรับมือถือรุ่นประหยัดทุกรุ่น
+          stream = await navigator.mediaDevices.getUserMedia({
+            video: true,
+            audio: false,
+          });
+        }
       }
     }
+  }
+
+  if (!stream) {
+    throw new Error("ไม่สามารถเปิดกล้องได้ — ตรวจสอบการอนุญาตสิทธิ์กล้องในเบราว์เซอร์");
   }
 
   video.muted = true;

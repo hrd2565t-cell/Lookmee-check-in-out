@@ -515,12 +515,21 @@ export default function StudentScanPage() {
           setCamStatus("ต้องเปิดผ่าน HTTPS กล้องถึงจะทำงาน");
           return;
         }
-        setCamStatus("กำลังโหลดโมเดลใบหน้า...");
-        await ensureFaceModels((msg) => setCamStatus(msg));
-        if (cancelled || !video) return;
-        await openCamera(video, facingMode);
+        if (!video) return;
+        setCamStatus("กำลังเปิดกล้อง...");
+        
+        // 1. สั่งเปิดกล้องทันที (300ms) พร้อมกับโหลดโมเดล AI ควบคู่กันไปในแบ็กกราวด์
+        // ช่วยให้นักเรียนเห็นภาพกล้องตนเองทันที และหากมีปัญหาการอนุญาตสิทธิ์ จะแจ้งเตือนได้ทันที
+        const camPromise = openCamera(video, facingMode);
+        const modelPromise = ensureFaceModels((msg) => setCamStatus(msg));
+
+        await camPromise;
         if (cancelled) return;
         setCamOn(true);
+        setCamStatus("กล้องพร้อมแล้ว — กำลังเชื่อมต่อระบบ AI...");
+
+        await modelPromise;
+        if (cancelled) return;
         setCamStatus(`ส่องหน้าด้วย${facingMode === "user" ? "กล้องหน้า" : "กล้องหลัง"} ระบบจะเช็กชื่อให้อัตโนมัติ`);
         // เริ่มวนลูปทีละเฟรม ไม่ซ้อนทับกัน
         loopTimer = setTimeout(() => {

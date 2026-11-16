@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Card, UIButton } from "@/components/ui";
 import { BrandMark } from "@/components/logo";
-import { InAppBrowserNotice } from "@/lib/in-app-browser";
+import { InAppBrowserNotice, detectInAppBrowser, openInExternalBrowser } from "@/lib/in-app-browser";
 import { CameraSwitchIcon, EyeIcon, EyeOffIcon, RefreshIcon } from "@/components/icons";
 import { isSupabaseConfigured, supabase } from "@/lib/supabase/client";
 import {
@@ -218,13 +218,20 @@ function FaceUnlockCamera({
           setStatus("ต้องเปิดผ่าน HTTPS กล้องถึงจะทำงาน");
           return;
         }
-        setStatus("กำลังโหลดระบบตรวจจับใบหน้า...");
-        await ensureFaceModels();
-        if (cancelled || !video) return;
+        if (!video) return;
         setStatus("กำลังเปิดกล้อง...");
-        await openCamera(video, facingMode);
+
+        // 1. เปิดกล้องทันทีโดยไม่ต้องรอโหลดโมเดล AI 6MB เพื่อให้เห็นภาพกล้องทันที
+        const camPromise = openCamera(video, facingMode);
+        const modelPromise = ensureFaceModels();
+
+        await camPromise;
         if (cancelled) return;
         setReady(true);
+        setStatus("กล้องพร้อมแล้ว — กำลังเชื่อมต่อระบบตรวจจับ...");
+
+        await modelPromise;
+        if (cancelled) return;
         setStatus("มองกล้องตรง ๆ เพื่อสแกนใบหน้า");
 
         loopTimer = setTimeout(() => {
@@ -307,13 +314,23 @@ function FaceUnlockCamera({
         </p>
       </div>
 
+      {typeof window !== "undefined" && detectInAppBrowser().isInApp && (
+        <button
+          type="button"
+          onClick={() => openInExternalBrowser()}
+          className="mt-1 flex w-full items-center justify-center gap-1.5 rounded-lg border border-amber-300 bg-amber-50 py-2.5 text-[13px] font-bold text-amber-800 hover:bg-amber-100"
+        >
+          🌐 แตะที่นี่เพื่อเปิดใน Chrome / Safari (แก้ปัญหากล้องไม่ทำงาน)
+        </button>
+      )}
+
       {onSwitchToPin ? (
         <button
           type="button"
           onClick={onSwitchToPin}
           className="mt-1 flex w-full items-center justify-center gap-1.5 rounded-lg border border-[#d8e0ec] bg-white py-2.5 text-[13.5px] font-semibold text-[#16233a] hover:bg-[#f8fafc]"
         >
-          🔑 ปลดล็อกด้วย PIN แทน (เมื่อแสงมืด/กล้องมีปัญหา)
+          🔑 เข้าสู่ระบบด้วย PIN แทน (เลข 4 ตัวท้าย: {student.code.slice(-4)})
         </button>
       ) : null}
 
@@ -403,6 +420,9 @@ function PinUnlockView({
             {showPin ? <EyeOffIcon /> : <EyeIcon />}
           </button>
         </span>
+        <p className="mt-1 text-[12px] text-[#5b6b82]">
+          💡 หากยังไม่เคยเปลี่ยนรหัส ให้ใช้เลข 4 ตัวท้ายของรหัสนักเรียน (คือ <span className="font-mono font-bold text-[#16233a]">{student.code.slice(-4)}</span>)
+        </p>
       </label>
 
       {error ? (
@@ -534,6 +554,17 @@ function StudentForm() {
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
+    // หากเปิดผ่าน LINE ในแอป พยายามดีดตัวออกไป Chrome/Safari อัตโนมัติเพื่อเปิดกล้องได้
+    if (typeof window !== "undefined") {
+      const { isLine } = detectInAppBrowser();
+      if (isLine) {
+        const key = "lookmee_line_escape_login_attempted";
+        if (!sessionStorage.getItem(key)) {
+          sessionStorage.setItem(key, "1");
+          openInExternalBrowser();
+        }
+      }
+    }
     // โหลดโมเดลใบหน้าล่วงหน้าขณะที่นักเรียนพิมพ์รหัส เพื่อให้ปลดล็อกด้วยใบหน้าได้ทันทีไม่สะดุด
     if (typeof window !== "undefined") {
       void ensureFaceModels();
@@ -616,7 +647,7 @@ function StudentForm() {
       <FaceUnlockCamera
         student={found}
         onSuccess={handleLoginSuccess}
-        onSwitchToPin={found.hasPin ? () => setMode("pin_unlock") : undefined}
+        onSwitchToPin={() => setMode("pin_unlock")}
         onChangeCode={() => {
           setFound(null);
           setMode("search");
