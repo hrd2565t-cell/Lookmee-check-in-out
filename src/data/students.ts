@@ -22,6 +22,10 @@ export type Student = {
   firstName?: string;
   lastName?: string;
   number?: string;
+  photoUrl?: string | null;
+  pendingPhotoUrl?: string | null;
+  twinFlag?: boolean;
+  dbId?: string;
 };
 
 const half = Math.ceil(SCHOOL_GROUPS.length / 2);

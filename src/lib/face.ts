@@ -278,3 +278,54 @@ export function closeCamera(video: HTMLVideoElement | null) {
   stream?.getTracks().forEach((t) => t.stop());
   if (video) video.srcObject = null;
 }
+
+export type FaceQualityInspection = {
+  faceCount: number;
+  score: number;
+  status: "ok" | "multiple" | "no_face" | "error";
+  message: string;
+};
+
+/** ตรวจสอบคุณภาพรูปใบหน้า: ตรวจนับจำนวนใบหน้าในรูป (หา photobomb หรือรูปไม่มีหน้า) */
+export async function inspectImageFaceQuality(
+  imageElement: HTMLImageElement | HTMLCanvasElement,
+): Promise<FaceQualityInspection> {
+  try {
+    const api = await getApi();
+    await ensureFaceModels();
+    const detections = await api.detectAllFaces(
+      imageElement,
+      new api.TinyFaceDetectorOptions({ inputSize: 320, scoreThreshold: 0.35 }),
+    );
+    const faceCount = detections.length;
+    if (faceCount > 1) {
+      return {
+        faceCount,
+        score: detections[0]?.score ?? 0,
+        status: "multiple",
+        message: `พบใบหน้า ${faceCount} คนในภาพ (เสี่ยง AI สับสนเวลาสแกนเดี่ยว)`,
+      };
+    }
+    if (faceCount === 0) {
+      return {
+        faceCount: 0,
+        score: 0,
+        status: "no_face",
+        message: "AI ไม่พบใบหน้าในภาพ (ภาพมืด/เบลอ หรือเอียงเกินไป)",
+      };
+    }
+    return {
+      faceCount: 1,
+      score: detections[0]?.score ?? 1,
+      status: "ok",
+      message: "ใบหน้าเดี่ยว ชัดเจนปกติ",
+    };
+  } catch {
+    return {
+      faceCount: 0,
+      score: 0,
+      status: "error",
+      message: "ตรวจสอบรูปไม่สำเร็จ",
+    };
+  }
+}

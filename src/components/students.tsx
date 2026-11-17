@@ -18,6 +18,7 @@ import {
 import { Avatar, Card, CardTitle, Modal, UIButton } from "@/components/ui";
 import { StudentDetail } from "@/components/student-detail";
 import { FaceEnrollModal } from "@/components/face-enroll";
+import { FaceAuditView } from "@/components/face-audit";
 import {
   allGroups as initialGroups,
   students as initialStudents,
@@ -174,7 +175,7 @@ export default function StudentsPage() {
   const [groupList, setGroupList] = useState<string[]>(initialGroups);
   const [studentList, setStudentList] = useState<Student[]>(initialStudents);
   const { selectedGroup: sharedGroup, setSelectedGroup: setSharedGroup } = useTeacherGroup(groupList);
-  const [managementTab, setManagementTab] = useState<"students" | "groups">("students");
+  const [managementTab, setManagementTab] = useState<"students" | "groups" | "face_audit">("students");
   const [groupIds, setGroupIds] = useState<Record<string, string>>({});
   const [dbLive, setDbLive] = useState(false);
   const [query, setQuery] = useState("");
@@ -185,6 +186,15 @@ export default function StudentsPage() {
   const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
   const [page, setPage] = useState(1);
   const PAGE_SIZE = 10;
+
+  const atRiskCount = useMemo(() => {
+    return studentList.filter((s) => {
+      if (s.twinFlag) return true;
+      if (s.faceStatus === "pending") return true;
+      if (s.registered && !s.photoUrl && !s.pendingPhotoUrl) return true;
+      return false;
+    }).length;
+  }, [studentList]);
   const [groupModal, setGroupModal] = useState<{ mode: "add" } | { mode: "edit"; old: string } | null>(null);
   const [groupName, setGroupName] = useState("");
   const [studentModal, setStudentModal] = useState(false);
@@ -212,7 +222,7 @@ export default function StudentsPage() {
         if (gErr || !gData) return;
         const { data: sData, error: sErr } = await supabase
           .from("students")
-          .select("student_code,prefix,first_name,last_name,class_no,face_status,group_id,is_rotc")
+          .select("id,student_code,prefix,first_name,last_name,class_no,face_status,group_id,is_rotc,photo_url,pending_photo_url,twin_flag")
           .eq("status", "active");
         if (sErr || !sData) return;
         const idToName = new Map<string, string>(
@@ -222,6 +232,7 @@ export default function StudentsPage() {
         const order = new Map(names.map((n, i) => [n, i]));
         const mapped: Student[] = (
           sData as Array<{
+            id: string;
             student_code: string | null;
             prefix: string;
             first_name: string;
@@ -230,6 +241,9 @@ export default function StudentsPage() {
             face_status: string;
             group_id: string;
             is_rotc: boolean;
+            photo_url: string | null;
+            pending_photo_url: string | null;
+            twin_flag: boolean | null;
           }>
         )
           .filter((r) => r.student_code && idToName.has(r.group_id))
@@ -238,6 +252,7 @@ export default function StudentsPage() {
             const thaiName = `${r.prefix}${r.first_name}${last ? ` ${last}` : ""}`;
             return {
               id: r.student_code as string,
+              dbId: r.id,
               thaiName,
               studentId: r.student_code as string,
               group: idToName.get(r.group_id) as string,
@@ -250,6 +265,9 @@ export default function StudentsPage() {
               firstName: r.first_name,
               lastName: last,
               number: r.class_no,
+              photoUrl: r.photo_url ?? null,
+              pendingPhotoUrl: r.pending_photo_url ?? null,
+              twinFlag: r.twin_flag === true,
             };
           })
           .sort(
@@ -495,6 +513,8 @@ export default function StudentsPage() {
       openAddGroup();
     } else if (action === "unregistered") {
       setStatus("unregistered");
+    } else if (action === "face-audit" || action === "face_audit") {
+      setManagementTab("face_audit");
     } else {
       return;
     }
@@ -893,10 +913,15 @@ export default function StudentsPage() {
 
   return (
     <AppShell active="students" title="นักเรียนและกลุ่มเรียน">
-      <div role="tablist" aria-label="จัดการนักเรียนและกลุ่มเรียน" className="mb-3 grid grid-cols-2 gap-2 rounded-xl border border-[#e4eaf3] bg-white p-1.5">
+      <div role="tablist" aria-label="จัดการนักเรียนและกลุ่มเรียน" className="mb-3 grid grid-cols-1 gap-2 rounded-xl border border-[#e4eaf3] bg-white p-1.5 sm:grid-cols-3">
         {[
-          { key: "students" as const, label: `นักเรียน (${studentList.length})` },
-          { key: "groups" as const, label: `กลุ่มเรียน (${groupList.length})` },
+          { key: "students" as const, label: `👥 จัดการนักเรียน (${studentList.length})` },
+          { key: "groups" as const, label: `🏫 กลุ่มเรียน (${groupList.length})` },
+          {
+            key: "face_audit" as const,
+            label: `⚠️ ตรวจสอบใบหน้าเสี่ยง`,
+            badge: atRiskCount > 0 ? `${atRiskCount}` : undefined,
+          },
         ].map((tab) => {
           const selected = managementTab === tab.key;
           return (
@@ -907,9 +932,19 @@ export default function StudentsPage() {
               aria-selected={selected}
               aria-controls={`${tab.key}-panel`}
               onClick={() => setManagementTab(tab.key)}
-              className={cn("min-h-10 rounded-lg px-3 text-[14px] font-semibold transition-colors", selected ? "bg-[#e6f4ea] text-[#166c2e]" : "text-[#5b6b82] hover:bg-[#f1f5fa]")}
+              className={cn(
+                "relative flex min-h-10 items-center justify-center gap-1.5 rounded-lg px-3 text-[14px] font-semibold transition-colors",
+                selected
+                  ? "bg-[#e6f4ea] text-[#166c2e]"
+                  : "text-[#5b6b82] hover:bg-[#f1f5fa]",
+              )}
             >
-              {tab.label}
+              <span>{tab.label}</span>
+              {"badge" in tab && tab.badge ? (
+                <span className="rounded-full bg-[#ef4444] px-2 py-0.5 text-[11px] font-extrabold text-white">
+                  {tab.badge}
+                </span>
+              ) : null}
             </button>
           );
         })}
@@ -1310,6 +1345,26 @@ export default function StudentsPage() {
       </div>
       ) : null}
 
+      {/* แท็บตรวจสอบใบหน้าเสี่ยง */}
+      {managementTab === "face_audit" ? (
+        <FaceAuditView
+          students={studentList}
+          groupList={groupList}
+          selectedGroup={sharedGroup}
+          onSelectGroup={(g) => setSharedGroup(g)}
+          onOpenEnroll={(code) => setEnrollCode(code)}
+          onOpenDetail={(code) => setDetailId(code)}
+          onUpdateStudent={(updated) => {
+            setStudentList((list) =>
+              list.map((x) =>
+                x.studentId === updated.studentId ? { ...x, ...updated } : x,
+              ),
+            );
+          }}
+          dbLive={dbLive}
+        />
+      ) : null}
+
       {/* add/edit group modal */}
       {groupModal ? (
         <Modal
@@ -1426,7 +1481,17 @@ export default function StudentsPage() {
             }}
             onFaceDeleted={(code) =>
               setStudentList((list) =>
-                list.map((x) => (x.studentId === code ? { ...x, registered: false } : x)),
+                list.map((x) =>
+                  x.studentId === code
+                    ? {
+                        ...x,
+                        registered: false,
+                        faceStatus: "unregistered",
+                        photoUrl: null,
+                        pendingPhotoUrl: null,
+                      }
+                    : x,
+                ),
               )
             }
           />
@@ -1438,14 +1503,44 @@ export default function StudentsPage() {
         <FaceEnrollModal
           initialCode={enrollCode}
           students={studentList}
-          onSaved={(code) =>
-            setStudentList((s) =>
-              s.map((x) => (x.studentId === code ? { ...x, registered: true } : x)),
-            )
-          }
+          onSaved={async (code) => {
+            let updatedPhoto: string | null = null;
+            if (isSupabaseConfigured && dbLive) {
+              const { data: s } = await supabase
+                .from("students")
+                .select("photo_url")
+                .eq("student_code", code)
+                .maybeSingle();
+              if (s) {
+                updatedPhoto = (s as { photo_url: string | null }).photo_url;
+              }
+            }
+            setStudentList((list) =>
+              list.map((x) =>
+                x.studentId === code
+                  ? {
+                      ...x,
+                      registered: true,
+                      faceStatus: "registered",
+                      ...(updatedPhoto ? { photoUrl: updatedPhoto } : {}),
+                    }
+                  : x,
+              ),
+            );
+          }}
           onCleared={(code) =>
             setStudentList((s) =>
-              s.map((x) => (x.studentId === code ? { ...x, registered: false } : x)),
+              s.map((x) =>
+                x.studentId === code
+                  ? {
+                      ...x,
+                      registered: false,
+                      faceStatus: "unregistered",
+                      photoUrl: null,
+                      pendingPhotoUrl: null,
+                    }
+                  : x,
+              ),
             )
           }
           onClose={() => setEnrollCode(null)}
