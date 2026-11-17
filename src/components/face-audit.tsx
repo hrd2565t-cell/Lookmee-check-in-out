@@ -30,11 +30,12 @@ export type RiskCategory =
 export type FaceAuditProps = {
   students: Student[];
   groupList: string[];
-  selectedGroup: string;
-  onSelectGroup: (group: string) => void;
+  selectedGroup?: string;
+  onSelectGroup?: (group: string) => void;
   onOpenEnroll: (code: string) => void;
   onOpenDetail: (code: string) => void;
   onUpdateStudent: (updated: Partial<Student> & { studentId: string }) => void;
+  onTotalRiskChange?: (count: number) => void;
   dbLive: boolean;
 };
 
@@ -52,15 +53,16 @@ type ConfidenceStat = {
 export function FaceAuditView({
   students,
   groupList,
-  selectedGroup,
-  onSelectGroup,
   onOpenEnroll,
   onOpenDetail,
   onUpdateStudent,
+  onTotalRiskChange,
   dbLive,
 }: FaceAuditProps) {
   const [query, setQuery] = useState("");
   const [riskFilter, setRiskFilter] = useState<RiskCategory>("all_risk");
+  // ค่าเริ่มต้นเป็น "all" (ทุกห้องเรียน) เสมอ เพื่อให้ครูเห็นนักเรียนที่มีความเสี่ยงทั้ง 12 คนทันที
+  const [groupFilter, setGroupFilter] = useState<string>("all");
   const [m1SubgroupFilter, setM1SubgroupFilter] = useState("all");
   const [previewPhoto, setPreviewPhoto] = useState<{
     url: string;
@@ -73,11 +75,37 @@ export function FaceAuditView({
   const [helpStats, setHelpStats] = useState<Record<string, HelpRequestStat>>({});
   // สถิติความมั่นใจจากการเช็กชื่อ
   const [confStats, setConfStats] = useState<Record<string, ConfidenceStat>>({});
-  // ผลการสแกนรูปด้วย AI ในเครื่อง
+  // ผลการสแกนรูปด้วย AI ในเครื่อง (แคชไว้ใน sessionStorage จะได้ไม่ต้องสแกนซ้ำเมื่อสลับแท็บ)
   const [aiAudits, setAiAudits] = useState<Record<string, FaceQualityInspection>>({});
   const [aiScanning, setAiScanning] = useState(false);
   const [scanProgress, setScanProgress] = useState<{ current: number; total: number; name: string } | null>(null);
   const stopScanRef = useRef(false);
+
+  // โหลดผลตรวจ AI ที่เคยตรวจไว้จาก sessionStorage
+  useEffect(() => {
+    try {
+      const cached = sessionStorage.getItem("lookmee_ai_face_audits");
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        if (parsed && typeof parsed === "object") {
+          setAiAudits(parsed);
+        }
+      }
+    } catch {
+      /* ignore */
+    }
+  }, []);
+
+  // แคชผลตรวจ AI ลง sessionStorage อัตโนมัติ
+  useEffect(() => {
+    if (Object.keys(aiAudits).length > 0) {
+      try {
+        sessionStorage.setItem("lookmee_ai_face_audits", JSON.stringify(aiAudits));
+      } catch {
+        /* ignore */
+      }
+    }
+  }, [aiAudits]);
 
   const [confirmReset, setConfirmReset] = useState<Student | null>(null);
   const [isResetting, setIsResetting] = useState(false);
@@ -370,15 +398,15 @@ export function FaceAuditView({
     const q = query.trim().toLowerCase();
 
     return students.filter((s) => {
-      // 1. กรองห้อง
-      if (selectedGroup && selectedGroup !== "all") {
-        if (isCombinedM1(selectedGroup)) {
+      // 1. กรองห้อง (ค่าเริ่มต้นคือ "all" ทุกห้องเรียน เพื่อแสดงทุกคน)
+      if (groupFilter !== "all") {
+        if (isCombinedM1(groupFilter)) {
           if (m1SubgroupFilter === "all") {
             if (!s.group.startsWith("ม.1/")) return false;
           } else {
             if (s.group !== m1SubgroupFilter) return false;
           }
-        } else if (s.group !== selectedGroup) {
+        } else if (s.group !== groupFilter) {
           return false;
         }
       }
@@ -398,7 +426,7 @@ export function FaceAuditView({
       if (riskFilter === "all_risk") return isAtRisk;
       if (riskFilter === "photobomb") {
         const ai = aiAudits[s.studentId];
-        return ai && (ai.status === "multiple" || ai.status === "no_face");
+        return Boolean(ai && (ai.status === "multiple" || ai.status === "no_face"));
       }
       if (riskFilter === "help_requests") {
         return (helpStats[s.studentId]?.count ?? 0) > 0;
@@ -410,13 +438,13 @@ export function FaceAuditView({
       }
       if (riskFilter === "pending") return s.faceStatus === "pending";
       if (riskFilter === "missing_photo") {
-        return s.registered && !s.photoUrl && !s.pendingPhotoUrl;
+        return Boolean(s.registered && !s.photoUrl && !s.pendingPhotoUrl);
       }
       return true; // "all"
     });
   }, [
     students,
-    selectedGroup,
+    groupFilter,
     m1SubgroupFilter,
     query,
     riskFilter,
@@ -425,8 +453,8 @@ export function FaceAuditView({
     confStats,
   ]);
 
-  // สรุปยอดรวมตัวเลขสถิติ
-  const summaryStats = useMemo(() => {
+  // สรุปยอดรวมตัวเลขสถิติทั้งโรงเรียน (ทุกห้อง)
+  const allStats = useMemo(() => {
     let totalAtRisk = 0;
     let photobombCount = 0;
     let helpCount = 0;
@@ -455,6 +483,54 @@ export function FaceAuditView({
       missingPhotoCount,
     };
   }, [students, aiAudits, helpStats, confStats]);
+
+  // สถิติเฉพาะห้องที่เลือก (ถ้าเลือกเฉพาะห้อง)
+  const roomStats = useMemo(() => {
+    if (groupFilter === "all") return allStats;
+
+    let totalAtRisk = 0;
+    let photobombCount = 0;
+    let helpCount = 0;
+    let twinCount = 0;
+    let pendingCount = 0;
+    let missingPhotoCount = 0;
+
+    const roomStudents = students.filter((s) => {
+      if (isCombinedM1(groupFilter)) {
+        if (m1SubgroupFilter === "all") return s.group.startsWith("ม.1/");
+        return s.group === m1SubgroupFilter;
+      }
+      return s.group === groupFilter;
+    });
+
+    roomStudents.forEach((s) => {
+      const risks = getStudentRisks(s);
+      if (risks.length > 0) totalAtRisk += 1;
+
+      const ai = aiAudits[s.studentId];
+      if (ai && (ai.status === "multiple" || ai.status === "no_face")) photobombCount += 1;
+      if ((helpStats[s.studentId]?.count ?? 0) > 0) helpCount += 1;
+      if (s.twinFlag) twinCount += 1;
+      if (s.faceStatus === "pending") pendingCount += 1;
+      if (s.registered && !s.photoUrl && !s.pendingPhotoUrl) missingPhotoCount += 1;
+    });
+
+    return {
+      totalAtRisk,
+      photobombCount,
+      helpCount,
+      twinCount,
+      pendingCount,
+      missingPhotoCount,
+    };
+  }, [students, groupFilter, m1SubgroupFilter, allStats, aiAudits, helpStats, confStats]);
+
+  const displayedStats = groupFilter === "all" ? allStats : roomStats;
+
+  // แจ้งจำนวนกลุ่มเสี่ยงทั้งหมดขึ้นไปที่แท็บด้านบน
+  useEffect(() => {
+    onTotalRiskChange?.(allStats.totalAtRisk);
+  }, [allStats.totalAtRisk, onTotalRiskChange]);
 
   return (
     <div id="face-audit-panel" role="tabpanel" aria-label="ตรวจสอบใบหน้าเสี่ยง" className="space-y-4">
@@ -539,8 +615,13 @@ export function FaceAuditView({
           >
             <span className="text-[12px] font-medium text-[#6b7280]">เสี่ยง/มีปัญหาทั้งหมด</span>
             <span className="mt-0.5 text-[20px] font-extrabold text-[#dc2626]">
-              {summaryStats.totalAtRisk} <span className="text-[13px] font-normal text-[#6b7280]">คน</span>
+              {displayedStats.totalAtRisk} <span className="text-[13px] font-normal text-[#6b7280]">คน</span>
             </span>
+            {groupFilter !== "all" && (
+              <span className="text-[11px] font-medium text-[#9ca3af]">
+                (ทั้งโรงเรียน {allStats.totalAtRisk} คน)
+              </span>
+            )}
           </button>
 
           <button
@@ -555,8 +636,13 @@ export function FaceAuditView({
           >
             <span className="text-[12px] font-medium text-[#6b7280]">👥 คนอื่นติดในรูป/ไม่ชัด</span>
             <span className="mt-0.5 text-[20px] font-extrabold text-[#ea580c]">
-              {summaryStats.photobombCount} <span className="text-[13px] font-normal text-[#6b7280]">คน</span>
+              {displayedStats.photobombCount} <span className="text-[13px] font-normal text-[#6b7280]">คน</span>
             </span>
+            {groupFilter !== "all" && (
+              <span className="text-[11px] font-medium text-[#9ca3af]">
+                (ทั้งโรงเรียน {allStats.photobombCount} คน)
+              </span>
+            )}
           </button>
 
           <button
@@ -571,8 +657,13 @@ export function FaceAuditView({
           >
             <span className="text-[12px] font-medium text-[#6b7280]">🆘 ขอครูช่วยบ่อย</span>
             <span className="mt-0.5 text-[20px] font-extrabold text-[#ca8a04]">
-              {summaryStats.helpCount} <span className="text-[13px] font-normal text-[#6b7280]">คน</span>
+              {displayedStats.helpCount} <span className="text-[13px] font-normal text-[#6b7280]">คน</span>
             </span>
+            {groupFilter !== "all" && (
+              <span className="text-[11px] font-medium text-[#9ca3af]">
+                (ทั้งโรงเรียน {allStats.helpCount} คน)
+              </span>
+            )}
           </button>
 
           <button
@@ -587,8 +678,13 @@ export function FaceAuditView({
           >
             <span className="text-[12px] font-medium text-[#6b7280]">👯 ปักธงหน้าเหมือน</span>
             <span className="mt-0.5 text-[20px] font-extrabold text-[#9333ea]">
-              {summaryStats.twinCount} <span className="text-[13px] font-normal text-[#6b7280]">คน</span>
+              {displayedStats.twinCount} <span className="text-[13px] font-normal text-[#6b7280]">คน</span>
             </span>
+            {groupFilter !== "all" && (
+              <span className="text-[11px] font-medium text-[#9ca3af]">
+                (ทั้งโรงเรียน {allStats.twinCount} คน)
+              </span>
+            )}
           </button>
 
           <button
@@ -603,8 +699,13 @@ export function FaceAuditView({
           >
             <span className="text-[12px] font-medium text-[#6b7280]">⏳ รออนุมัติภาพ</span>
             <span className="mt-0.5 text-[20px] font-extrabold text-[#2563eb]">
-              {summaryStats.pendingCount} <span className="text-[13px] font-normal text-[#6b7280]">คน</span>
+              {displayedStats.pendingCount} <span className="text-[13px] font-normal text-[#6b7280]">คน</span>
             </span>
+            {groupFilter !== "all" && (
+              <span className="text-[11px] font-medium text-[#9ca3af]">
+                (ทั้งโรงเรียน {allStats.pendingCount} คน)
+              </span>
+            )}
           </button>
 
           <button
@@ -619,15 +720,20 @@ export function FaceAuditView({
           >
             <span className="text-[12px] font-medium text-[#6b7280]">📷 ไม่มีรูปต้นฉบับ</span>
             <span className="mt-0.5 text-[20px] font-extrabold text-[#4b5563]">
-              {summaryStats.missingPhotoCount} <span className="text-[13px] font-normal text-[#6b7280]">คน</span>
+              {displayedStats.missingPhotoCount} <span className="text-[13px] font-normal text-[#6b7280]">คน</span>
             </span>
+            {groupFilter !== "all" && (
+              <span className="text-[11px] font-medium text-[#9ca3af]">
+                (ทั้งโรงเรียน {allStats.missingPhotoCount} คน)
+              </span>
+            )}
           </button>
         </div>
       </Card>
 
       {/* Filter and Search Bar */}
       <Card className="p-3 sm:p-4">
-        <div className="grid grid-cols-1 gap-2 sm:grid-cols-[1fr_200px_220px]">
+        <div className="grid grid-cols-1 gap-2 sm:grid-cols-[1fr_220px_240px]">
           <div className="relative">
             <span className="sr-only">ค้นหาในกลุ่มเสี่ยง</span>
             <input
@@ -642,16 +748,24 @@ export function FaceAuditView({
           <label className="relative block">
             <span className="sr-only">เลือกกลุ่มเรียน</span>
             <select
-              value={selectedGroup || "all"}
-              onChange={(e) => onSelectGroup(e.target.value === "all" ? "" : e.target.value)}
-              className="h-10 w-full appearance-none rounded-lg border border-[#d8e0ec] bg-white pl-3 pr-9 text-[14px] text-[#5b6b82] focus:border-[#2474c6] focus:outline-none"
+              value={groupFilter}
+              onChange={(e) => {
+                setGroupFilter(e.target.value);
+                setM1SubgroupFilter("all");
+              }}
+              className="h-10 w-full appearance-none rounded-lg border border-[#d8e0ec] bg-white pl-3 pr-9 text-[14px] text-[#16233a] font-semibold focus:border-[#2474c6] focus:outline-none"
             >
-              <option value="all">ทุกห้องเรียน</option>
-              {groupList.map((g) => (
-                <option key={g} value={g}>
-                  {g}
-                </option>
-              ))}
+              <option value="all">🌐 ทุกห้องเรียน (เสี่ยง {allStats.totalAtRisk} คน)</option>
+              {groupList.map((g) => {
+                const count = students.filter(
+                  (s) => s.group === g && getStudentRisks(s).length > 0,
+                ).length;
+                return (
+                  <option key={g} value={g}>
+                    ห้อง {g} {count > 0 ? `(เสี่ยง ${count} คน)` : "(ปกติ)"}
+                  </option>
+                );
+              })}
             </select>
             <ChevronDownIcon className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[#8a97ab]" />
           </label>
@@ -661,22 +775,44 @@ export function FaceAuditView({
             <select
               value={riskFilter}
               onChange={(e) => setRiskFilter(e.target.value as RiskCategory)}
-              className="h-10 w-full appearance-none rounded-lg border border-[#d8e0ec] bg-white pl-3 pr-9 text-[14px] text-[#5b6b82] focus:border-[#2474c6] focus:outline-none"
+              className="h-10 w-full appearance-none rounded-lg border border-[#d8e0ec] bg-white pl-3 pr-9 text-[14px] text-[#16233a] font-semibold focus:border-[#2474c6] focus:outline-none"
             >
-              <option value="all_risk">⚠️ เฉพาะที่พบปัญหา ({summaryStats.totalAtRisk})</option>
-              <option value="photobomb">👥 มีคนอื่นติดในภาพ/ไม่ชัด ({summaryStats.photobombCount})</option>
-              <option value="help_requests">🆘 ขอครูช่วยเช็คชื่อ ({summaryStats.helpCount})</option>
-              <option value="twin">👯 ปักธงหน้าเหมือน ({summaryStats.twinCount})</option>
-              <option value="pending">⏳ รออนุมัติภาพ ({summaryStats.pendingCount})</option>
-              <option value="missing_photo">📷 ไม่มีรูปต้นฉบับ ({summaryStats.missingPhotoCount})</option>
-              <option value="all">แสดงนักเรียนทั้งหมด ({students.length})</option>
+              <option value="all_risk">⚠️ เฉพาะที่พบปัญหา ({displayedStats.totalAtRisk})</option>
+              <option value="photobomb">👥 มีคนอื่นติดในภาพ/ไม่ชัด ({displayedStats.photobombCount})</option>
+              <option value="help_requests">🆘 ขอครูช่วยเช็คชื่อ ({displayedStats.helpCount})</option>
+              <option value="twin">👯 ปักธงหน้าเหมือน ({displayedStats.twinCount})</option>
+              <option value="pending">⏳ รออนุมัติภาพ ({displayedStats.pendingCount})</option>
+              <option value="missing_photo">📷 ไม่มีรูปต้นฉบับ ({displayedStats.missingPhotoCount})</option>
+              <option value="all">แสดงนักเรียนทั้งหมด ({groupFilter === "all" ? students.length : students.filter(s => s.group === groupFilter).length})</option>
             </select>
             <ChevronDownIcon className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[#8a97ab]" />
           </label>
         </div>
 
+        {/* แถบแจ้งเตือนเมื่อกำลังเลือกดูเฉพาะห้อง */}
+        {groupFilter !== "all" && (
+          <div className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-[#fed7aa] bg-[#fffbeb] p-2.5 text-[13px] text-[#b45309]">
+            <div className="flex items-center gap-2">
+              <span className="text-base">📍</span>
+              <span>
+                กำลังกรองเฉพาะห้อง <strong className="text-[#16233a] font-bold">{groupFilter}</strong> (พบเสี่ยง {displayedStats.totalAtRisk} คน จากทั้งโรงเรียน {allStats.totalAtRisk} คน)
+              </span>
+            </div>
+            <button
+              type="button"
+              onClick={() => {
+                setGroupFilter("all");
+                setM1SubgroupFilter("all");
+              }}
+              className="rounded-md bg-[#2474c6] px-3 py-1 text-[12px] font-bold text-white shadow-2xs hover:bg-[#1a5da3]"
+            >
+              แสดงครบทุกห้อง ({allStats.totalAtRisk} คน)
+            </button>
+          </div>
+        )}
+
         {/* ม.1 Subgroup Filter */}
-        {isCombinedM1(selectedGroup) && (
+        {isCombinedM1(groupFilter) && (
           <div className="mt-2.5 flex flex-wrap items-center gap-1.5 rounded-lg border border-[#d8e0ec] bg-[#f8fafc] p-2">
             <span className="mr-1 text-[12px] font-bold text-[#16233a]">ห้อง ม.1:</span>
             <button
@@ -711,10 +847,30 @@ export function FaceAuditView({
       </Card>
 
       {/* Results Header */}
-      <div className="flex items-center justify-between px-1">
+      <div className="flex flex-wrap items-center justify-between gap-2 px-1">
         <p className="text-[13.5px] font-medium text-[#5b6b82]">
-          แสดง <span className="font-bold text-[#16233a]">{filteredStudents.length}</span> คน ในเงื่อนไขที่เลือก
+          แสดง <span className="font-bold text-[#16233a]">{filteredStudents.length}</span> คน{" "}
+          {groupFilter === "all" ? (
+            <span className="font-semibold text-[#2474c6]">(ครบทุกห้องเรียนในโรงเรียน)</span>
+          ) : (
+            <span>
+              ในห้อง <strong className="text-[#16233a]">{groupFilter}</strong> (จากทั้งโรงเรียน {allStats.totalAtRisk} คน)
+            </span>
+          )}
         </p>
+
+        {groupFilter !== "all" && (
+          <button
+            type="button"
+            onClick={() => {
+              setGroupFilter("all");
+              setM1SubgroupFilter("all");
+            }}
+            className="inline-flex items-center gap-1 text-[13px] font-bold text-[#2474c6] hover:underline"
+          >
+            ← แสดงครบทุกห้อง ({allStats.totalAtRisk} คน)
+          </button>
+        )}
       </div>
 
       {/* Visual Student Cards Grid */}

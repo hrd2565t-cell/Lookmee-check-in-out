@@ -186,6 +186,7 @@ export default function StudentsPage() {
   const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
   const [page, setPage] = useState(1);
   const PAGE_SIZE = 10;
+  const [auditRiskCount, setAuditRiskCount] = useState<number | null>(null);
 
   const atRiskCount = useMemo(() => {
     return studentList.filter((s) => {
@@ -195,6 +196,8 @@ export default function StudentsPage() {
       return false;
     }).length;
   }, [studentList]);
+
+  const totalAtRiskBadge = auditRiskCount ?? atRiskCount;
   const [groupModal, setGroupModal] = useState<{ mode: "add" } | { mode: "edit"; old: string } | null>(null);
   const [groupName, setGroupName] = useState("");
   const [studentModal, setStudentModal] = useState(false);
@@ -920,7 +923,7 @@ export default function StudentsPage() {
           {
             key: "face_audit" as const,
             label: `⚠️ ตรวจสอบใบหน้าเสี่ยง`,
-            badge: atRiskCount > 0 ? `${atRiskCount}` : undefined,
+            badge: totalAtRiskBadge > 0 ? `${totalAtRiskBadge}` : undefined,
           },
         ].map((tab) => {
           const selected = managementTab === tab.key;
@@ -1350,8 +1353,6 @@ export default function StudentsPage() {
         <FaceAuditView
           students={studentList}
           groupList={groupList}
-          selectedGroup={sharedGroup}
-          onSelectGroup={(g) => setSharedGroup(g)}
           onOpenEnroll={(code) => setEnrollCode(code)}
           onOpenDetail={(code) => setDetailId(code)}
           onUpdateStudent={(updated) => {
@@ -1361,6 +1362,7 @@ export default function StudentsPage() {
               ),
             );
           }}
+          onTotalRiskChange={(count) => setAuditRiskCount(count)}
           dbLive={dbLive}
         />
       ) : null}
