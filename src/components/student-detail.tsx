@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { PencilIcon, TrashIcon } from "@/components/icons";
+import { EyeIcon, PencilIcon, TrashIcon } from "@/components/icons";
 import { Modal } from "@/components/ui";
 import {
   fetchStudentAttendance,
@@ -113,6 +113,7 @@ export function StudentDetail({
   const [numberBusy, setNumberBusy] = useState(false);
   const [numberNotice, setNumberNotice] = useState("");
   const [printModalOpen, setPrintModalOpen] = useState(false);
+  const [previewPhoto, setPreviewPhoto] = useState<{ url: string; title: string } | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -723,13 +724,30 @@ export function StudentDetail({
             นักเรียนส่งคำขอลงทะเบียนใบหน้าด้วยตนเอง กรุณาตรวจสอบว่าเป็นตัวจริงแล้วกดยืนยัน
           </p>
           <div className="mt-2.5 flex items-center gap-3">
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img
-              src={pendingPhoto}
-              alt={`ภาพรออนุมัติของ ${name}`}
-              className="h-24 w-20 shrink-0 rounded-lg border-2 border-[#f59e0b] object-cover shadow-sm"
-            />
-            <div className="flex min-w-0 flex-1 flex-col gap-2">
+            <div
+              className="group relative h-24 w-20 shrink-0 cursor-pointer overflow-hidden rounded-lg border-2 border-[#f59e0b] shadow-xs"
+              onClick={() => setPreviewPhoto({ url: pendingPhoto, title: `ภาพรออนุมัติของ ${name}` })}
+              title="คลิกเพื่อดูรูปขนาดเต็ม"
+            >
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={pendingPhoto}
+                alt={`ภาพรออนุมัติของ ${name}`}
+                className="h-full w-full object-cover transition duration-150 group-hover:scale-105"
+              />
+              <div className="absolute inset-0 flex items-center justify-center bg-black/35 opacity-0 transition group-hover:opacity-100">
+                <EyeIcon className="h-5 w-5 text-white drop-shadow-md" />
+              </div>
+            </div>
+            <div className="flex min-w-0 flex-1 flex-col gap-1.5">
+              <button
+                type="button"
+                onClick={() => setPreviewPhoto({ url: pendingPhoto, title: `ภาพรออนุมัติของ ${name}` })}
+                className="inline-flex items-center justify-center gap-1 rounded-lg border border-[#f59e0b] bg-white px-3 py-1 text-[12px] font-semibold text-[#b45309] hover:bg-[#fffbeb]"
+              >
+                <EyeIcon className="h-3.5 w-3.5 text-[#b45309]" />
+                <span>ดูรูปเต็ม</span>
+              </button>
               <button
                 type="button"
                 onClick={() => void approvePendingFace()}
@@ -755,16 +773,34 @@ export function StudentDetail({
         <p className="py-2 text-center text-[13.5px] text-[#5b6b82]">กำลังโหลด...</p>
       ) : facePhoto ? (
         <div className="flex items-center gap-3 rounded-lg border border-[#e4eaf3] p-2.5">
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
-            src={facePhoto}
-            alt={`รูปลงทะเบียนของ ${name}`}
-            className="h-24 w-20 shrink-0 rounded-md object-cover"
-          />
+          <div
+            className="group relative h-24 w-20 shrink-0 cursor-pointer overflow-hidden rounded-md border border-[#d8e0ec] shadow-xs"
+            onClick={() => setPreviewPhoto({ url: facePhoto, title: `รูปลงทะเบียนใบหน้าของ ${name}` })}
+            title="คลิกเพื่อดูรูปภาพขนาดเต็ม"
+          >
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={facePhoto}
+              alt={`รูปลงทะเบียนของ ${name}`}
+              className="h-full w-full object-cover transition duration-150 group-hover:scale-105"
+            />
+            <div className="absolute inset-0 flex items-center justify-center bg-black/35 opacity-0 transition group-hover:opacity-100">
+              <EyeIcon className="h-5 w-5 text-white drop-shadow-md" />
+            </div>
+          </div>
           <div className="min-w-0 flex-1">
             <p className="text-[13px] font-semibold text-[#1e8e3e]">ลงทะเบียนแล้ว</p>
             <p className="text-[12px] text-[#5b6b82]">เทียบว่าเป็นตัวจริงหรือไม่</p>
             <div className="mt-1.5 flex flex-wrap gap-1.5">
+              <button
+                type="button"
+                onClick={() => setPreviewPhoto({ url: facePhoto, title: `รูปลงทะเบียนใบหน้าของ ${name}` })}
+                className="inline-flex items-center gap-1 rounded-md border border-[#d8e0ec] bg-white px-2.5 py-1 text-[12.5px] font-semibold text-[#16233a] hover:bg-[#f1f5fa]"
+                title="คลิกเพื่อดูรูปภาพขนาดเต็ม"
+              >
+                <EyeIcon className="h-3.5 w-3.5 text-[#5b6b82]" />
+                <span>ดูรูปเต็ม</span>
+              </button>
               {onEnroll ? (
                 <button
                   type="button"
@@ -1235,6 +1271,54 @@ export function StudentDetail({
         preloadedAttendance={attendance}
         preloadedLeaves={leaves}
       />
+
+      {previewPhoto ? (
+        <Modal
+          title={previewPhoto.title}
+          onClose={() => setPreviewPhoto(null)}
+          maxWidth="max-w-lg"
+        >
+          <div className="space-y-3">
+            <div className="relative flex max-h-[70vh] items-center justify-center overflow-hidden rounded-xl bg-black/90 p-2 shadow-inner">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={previewPhoto.url}
+                alt={previewPhoto.title}
+                className="max-h-[60vh] w-auto max-w-full rounded-lg object-contain shadow-2xl"
+              />
+            </div>
+            <div className="flex flex-wrap items-center justify-between gap-2 pt-1 text-[13px] text-[#5b6b82]">
+              <div>
+                <span className="font-semibold text-[#16233a]">{name}</span>
+                <span className="ml-1 text-[12px] text-[#5b6b82]">
+                  (รหัส {code} · ห้อง {group}{studentNumber ? ` · เลขที่ ${studentNumber}` : ""})
+                </span>
+              </div>
+              <div className="flex items-center gap-1.5">
+                {onEnroll ? (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setPreviewPhoto(null);
+                      onEnroll(code);
+                    }}
+                    className="rounded-md bg-[#2474c6] px-3 py-1.5 text-[12.5px] font-bold text-white shadow-2xs hover:bg-[#1a5da3]"
+                  >
+                    📸 ลงทะเบียนใหม่
+                  </button>
+                ) : null}
+                <button
+                  type="button"
+                  onClick={() => setPreviewPhoto(null)}
+                  className="rounded-md border border-[#d8e0ec] bg-white px-3 py-1.5 text-[12.5px] font-semibold text-[#16233a] hover:bg-[#f8fafc]"
+                >
+                  ปิด
+                </button>
+              </div>
+            </div>
+          </div>
+        </Modal>
+      ) : null}
     </Modal>
   );
 }
