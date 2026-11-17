@@ -20,9 +20,11 @@ import { isCombinedM1, M1_SUBGROUPS } from "@/lib/attendance";
 export type RiskCategory =
   | "all_risk"
   | "photobomb"
+  | "scan_partial"
+  | "scan_never"
+  | "scan_perfect"
   | "help_requests"
   | "twin"
-  | "low_confidence"
   | "pending"
   | "missing_photo"
   | "all";
@@ -42,6 +44,16 @@ export type FaceAuditProps = {
 type HelpRequestStat = {
   count: number;
   lastAt?: string;
+};
+
+export type ScanReliabilityStat = {
+  faceCount: number;
+  manualCount: number;
+  totalPresent: number;
+  avgConfidence: number;
+  scanSuccessRate: number; // 0 - 100
+  lowCount: number;
+  category: "perfect" | "partial" | "never" | "no_history";
 };
 
 type ConfidenceStat = {
@@ -75,6 +87,8 @@ export function FaceAuditView({
   const [helpStats, setHelpStats] = useState<Record<string, HelpRequestStat>>({});
   // สถิติความมั่นใจจากการเช็กชื่อ
   const [confStats, setConfStats] = useState<Record<string, ConfidenceStat>>({});
+  // สถิติความสม่ำเสมอในการสแกนหน้า (ผ่านทุกครั้ง vs ผ่านบางครั้ง vs ไม่เคยผ่าน)
+  const [scanStats, setScanStats] = useState<Record<string, ScanReliabilityStat>>({});
   // ผลการสแกนรูปด้วย AI ในเครื่อง (แคชไว้ใน sessionStorage จะได้ไม่ต้องสแกนซ้ำเมื่อสลับแท็บ)
   const [aiAudits, setAiAudits] = useState<Record<string, FaceQualityInspection>>({});
   const [aiScanning, setAiScanning] = useState(false);
@@ -145,36 +159,95 @@ export function FaceAuditView({
           setHelpStats(stats);
         }
 
-        // 2. ดึงประวัติความมั่นใจในการสแกนย้อนหลัง
+        // 2. ดึงประวัติการเช็กชื่อทั้งหมด เพื่อวิเคราะห์ความสม่ำเสมอในการสแกนหน้า (ผ่านทุกครั้ง vs ผ่านบางครั้ง vs ไม่เคยผ่าน)
         const { data: recData } = await supabase
           .from("attendance_records")
-          .select("student_id,confidence,method")
-          .eq("method", "face")
-          .not("confidence", "is", null);
+          .select("student_id,confidence,method,status")
+          .in("status", ["present", "late"]);
 
         if (recData && !cancelled) {
-          const cMap: Record<string, { sum: number; total: number; low: number }> = {};
-          recData.forEach((r: { student_id: string; confidence: number }) => {
-            const sid = r.student_id;
-            if (!cMap[sid]) cMap[sid] = { sum: 0, total: 0, low: 0 };
-            cMap[sid].sum += r.confidence;
-            cMap[sid].total += 1;
-            if (r.confidence < 75) cMap[sid].low += 1;
-          });
+          const rMap: Record<
+            string,
+            {
+              faceCount: number;
+              manualCount: number;
+              confSum: number;
+              confCount: number;
+              lowCount: number;
+            }
+          > = {};
 
+          recData.forEach(
+            (r: {
+              student_id: string;
+              confidence: number | null;
+              method: string;
+              status: string;
+            }) => {
+              const sid = r.student_id;
+              if (!rMap[sid]) {
+                rMap[sid] = {
+                  faceCount: 0,
+                  manualCount: 0,
+                  confSum: 0,
+                  confCount: 0,
+                  lowCount: 0,
+                };
+              }
+              if (r.method === "face") {
+                rMap[sid].faceCount += 1;
+                if (r.confidence !== null && r.confidence !== undefined) {
+                  rMap[sid].confSum += r.confidence;
+                  rMap[sid].confCount += 1;
+                  if (r.confidence < 75) rMap[sid].lowCount += 1;
+                }
+              } else {
+                rMap[sid].manualCount += 1;
+              }
+            },
+          );
+
+          const finalStats: Record<string, ScanReliabilityStat> = {};
           const finalConf: Record<string, ConfidenceStat> = {};
-          // จับคู่ด้วย dbId หรือ student_code
+
           students.forEach((s) => {
             const targetId = s.dbId ?? s.id;
-            const stat = cMap[targetId];
-            if (stat && stat.total > 0) {
-              finalConf[s.studentId] = {
-                avgConfidence: Math.round(stat.sum / stat.total),
-                lowCount: stat.low,
-                totalCount: stat.total,
+            const r = rMap[targetId];
+            if (r) {
+              const totalPresent = r.faceCount + r.manualCount;
+              const scanSuccessRate =
+                totalPresent > 0 ? Math.round((r.faceCount / totalPresent) * 100) : 0;
+              let category: ScanReliabilityStat["category"] = "no_history";
+              if (totalPresent > 0) {
+                if (r.faceCount === totalPresent) {
+                  category = "perfect";
+                } else if (r.faceCount === 0) {
+                  category = "never";
+                } else {
+                  category = "partial";
+                }
+              }
+              const avgConfidence = r.confCount > 0 ? Math.round(r.confSum / r.confCount) : 0;
+              finalStats[s.studentId] = {
+                faceCount: r.faceCount,
+                manualCount: r.manualCount,
+                totalPresent,
+                avgConfidence,
+                scanSuccessRate,
+                lowCount: r.lowCount,
+                category,
               };
+
+              if (r.confCount > 0) {
+                finalConf[s.studentId] = {
+                  avgConfidence,
+                  lowCount: r.lowCount,
+                  totalCount: r.confCount,
+                };
+              }
             }
           });
+          setScanStats(finalStats);
           setConfStats(finalConf);
         }
       } catch {
@@ -201,29 +274,39 @@ export function FaceAuditView({
       }
     }
 
-    // 2. Twin Flag
+    // 2. Scan Reliability: สแกนติดแค่บางครั้ง หรือ ไม่เคยสแกนผ่านเลย
+    const scan = scanStats[s.studentId];
+    if (scan && scan.totalPresent >= 2) {
+      if (scan.category === "never") {
+        risks.push(`ไม่เคยสแกนติดเลย (0% • ครูช่วยเช็คแทน ${scan.manualCount} คาบ)`);
+      } else if (scan.category === "partial") {
+        risks.push(`สแกนติดบางครั้ง (${scan.scanSuccessRate}% • ครูช่วย ${scan.manualCount} คาบ)`);
+      }
+    }
+
+    // 3. Twin Flag
     if (s.twinFlag) {
       risks.push("ปักธงแฝด/หน้าเหมือนเพื่อน");
     }
 
-    // 3. SOS / Help Requests
+    // 4. SOS / Help Requests
     const help = helpStats[s.studentId];
     if (help && help.count > 0) {
       risks.push(`ขอครูช่วยเช็คชื่อ ${help.count} ครั้ง`);
     }
 
-    // 4. Low Confidence
+    // 5. Low Confidence History
     const conf = confStats[s.studentId];
     if (conf && conf.totalCount >= 2 && conf.avgConfidence < 75) {
       risks.push(`ความมั่นใจเฉลี่ยต่ำ (${conf.avgConfidence}%)`);
     }
 
-    // 5. Pending Status
+    // 6. Pending Status
     if (s.faceStatus === "pending") {
       risks.push("รอครูอนุมัติใบหน้าใหม่");
     }
 
-    // 6. Registered but no photo stored
+    // 7. Registered but no photo stored
     if (s.registered && !s.photoUrl && !s.pendingPhotoUrl) {
       risks.push("ลงทะเบียนแล้ว แต่ไม่มีรูปต้นฉบับ");
     }
@@ -419,23 +502,29 @@ export function FaceAuditView({
         if (!matchName && !matchCode && !matchNo) return false;
       }
 
-      // 3. กรองประเภทความเสี่ยง
+      // 3. กรองประเภทความเสี่ยง หรือ อัตราการสแกนติด
       const risks = getStudentRisks(s);
       const isAtRisk = risks.length > 0;
+      const scan = scanStats[s.studentId];
 
       if (riskFilter === "all_risk") return isAtRisk;
       if (riskFilter === "photobomb") {
         const ai = aiAudits[s.studentId];
         return Boolean(ai && (ai.status === "multiple" || ai.status === "no_face"));
       }
+      if (riskFilter === "scan_partial") {
+        return Boolean(scan && scan.category === "partial");
+      }
+      if (riskFilter === "scan_never") {
+        return Boolean(scan && scan.category === "never");
+      }
+      if (riskFilter === "scan_perfect") {
+        return Boolean(scan && scan.category === "perfect");
+      }
       if (riskFilter === "help_requests") {
         return (helpStats[s.studentId]?.count ?? 0) > 0;
       }
       if (riskFilter === "twin") return Boolean(s.twinFlag);
-      if (riskFilter === "low_confidence") {
-        const c = confStats[s.studentId];
-        return Boolean(c && c.totalCount >= 2 && c.avgConfidence < 75);
-      }
       if (riskFilter === "pending") return s.faceStatus === "pending";
       if (riskFilter === "missing_photo") {
         return Boolean(s.registered && !s.photoUrl && !s.pendingPhotoUrl);
@@ -451,12 +540,16 @@ export function FaceAuditView({
     aiAudits,
     helpStats,
     confStats,
+    scanStats,
   ]);
 
   // สรุปยอดรวมตัวเลขสถิติทั้งโรงเรียน (ทุกห้อง)
   const allStats = useMemo(() => {
     let totalAtRisk = 0;
     let photobombCount = 0;
+    let partialScanCount = 0;
+    let neverScanCount = 0;
+    let perfectScanCount = 0;
     let helpCount = 0;
     let twinCount = 0;
     let pendingCount = 0;
@@ -468,6 +561,14 @@ export function FaceAuditView({
 
       const ai = aiAudits[s.studentId];
       if (ai && (ai.status === "multiple" || ai.status === "no_face")) photobombCount += 1;
+
+      const scan = scanStats[s.studentId];
+      if (scan) {
+        if (scan.category === "partial") partialScanCount += 1;
+        if (scan.category === "never") neverScanCount += 1;
+        if (scan.category === "perfect") perfectScanCount += 1;
+      }
+
       if ((helpStats[s.studentId]?.count ?? 0) > 0) helpCount += 1;
       if (s.twinFlag) twinCount += 1;
       if (s.faceStatus === "pending") pendingCount += 1;
@@ -477,12 +578,15 @@ export function FaceAuditView({
     return {
       totalAtRisk,
       photobombCount,
+      partialScanCount,
+      neverScanCount,
+      perfectScanCount,
       helpCount,
       twinCount,
       pendingCount,
       missingPhotoCount,
     };
-  }, [students, aiAudits, helpStats, confStats]);
+  }, [students, aiAudits, helpStats, confStats, scanStats]);
 
   // สถิติเฉพาะห้องที่เลือก (ถ้าเลือกเฉพาะห้อง)
   const roomStats = useMemo(() => {
@@ -490,6 +594,9 @@ export function FaceAuditView({
 
     let totalAtRisk = 0;
     let photobombCount = 0;
+    let partialScanCount = 0;
+    let neverScanCount = 0;
+    let perfectScanCount = 0;
     let helpCount = 0;
     let twinCount = 0;
     let pendingCount = 0;
@@ -509,6 +616,14 @@ export function FaceAuditView({
 
       const ai = aiAudits[s.studentId];
       if (ai && (ai.status === "multiple" || ai.status === "no_face")) photobombCount += 1;
+
+      const scan = scanStats[s.studentId];
+      if (scan) {
+        if (scan.category === "partial") partialScanCount += 1;
+        if (scan.category === "never") neverScanCount += 1;
+        if (scan.category === "perfect") perfectScanCount += 1;
+      }
+
       if ((helpStats[s.studentId]?.count ?? 0) > 0) helpCount += 1;
       if (s.twinFlag) twinCount += 1;
       if (s.faceStatus === "pending") pendingCount += 1;
@@ -518,12 +633,15 @@ export function FaceAuditView({
     return {
       totalAtRisk,
       photobombCount,
+      partialScanCount,
+      neverScanCount,
+      perfectScanCount,
       helpCount,
       twinCount,
       pendingCount,
       missingPhotoCount,
     };
-  }, [students, groupFilter, m1SubgroupFilter, allStats, aiAudits, helpStats, confStats]);
+  }, [students, groupFilter, m1SubgroupFilter, allStats, aiAudits, helpStats, confStats, scanStats]);
 
   const displayedStats = groupFilter === "all" ? allStats : roomStats;
 
@@ -602,7 +720,7 @@ export function FaceAuditView({
         )}
 
         {/* Metric Badges Strip */}
-        <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6">
+        <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5 xl:grid-cols-5 2xl:grid-cols-9">
           <button
             type="button"
             onClick={() => setRiskFilter("all_risk")}
@@ -613,13 +731,76 @@ export function FaceAuditView({
                 : "border-[#e5e7eb] bg-white hover:bg-[#f9fafb]",
             )}
           >
-            <span className="text-[12px] font-medium text-[#6b7280]">เสี่ยง/มีปัญหาทั้งหมด</span>
+            <span className="text-[12px] font-medium text-[#6b7280]">เสี่ยง/มีปัญหา</span>
             <span className="mt-0.5 text-[20px] font-extrabold text-[#dc2626]">
               {displayedStats.totalAtRisk} <span className="text-[13px] font-normal text-[#6b7280]">คน</span>
             </span>
             {groupFilter !== "all" && (
               <span className="text-[11px] font-medium text-[#9ca3af]">
-                (ทั้งโรงเรียน {allStats.totalAtRisk} คน)
+                (ทั้ง รร. {allStats.totalAtRisk})
+              </span>
+            )}
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setRiskFilter("scan_partial")}
+            className={cn(
+              "flex flex-col items-start rounded-xl border p-2.5 text-left transition-all",
+              riskFilter === "scan_partial"
+                ? "border-[#f59e0b] bg-[#fffbeb] shadow-xs"
+                : "border-[#e5e7eb] bg-white hover:bg-[#f9fafb]",
+            )}
+          >
+            <span className="text-[12px] font-medium text-[#b45309]">🟡 สแกนติดบางครั้ง</span>
+            <span className="mt-0.5 text-[20px] font-extrabold text-[#d97706]">
+              {displayedStats.partialScanCount} <span className="text-[13px] font-normal text-[#6b7280]">คน</span>
+            </span>
+            {groupFilter !== "all" && (
+              <span className="text-[11px] font-medium text-[#9ca3af]">
+                (ทั้ง รร. {allStats.partialScanCount})
+              </span>
+            )}
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setRiskFilter("scan_never")}
+            className={cn(
+              "flex flex-col items-start rounded-xl border p-2.5 text-left transition-all",
+              riskFilter === "scan_never"
+                ? "border-[#f43f5e] bg-[#fff1f2] shadow-xs"
+                : "border-[#e5e7eb] bg-white hover:bg-[#f9fafb]",
+            )}
+          >
+            <span className="text-[12px] font-medium text-[#be123c]">🔴 ไม่เคยสแกนติด (0%)</span>
+            <span className="mt-0.5 text-[20px] font-extrabold text-[#e11d48]">
+              {displayedStats.neverScanCount} <span className="text-[13px] font-normal text-[#6b7280]">คน</span>
+            </span>
+            {groupFilter !== "all" && (
+              <span className="text-[11px] font-medium text-[#9ca3af]">
+                (ทั้ง รร. {allStats.neverScanCount})
+              </span>
+            )}
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setRiskFilter("scan_perfect")}
+            className={cn(
+              "flex flex-col items-start rounded-xl border p-2.5 text-left transition-all",
+              riskFilter === "scan_perfect"
+                ? "border-[#10b981] bg-[#ecfdf5] shadow-xs"
+                : "border-[#e5e7eb] bg-white hover:bg-[#f9fafb]",
+            )}
+          >
+            <span className="text-[12px] font-medium text-[#047857]">🟢 สแกนผ่าน 100%</span>
+            <span className="mt-0.5 text-[20px] font-extrabold text-[#059669]">
+              {displayedStats.perfectScanCount} <span className="text-[13px] font-normal text-[#6b7280]">คน</span>
+            </span>
+            {groupFilter !== "all" && (
+              <span className="text-[11px] font-medium text-[#9ca3af]">
+                (ทั้ง รร. {allStats.perfectScanCount})
               </span>
             )}
           </button>
@@ -634,13 +815,13 @@ export function FaceAuditView({
                 : "border-[#e5e7eb] bg-white hover:bg-[#f9fafb]",
             )}
           >
-            <span className="text-[12px] font-medium text-[#6b7280]">👥 คนอื่นติดในรูป/ไม่ชัด</span>
+            <span className="text-[12px] font-medium text-[#6b7280]">👥 มีคนอื่นติด/ไม่ชัด</span>
             <span className="mt-0.5 text-[20px] font-extrabold text-[#ea580c]">
               {displayedStats.photobombCount} <span className="text-[13px] font-normal text-[#6b7280]">คน</span>
             </span>
             {groupFilter !== "all" && (
               <span className="text-[11px] font-medium text-[#9ca3af]">
-                (ทั้งโรงเรียน {allStats.photobombCount} คน)
+                (ทั้ง รร. {allStats.photobombCount})
               </span>
             )}
           </button>
@@ -661,7 +842,7 @@ export function FaceAuditView({
             </span>
             {groupFilter !== "all" && (
               <span className="text-[11px] font-medium text-[#9ca3af]">
-                (ทั้งโรงเรียน {allStats.helpCount} คน)
+                (ทั้ง รร. {allStats.helpCount})
               </span>
             )}
           </button>
@@ -682,7 +863,7 @@ export function FaceAuditView({
             </span>
             {groupFilter !== "all" && (
               <span className="text-[11px] font-medium text-[#9ca3af]">
-                (ทั้งโรงเรียน {allStats.twinCount} คน)
+                (ทั้ง รร. {allStats.twinCount})
               </span>
             )}
           </button>
@@ -703,7 +884,7 @@ export function FaceAuditView({
             </span>
             {groupFilter !== "all" && (
               <span className="text-[11px] font-medium text-[#9ca3af]">
-                (ทั้งโรงเรียน {allStats.pendingCount} คน)
+                (ทั้ง รร. {allStats.pendingCount})
               </span>
             )}
           </button>
@@ -724,7 +905,7 @@ export function FaceAuditView({
             </span>
             {groupFilter !== "all" && (
               <span className="text-[11px] font-medium text-[#9ca3af]">
-                (ทั้งโรงเรียน {allStats.missingPhotoCount} คน)
+                (ทั้ง รร. {allStats.missingPhotoCount})
               </span>
             )}
           </button>
@@ -733,7 +914,7 @@ export function FaceAuditView({
 
       {/* Filter and Search Bar */}
       <Card className="p-3 sm:p-4">
-        <div className="grid grid-cols-1 gap-2 sm:grid-cols-[1fr_220px_240px]">
+        <div className="grid grid-cols-1 gap-2 sm:grid-cols-[1fr_220px_260px]">
           <div className="relative">
             <span className="sr-only">ค้นหาในกลุ่มเสี่ยง</span>
             <input
@@ -771,13 +952,16 @@ export function FaceAuditView({
           </label>
 
           <label className="relative block">
-            <span className="sr-only">กรองกลุ่มเสี่ยง</span>
+            <span className="sr-only">กรองกลุ่มความเสี่ยง / อัตราการสแกน</span>
             <select
               value={riskFilter}
               onChange={(e) => setRiskFilter(e.target.value as RiskCategory)}
               className="h-10 w-full appearance-none rounded-lg border border-[#d8e0ec] bg-white pl-3 pr-9 text-[14px] text-[#16233a] font-semibold focus:border-[#2474c6] focus:outline-none"
             >
               <option value="all_risk">⚠️ เฉพาะที่พบปัญหา ({displayedStats.totalAtRisk})</option>
+              <option value="scan_partial">🟡 สแกนติดแค่บางครั้ง ({displayedStats.partialScanCount})</option>
+              <option value="scan_never">🔴 ไม่เคยสแกนติดเลย 0% ({displayedStats.neverScanCount})</option>
+              <option value="scan_perfect">🟢 สแกนผ่านฉลุย 100% ({displayedStats.perfectScanCount})</option>
               <option value="photobomb">👥 มีคนอื่นติดในภาพ/ไม่ชัด ({displayedStats.photobombCount})</option>
               <option value="help_requests">🆘 ขอครูช่วยเช็คชื่อ ({displayedStats.helpCount})</option>
               <option value="twin">👯 ปักธงหน้าเหมือน ({displayedStats.twinCount})</option>
@@ -1029,21 +1213,74 @@ export function FaceAuditView({
                       )}
                     </div>
 
-                    {/* Extra Statistics Details if available */}
-                    {(help || conf) && (
-                      <div className="mt-2 border-t border-[#f1f5f9] pt-2 text-[11.5px] text-[#64748b]">
-                        {help && help.count > 0 && (
-                          <p>
-                            • คำขอ SOS: <strong className="text-[#b45309]">{help.count} ครั้ง</strong>
-                          </p>
-                        )}
-                        {conf && conf.totalCount > 0 && (
-                          <p>
-                            • สแกนหน้าติด: <strong>{conf.avgConfidence}%</strong> ({conf.totalCount} ครั้ง)
-                          </p>
-                        )}
-                      </div>
-                    )}
+                    {/* กล่องแสดงอัตราการสแกนผ่านจริง (100% vs ผ่านบางครั้ง vs 0%) */}
+                    {(() => {
+                      const scan = scanStats[s.studentId];
+                      return (
+                        <div className="mt-2.5 rounded-lg border border-[#e2e8f0] bg-[#f8fafc] p-2.5 text-[12px]">
+                          {scan && scan.totalPresent > 0 ? (
+                            <div>
+                              <div className="flex items-center justify-between font-bold">
+                                {scan.category === "perfect" && (
+                                  <span className="inline-flex items-center gap-1 text-[#059669]">
+                                    <span>🟢 สแกนผ่านฉลุย 100%</span>
+                                  </span>
+                                )}
+                                {scan.category === "partial" && (
+                                  <span className="inline-flex items-center gap-1 text-[#d97706]">
+                                    <span>🟡 สแกนติด {scan.scanSuccessRate}%</span>
+                                  </span>
+                                )}
+                                {scan.category === "never" && (
+                                  <span className="inline-flex items-center gap-1 text-[#dc2626]">
+                                    <span>🔴 ไม่เคยสแกนติด (0%)</span>
+                                  </span>
+                                )}
+                                <span className="text-[11px] font-semibold text-[#64748b]">
+                                  ติด {scan.faceCount}/{scan.totalPresent} คาบ
+                                </span>
+                              </div>
+
+                              {/* Progress Bar อัตราการสแกนผ่าน */}
+                              <div className="mt-1.5 h-1.5 w-full overflow-hidden rounded-full bg-[#e2e8f0]">
+                                <div
+                                  className={cn(
+                                    "h-full rounded-full transition-all duration-300",
+                                    scan.category === "perfect"
+                                      ? "bg-[#10b981]"
+                                      : scan.category === "partial"
+                                      ? "bg-[#f59e0b]"
+                                      : "bg-[#ef4444]",
+                                  )}
+                                  style={{ width: `${scan.scanSuccessRate}%` }}
+                                />
+                              </div>
+
+                              <div className="mt-1.5 flex flex-wrap items-center justify-between gap-1 text-[11px] text-[#64748b]">
+                                <span>สแกนหน้าเอง: <strong className="text-[#16233a]">{scan.faceCount} คาบ</strong></span>
+                                <span>ครูเช็คชื่อแทน: <strong className={scan.manualCount > 0 ? "text-[#b45309]" : "text-[#16233a]"}>{scan.manualCount} คาบ</strong></span>
+                              </div>
+
+                              {scan.avgConfidence > 0 && (
+                                <div className="mt-1 text-[11px] text-[#64748b]">
+                                  • ความมั่นใจ AI เฉลี่ย: <strong>{scan.avgConfidence}%</strong>
+                                </div>
+                              )}
+                            </div>
+                          ) : (
+                            <span className="text-[11.5px] text-[#94a3b8]">
+                              ยังไม่มีประวัติการเช็กชื่อในระบบ
+                            </span>
+                          )}
+
+                          {help && help.count > 0 && (
+                            <div className="mt-1.5 border-t border-[#e2e8f0] pt-1 text-[11px] text-[#b45309]">
+                              🆘 เคยส่งคำขอ SOS ให้ครูช่วย: <strong>{help.count} ครั้ง</strong>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })()}
                   </div>
                 </div>
 
