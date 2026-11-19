@@ -435,7 +435,7 @@ export async function saveScores(
   return { ok, failed };
 }
 
-/** เพิ่มคอลัมน์งาน */
+/** เพิ่มคอลัมน์งาน (รองรับการเพิ่มทีเดียวทุกห้องในระดับชั้น) */
 export async function addAssignment(input: {
   groupName: string;
   subject: string;
@@ -444,27 +444,71 @@ export async function addAssignment(input: {
   due: string;
   category?: string;
   retakeOf?: string | null;
+  targetGroupNames?: string[];
 }): Promise<boolean> {
   if (!isSupabaseConfigured) return false;
   try {
-    const gid = await groupIdOf(input.groupName);
-    if (!gid) return false;
-    const { error } = await supabase.from("assignments").insert({
-      group_id: gid,
-      subject: input.subject,
-      title: input.title,
-      max_score: input.max,
-      due_date: input.due,
-      category: input.category ?? "ใบงาน/การบ้าน",
-      retake_of: input.retakeOf ?? null,
-    });
-    return !error;
+    const targets = input.targetGroupNames && input.targetGroupNames.length > 0
+      ? input.targetGroupNames
+      : [input.groupName];
+
+    let anySuccess = false;
+    for (const groupName of targets) {
+      const gid = await groupIdOf(groupName);
+      if (!gid) continue;
+
+      // ตรวจสอบว่ามีชิ้นงานชื่อนี้อยู่แล้วในห้องนี้หรือไม่
+      const { data: existing } = await supabase
+        .from("assignments")
+        .select("id,sort_order")
+        .eq("group_id", gid)
+        .eq("subject", input.subject)
+        .eq("title", input.title)
+        .maybeSingle();
+
+      if (existing) {
+        // อัปเดตข้อมูลให้ตรงกัน
+        const { error: upErr } = await supabase
+          .from("assignments")
+          .update({
+            max_score: input.max,
+            due_date: input.due,
+            category: input.category ?? "ใบงาน/การบ้าน",
+          })
+          .eq("id", existing.id);
+        if (!upErr) anySuccess = true;
+      } else {
+        // หาค่า sort_order สูงสุดในห้องนี้
+        const { data: maxRow } = await supabase
+          .from("assignments")
+          .select("sort_order")
+          .eq("group_id", gid)
+          .eq("subject", input.subject)
+          .order("sort_order", { ascending: false })
+          .limit(1)
+          .maybeSingle();
+        const nextOrder = ((maxRow as { sort_order: number | null } | null)?.sort_order ?? 0) + 1;
+
+        const { error: insErr } = await supabase.from("assignments").insert({
+          group_id: gid,
+          subject: input.subject,
+          title: input.title,
+          max_score: input.max,
+          due_date: input.due,
+          category: input.category ?? "ใบงาน/การบ้าน",
+          retake_of: input.retakeOf ?? null,
+          sort_order: nextOrder,
+        });
+        if (!insErr) anySuccess = true;
+      }
+    }
+    return anySuccess;
   } catch {
     return false;
   }
 }
 
-/** แก้ไขคอลัมน์งาน (ทุกฟิลด์) */
+/** แก้ไขคอลัมน์งาน (รองรับการอัปเดตไปยังทุกห้องในระดับชั้นเดียวกัน) */
 export async function updateAssignment(
   id: string,
   fields: {
@@ -473,6 +517,10 @@ export async function updateAssignment(
     max: number;
     due: string;
     category: string;
+  },
+  syncOptions?: {
+    targetGroupNames: string[];
+    oldTitle?: string;
   },
 ): Promise<boolean> {
   if (!isSupabaseConfigured) return false;
@@ -487,7 +535,37 @@ export async function updateAssignment(
         category: fields.category,
       })
       .eq("id", id);
-    return !error;
+    if (error) return false;
+
+    // หากต้องการซิงค์การแก้ไขไปยังห้องอื่นในระดับเดียวกัน
+    if (syncOptions?.targetGroupNames && syncOptions.targetGroupNames.length > 0) {
+      const lookupTitle = syncOptions.oldTitle || fields.title;
+      for (const groupName of syncOptions.targetGroupNames) {
+        const gid = await groupIdOf(groupName);
+        if (!gid) continue;
+        const { data: existing } = await supabase
+          .from("assignments")
+          .select("id")
+          .eq("group_id", gid)
+          .eq("subject", fields.subject)
+          .eq("title", lookupTitle)
+          .maybeSingle();
+
+        if (existing) {
+          await supabase
+            .from("assignments")
+            .update({
+              title: fields.title,
+              max_score: fields.max,
+              due_date: fields.due,
+              category: fields.category,
+            })
+            .eq("id", (existing as { id: string }).id);
+        }
+      }
+    }
+
+    return true;
   } catch {
     return false;
   }
@@ -542,6 +620,58 @@ export async function deleteAssignment(id: string): Promise<boolean> {
     return !error;
   } catch {
     return false;
+  }
+}
+
+/** ตรวจสอบจำนวนคะแนนที่กรอกในคอลัมน์งาน เพื่อป้องกันการลบข้อมูลสำคัญ */
+export async function checkAssignmentSubmissionsCount(assignmentId: string): Promise<number> {
+  if (!isSupabaseConfigured) return 0;
+  try {
+    const { count, error } = await supabase
+      .from("submissions")
+      .select("id", { count: "exact", head: true })
+      .eq("assignment_id", assignmentId);
+    return error ? 0 : (count ?? 0);
+  } catch {
+    return 0;
+  }
+}
+
+/** ลบคอลัมน์งานออกจากทุกห้องในระดับชั้นเดียวกัน */
+export async function deleteAssignmentAcrossLevel(options: {
+  assignmentId: string;
+  title: string;
+  subject: string;
+  targetGroupNames: string[];
+}): Promise<{ success: boolean; deletedCount: number; errors: string[] }> {
+  if (!isSupabaseConfigured) return { success: false, deletedCount: 0, errors: ["ไม่ได้เชื่อมต่อฐานข้อมูล"] };
+  const errors: string[] = [];
+  let deletedCount = 0;
+  try {
+    // ลบคอลัมน์ต้นทาง
+    const { error: pErr } = await supabase.from("assignments").delete().eq("id", options.assignmentId);
+    if (pErr) errors.push(pErr.message);
+    else deletedCount++;
+
+    // ลบคอลัมน์ชื่อเดียวกันในห้องปลายทาง
+    for (const groupName of options.targetGroupNames) {
+      const gid = await groupIdOf(groupName);
+      if (!gid) continue;
+      const { data: rows } = await supabase
+        .from("assignments")
+        .select("id")
+        .eq("group_id", gid)
+        .eq("subject", options.subject)
+        .eq("title", options.title);
+      for (const r of (rows ?? []) as Array<{ id: string }>) {
+        if (r.id === options.assignmentId) continue;
+        const { error } = await supabase.from("assignments").delete().eq("id", r.id);
+        if (!error) deletedCount++;
+      }
+    }
+    return { success: errors.length === 0, deletedCount, errors };
+  } catch (err: unknown) {
+    return { success: false, deletedCount, errors: [err instanceof Error ? err.message : String(err)] };
   }
 }
 

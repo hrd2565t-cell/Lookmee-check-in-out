@@ -23,6 +23,8 @@ import {
   fetchRoomGradeScales,
   fetchGradeScales,
   gradeOf,
+  checkAssignmentSubmissionsCount,
+  deleteAssignmentAcrossLevel,
   STANDARD_NUMERIC_SCALES,
   type ClassSubject,
   type CategoryWeight,
@@ -32,11 +34,13 @@ import {
 import { fetchTerms, levelOf, type SchoolTerm } from "@/lib/terms";
 import {
   cloneAssignmentsToGroups,
+  syncAssignmentsAcrossGradeLevel,
   applyTemplateToGroups,
   getGradingTemplates,
   saveGradingTemplate,
   deleteGradingTemplate,
   type GradingTemplate,
+  type GradeLevelSyncResult,
 } from "@/lib/grading-templates";
 import { downloadCsv, parseCsv, readCsvFile } from "@/lib/export";
 import { useRoster, compareGroupNames } from "@/lib/school-data";
@@ -95,7 +99,35 @@ export default function GradingPage() {
   } | null>(null);
   const [importMsg, setImportMsg] = useState("");
   const [moveOrderBusy, setMoveOrderBusy] = useState(false);
-  // States สำหรับ Hybrid Template & Clone ข้ามห้อง
+
+  // States สำหรับซิงค์โครงสร้างคอลัมน์ทั้งระดับชั้น (Grade-Level Sync)
+  const [syncModalOpen, setSyncModalOpen] = useState(false);
+  const [selectedSyncRooms, setSelectedSyncRooms] = useState<string[]>([]);
+  const [syncCleanExcess, setSyncCleanExcess] = useState(true);
+  const [syncCopyWeights, setSyncCopyWeights] = useState(true);
+  const [syncBusy, setSyncBusy] = useState(false);
+  const [syncMsg, setSyncMsg] = useState("");
+
+  // States สำหรับเพิ่ม/แก้ไขคอลัมน์ระดับชั้น
+  const [colApplyToLevel, setColApplyToLevel] = useState(true);
+  const [originalTitle, setOriginalTitle] = useState("");
+
+  // States สำหรับลบคอลัมน์อย่างปลอดภัย
+  const [deleteModal, setDeleteModal] = useState<{
+    open: boolean;
+    assignment: SheetAssignment | null;
+    submissionCount: number;
+    deleteAcrossLevel: boolean;
+    busy: boolean;
+  }>({
+    open: false,
+    assignment: null,
+    submissionCount: 0,
+    deleteAcrossLevel: true,
+    busy: false,
+  });
+
+  // States สำหรับ Hybrid Template & Clone ข้ามห้อง (Legacy)
   const [cloneModalOpen, setCloneModalOpen] = useState(false);
   const [selectedCloneRooms, setSelectedCloneRooms] = useState<string[]>([]);
   const [cloneSkipDuplicates, setCloneSkipDuplicates] = useState(true);
@@ -568,6 +600,8 @@ export default function GradingPage() {
 
   const openAddColumn = () => {
     setColForm({ subject: activeSubject, title: "", max: "10", due: new Date().toISOString().slice(0, 10), category: "ใบงาน/การบ้าน" });
+    setColApplyToLevel(true);
+    setOriginalTitle("");
     setModalMsg("");
     setEditingId(null);
     setEditAttachment(null);
@@ -582,43 +616,55 @@ export default function GradingPage() {
       due: a.due,
       category: a.category || "ใบงาน/การบ้าน",
     });
+    setColApplyToLevel(true);
+    setOriginalTitle(a.title);
     setModalMsg("");
     setEditingId(a.id);
     setEditAttachment(a.attachment);
     setColModal(true);
   };
 
-  // เปิด Modal คัดลอกไปห้องอื่น
-  const openCloneModal = () => {
-    setSelectedCloneRooms(sameLevelRooms);
-    setCloneSkipDuplicates(true);
-    setCloneCopyWeights(true);
-    setCloneMsg("");
-    setCloneModalOpen(true);
+  // เปิด Modal ซิงค์คอลัมน์ทั้งระดับชั้น
+  const openSyncModal = () => {
+    setSelectedSyncRooms(sameLevelRooms);
+    setSyncCleanExcess(true);
+    setSyncCopyWeights(true);
+    setSyncMsg("");
+    setSyncModalOpen(true);
   };
 
-  const handleExecuteClone = async () => {
-    if (selectedCloneRooms.length === 0) {
-      setCloneMsg("กรุณาเลือกห้องปลายทางอย่างน้อย 1 ห้อง");
+  // Legacy alias
+  const openCloneModal = openSyncModal;
+
+  const handleExecuteSync = async () => {
+    if (selectedSyncRooms.length === 0) {
+      setSyncMsg("กรุณาเลือกห้องปลายทางอย่างน้อย 1 ห้อง");
       return;
     }
-    setCloneBusy(true);
-    setCloneMsg("");
-    const res = await cloneAssignmentsToGroups({
+    setSyncBusy(true);
+    setSyncMsg("");
+    const res = await syncAssignmentsAcrossGradeLevel({
       sourceGroupName: activeGroup,
-      targetGroupNames: selectedCloneRooms,
+      targetGroupNames: selectedSyncRooms,
       subject: activeSubject,
-      skipDuplicates: cloneSkipDuplicates,
-      copyWeights: cloneCopyWeights,
+      cleanEmptyExcess: syncCleanExcess,
+      copyWeights: syncCopyWeights,
     });
-    setCloneBusy(false);
+    setSyncBusy(false);
     if (res.success) {
+      const detailParts: string[] = [];
+      if (res.updatedCount > 0) detailParts.push(`ปรับปรุง ${res.updatedCount} งาน`);
+      if (res.createdCount > 0) detailParts.push(`สร้างใหม่ ${res.createdCount} งาน`);
+      if (res.cleanedCount > 0) detailParts.push(`ลบคอลัมน์ว่างซ้ำซ้อน ${res.cleanedCount} งาน`);
+      if (res.preservedWithScoresCount > 0) detailParts.push(`🛡️ คงคอลัมน์ที่มีคะแนนแล้วไว้ ${res.preservedWithScoresCount} งาน`);
+
       setNotice(
-        `คัดลอกโครงสร้างคอลัมน์ไปยัง ${res.targetRoomsCount} ห้องสำเร็จ (สร้างใหม่ ${res.createdAssignmentsCount} คอลัมน์${res.skippedAssignmentsCount > 0 ? `, ข้ามที่ซ้ำ ${res.skippedAssignmentsCount} คอลัมน์` : ""})`,
+        `✓ ซิงค์โครงสร้างคอลัมน์ไปยัง ${res.targetRoomsCount} ห้องในระดับ ${currentLevel} สำเร็จ! (${detailParts.join(", ") || "โครงสร้างตรงกันทุกห้อง"})`,
       );
-      setCloneModalOpen(false);
+      setSyncModalOpen(false);
+      await reloadSheet(activeGroup, activeSubject, activeTerm);
     } else {
-      setCloneMsg(res.errors.join("\n") || "เกิดข้อผิดพลาดในการคัดลอก");
+      setSyncMsg(res.errors.join("\n") || "เกิดข้อผิดพลาดในการซิงค์");
     }
   };
 
@@ -670,13 +716,19 @@ export default function GradingPage() {
       targetGroupNames: targetRooms,
       subject: activeSubject,
       dueDate: applyDueDate,
-      skipDuplicates: applySkipDuplicates,
+      cleanEmptyExcess: true,
       copyWeights: applyCopyWeights,
     });
     setApplyBusy(false);
     if (res.success) {
+      const detailParts: string[] = [];
+      if (res.updatedCount > 0) detailParts.push(`ปรับปรุง ${res.updatedCount} คอลัมน์`);
+      if (res.createdCount > 0) detailParts.push(`สร้างใหม่ ${res.createdCount} คอลัมน์`);
+      if (res.cleanedCount > 0) detailParts.push(`ลบคอลัมน์ว่าง ${res.cleanedCount} คอลัมน์`);
+      if (res.preservedWithScoresCount > 0) detailParts.push(`🛡️ คงคอลัมน์ที่มีคะแนนไว้ ${res.preservedWithScoresCount} คอลัมน์`);
+
       setNotice(
-        `ใช้แม่แบบ "${tpl.name}" กับ ${res.targetRoomsCount} ห้องสำเร็จ (สร้างใหม่ ${res.createdAssignmentsCount} คอลัมน์)`,
+        `✓ ใช้แม่แบบ "${tpl.name}" กับ ${res.targetRoomsCount} ห้องสำเร็จ (${detailParts.join(", ")})`,
       );
       setTemplateModalOpen(false);
       await reloadSheet(activeGroup, activeSubject, activeTerm);
@@ -833,25 +885,43 @@ export default function GradingPage() {
       setModalMsg("กำหนดส่งต้องอยู่ในภาคเรียนที่เลือก");
       return;
     }
+
+    const levelRooms = groupNames.filter((g) => levelOf(g) === currentLevel);
+
     // โหมดแก้ไข
     if (editingId) {
-      const ok = await updateAssignment(editingId, {
-        subject,
-        title: colForm.title.trim(),
-        max,
-        due: colForm.due,
-        category: colForm.category,
-      });
+      const ok = await updateAssignment(
+        editingId,
+        {
+          subject,
+          title: colForm.title.trim(),
+          max,
+          due: colForm.due,
+          category: colForm.category,
+        },
+        colApplyToLevel
+          ? {
+              targetGroupNames: sameLevelRooms,
+              oldTitle: originalTitle,
+            }
+          : undefined,
+      );
       if (!ok) {
         setModalMsg("บันทึกไม่สำเร็จ — ตรวจการเชื่อมต่อแล้วลองใหม่");
         return;
       }
       setColModal(false);
       setEditingId(null);
-      setNotice(`แก้ไขคอลัมน์ “${colForm.title.trim()}” แล้ว`);
+      setNotice(
+        colApplyToLevel
+          ? `✓ แก้ไขคอลัมน์ “${colForm.title.trim()}” ในทุกห้องของระดับ ${currentLevel} เรียบร้อยแล้ว`
+          : `✓ แก้ไขคอลัมน์ “${colForm.title.trim()}” แล้ว`,
+      );
       await reloadSheet(activeGroup, subject, activeTerm);
       return;
     }
+
+    // โหมดเพิ่มคอลัมน์ใหม่
     const ok = await addAssignment({
       groupName: activeGroup,
       subject,
@@ -859,6 +929,7 @@ export default function GradingPage() {
       max,
       due: colForm.due,
       category: colForm.category,
+      targetGroupNames: colApplyToLevel ? levelRooms : [activeGroup],
     });
     if (!ok) {
       setModalMsg("เพิ่มคอลัมน์ไม่สำเร็จ — ตรวจการเชื่อมต่อแล้วลองใหม่");
@@ -866,7 +937,11 @@ export default function GradingPage() {
     }
     setColModal(false);
     setEditingId(null);
-    setNotice(`เพิ่มคอลัมน์ “${colForm.title.trim()}” แล้ว`);
+    setNotice(
+      colApplyToLevel
+        ? `✓ เพิ่มคอลัมน์ “${colForm.title.trim()}” ให้ครบทุกห้องในระดับ ${currentLevel} แล้ว (${levelRooms.length} ห้อง)`
+        : `✓ เพิ่มคอลัมน์ “${colForm.title.trim()}” แล้ว`,
+    );
     await reloadSheet(activeGroup, subject, activeTerm);
   };
 
@@ -893,14 +968,46 @@ export default function GradingPage() {
   };
 
   const removeColumn = async (a: (typeof assignments)[number]) => {
-    if (!window.confirm(`ลบคอลัมน์ “${a.title}” และคะแนนทั้งหมดในคอลัมน์?`)) return;
-    const ok = await deleteAssignment(a.id);
-    if (!ok) {
-      setNotice("ลบไม่สำเร็จ");
-      return;
+    // ตรวจสอบจำนวนคะแนนที่กรอกในคอลัมน์นี้
+    const subCount = await checkAssignmentSubmissionsCount(a.id);
+    setDeleteModal({
+      open: true,
+      assignment: a,
+      submissionCount: subCount,
+      deleteAcrossLevel: true,
+      busy: false,
+    });
+  };
+
+  const executeDeleteColumn = async () => {
+    if (!deleteModal.assignment) return;
+    const a = deleteModal.assignment;
+    setDeleteModal((prev) => ({ ...prev, busy: true }));
+
+    if (deleteModal.deleteAcrossLevel && sameLevelRooms.length > 0) {
+      const res = await deleteAssignmentAcrossLevel({
+        assignmentId: a.id,
+        title: a.title,
+        subject: a.subject,
+        targetGroupNames: sameLevelRooms,
+      });
+      setDeleteModal({ open: false, assignment: null, submissionCount: 0, deleteAcrossLevel: true, busy: false });
+      if (res.success) {
+        setNotice(`✓ ลบคอลัมน์ “${a.title}” ออกจาก ${res.deletedCount} ห้องในระดับ ${currentLevel} เรียบร้อยแล้ว`);
+        await reloadSheet();
+      } else {
+        setNotice("ลบบางห้องไม่สำเร็จ — โปรดตรวจสอบการเชื่อมต่อ");
+      }
+    } else {
+      const ok = await deleteAssignment(a.id);
+      setDeleteModal({ open: false, assignment: null, submissionCount: 0, deleteAcrossLevel: true, busy: false });
+      if (!ok) {
+        setNotice("ลบไม่สำเร็จ");
+        return;
+      }
+      setNotice(`✓ ลบคอลัมน์ “${a.title}” เฉพาะห้อง ${activeGroup} แล้ว`);
+      await reloadSheet();
     }
-    setNotice(`ลบคอลัมน์ “${a.title}” แล้ว`);
-    await reloadSheet();
   };
 
   const refreshSubjects = async () => {
@@ -1052,12 +1159,12 @@ export default function GradingPage() {
           </UIButton>
           <UIButton
             variant="blue"
-            onClick={openCloneModal}
+            onClick={openSyncModal}
             disabled={!canEditActiveSubject || termId === "all" || assignments.length === 0 || sameLevelRooms.length === 0}
-            title={sameLevelRooms.length === 0 ? "ไม่มีห้องอื่นในระดับเดียวกัน" : `คัดลอก ${assignments.length} คอลัมน์ไปยังห้องอื่นในระดับ ${currentLevel}`}
-            className="h-9 bg-[#2474c6] px-3 text-[13px] hover:bg-[#1d5ea2] focus-visible:ring-[#2474c6]/40 disabled:opacity-40"
+            title={sameLevelRooms.length === 0 ? "ไม่มีห้องอื่นในระดับเดียวกัน" : `ซิงค์โครงสร้างคอลัมน์จากห้อง ${activeGroup} ไปยังทุกห้องในระดับ ${currentLevel} (จัดระเบียบและคุ้มครองคะแนนเดิม)`}
+            className="h-9 bg-[#2474c6] px-3 text-[13px] hover:bg-[#1d5ea2] focus-visible:ring-[#2474c6]/40 disabled:opacity-40 font-semibold"
           >
-            <CopyIcon className="mr-1 h-3.5 w-3.5" /> คัดลอกไปห้องอื่น
+            <span className="mr-1">🔄</span> ซิงค์ทุกห้อง ({currentLevel})
           </UIButton>
           <UIButton
             variant="green"
@@ -1444,6 +1551,30 @@ export default function GradingPage() {
                 ))}
               </select>
             </label>
+            {sameLevelRooms.length > 0 && (
+              <div className="col-span-2 rounded-lg border border-[#d8e0ec] bg-[#f8fafc] p-2.5">
+                <label className="flex items-center gap-2 cursor-pointer text-[13px] font-semibold text-[#16233a]">
+                  <input
+                    type="checkbox"
+                    checked={colApplyToLevel}
+                    onChange={(e) => setColApplyToLevel(e.target.checked)}
+                    className="rounded text-[#2474c6] h-4 w-4"
+                  />
+                  <span>
+                    {editingId ? (
+                      <>อัปเดตไปยังทุกห้องในระดับ <b>{currentLevel}</b> ด้วย ({sameLevelRooms.length + 1} ห้อง)</>
+                    ) : (
+                      <>นำไปใช้กับทุกห้องในระดับ <b>{currentLevel}</b> ด้วย ({sameLevelRooms.length + 1} ห้อง)</>
+                    )}
+                  </span>
+                </label>
+                <p className="mt-0.5 ml-6 text-[11.5px] text-[#5b6b82]">
+                  {editingId
+                    ? `อัปเดตชื่องาน คะแนนเต็ม กำหนดส่ง และหมวดให้ตรงกันทุกห้องในระดับ ${currentLevel} (วิชา ${activeSubject})`
+                    : `สร้างคอลัมน์นี้ในทุกห้องของระดับ ${currentLevel} (วิชา ${activeSubject}) ทันที ไม่ต้องสลับห้องไปสร้างซ้ำ`}
+                </p>
+              </div>
+            )}
             {editingId ? (
               <div className="col-span-2 rounded-lg border border-[#eef2f7] p-2.5">
                 <p className="text-[13.5px] font-bold text-[#16233a]">ไฟล์ตัวอย่างงาน (รูป/PDF ไม่เกิน 5MB)</p>
@@ -1501,35 +1632,61 @@ export default function GradingPage() {
         </Modal>
       ) : null}
 
-      {/* modal คัดลอกโครงสร้างคอลัมน์ไปห้องอื่น */}
-      {cloneModalOpen ? (
-        <Modal title={`คัดลอกโครงสร้างคอลัมน์ไปห้องอื่น (ระดับ ${currentLevel})`} onClose={() => setCloneModalOpen(false)}>
-          <div className="space-y-3">
-            <div className="rounded-lg border border-[#eef2f7] bg-[#f8fafc] p-3 text-[13px]">
-              <p className="font-semibold text-[#16233a]">
-                ห้องต้นแบบ: <span className="text-[#2474c6]">{activeGroup}</span> · วิชา: <span className="text-[#2474c6]">{activeSubject}</span>
+      {/* modal ซิงค์โครงสร้างคอลัมน์ให้ตรงกันทั้งระดับชั้น */}
+      {syncModalOpen ? (
+        <Modal
+          title={`🔄 ซิงค์โครงสร้างคอลัมน์ให้ตรงกันทุกห้อง (ระดับ ${currentLevel})`}
+          onClose={() => setSyncModalOpen(false)}
+        >
+          <div className="space-y-3.5">
+            {/* ห้องต้นแบบ Master Room */}
+            <div className="rounded-xl border border-[#bfdbfe] bg-[#eff6ff] p-3.5 text-[13px]">
+              <div className="flex items-center justify-between">
+                <span className="font-bold text-[#1e40af] text-[14px]">
+                  📌 ห้องต้นแบบ (Master): {activeGroup}
+                </span>
+                <span className="rounded-full bg-[#dbeafe] px-2.5 py-0.5 text-[12px] font-bold text-[#1d4ed8]">
+                  วิชา: {activeSubject}
+                </span>
+              </div>
+              <p className="mt-1 text-[#1e3a8a]">
+                ระบบจะใช้ลำดับและชื่องานจากห้องนี้ ({assignments.filter((a) => !a.retakeOf).length} คอลัมน์ · เต็ม {totalMaxScore} คะแนน) เป็นแม่แบบหลักในการจัดระเบียบทุกห้อง
               </p>
-              <p className="mt-1 text-[#5b6b82]">
-                จำนวนงานที่จะคัดลอก: <span className="font-bold text-[#16233a]">{assignments.filter((a) => !a.retakeOf).length} คอลัมน์</span> (คะแนนเต็มรวม <span className="font-bold text-[#16233a]">{totalMaxScore}</span> คะแนน)
-              </p>
-              <p className="mt-0.5 text-[11.5px] text-[#8a97ab]">* คัดลอกเฉพาะหัวตารางและคะแนนเต็ม ไม่คัดลอกคะแนนของนักเรียน</p>
+
+              {/* ตัวอย่างรายการคอลัมน์ต้นแบบ */}
+              <div className="mt-2.5 max-h-36 overflow-y-auto rounded-lg border border-[#bfdbfe] bg-white p-2">
+                <ol className="divide-y divide-[#f1f5f9] text-[12px]">
+                  {assignments
+                    .filter((a) => !a.retakeOf)
+                    .map((a, idx) => (
+                      <li key={a.id} className="flex items-center justify-between py-1 px-1">
+                        <span className="font-medium text-[#1e293b]">
+                          <span className="inline-block w-5 text-[#64748b] font-bold">{idx + 1}.</span> {a.title}
+                          <span className="ml-1 text-[11px] text-[#64748b]">({a.category || "ใบงาน/การบ้าน"})</span>
+                        </span>
+                        <span className="font-bold text-[#2563eb]">{a.max} คะแนน</span>
+                      </li>
+                    ))}
+                </ol>
+              </div>
             </div>
 
+            {/* เลือกห้องปลายทาง */}
             <div>
               <div className="flex items-center justify-between mb-1.5">
                 <label className="text-[13.5px] font-bold text-[#16233a]">
-                  เลือกห้องปลายทาง (ระดับ {currentLevel}):
+                  เลือกห้องปลายทางในระดับ {currentLevel}:
                 </label>
                 <button
                   type="button"
                   onClick={() =>
-                    setSelectedCloneRooms(
-                      selectedCloneRooms.length === sameLevelRooms.length ? [] : [...sameLevelRooms],
+                    setSelectedSyncRooms(
+                      selectedSyncRooms.length === sameLevelRooms.length ? [] : [...sameLevelRooms],
                     )
                   }
                   className="text-[12px] font-semibold text-[#2474c6] hover:underline"
                 >
-                  {selectedCloneRooms.length === sameLevelRooms.length ? "ล้างการเลือก" : `เลือกทุกห้องใน ${currentLevel}`}
+                  {selectedSyncRooms.length === sameLevelRooms.length ? "ล้างการเลือก" : `เลือกทุกห้องใน ${currentLevel} (${sameLevelRooms.length} ห้อง)`}
                 </button>
               </div>
 
@@ -1538,14 +1695,14 @@ export default function GradingPage() {
                   ไม่พบห้องอื่นในระดับ {currentLevel}
                 </p>
               ) : (
-                <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 max-h-48 overflow-y-auto rounded-lg border border-[#eef2f7] p-2.5">
+                <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 max-h-44 overflow-y-auto rounded-lg border border-[#eef2f7] p-2.5">
                   {sameLevelRooms.map((room) => {
-                    const isSelected = selectedCloneRooms.includes(room);
+                    const isSelected = selectedSyncRooms.includes(room);
                     return (
                       <label
                         key={room}
                         className={cn(
-                          "flex cursor-pointer items-center gap-2 rounded-lg border px-2.5 py-2 text-[13.5px] font-medium transition-colors",
+                          "flex cursor-pointer items-center gap-2 rounded-lg border px-2.5 py-2 text-[13px] font-medium transition-colors",
                           isSelected
                             ? "border-[#2474c6] bg-[#e8f1fb] text-[#1a5da3]"
                             : "border-[#eef2f7] bg-white text-[#16233a] hover:bg-[#f8fafc]",
@@ -1556,12 +1713,12 @@ export default function GradingPage() {
                           checked={isSelected}
                           onChange={(e) => {
                             if (e.target.checked) {
-                              setSelectedCloneRooms((prev) => [...prev, room]);
+                              setSelectedSyncRooms((prev) => [...prev, room]);
                             } else {
-                              setSelectedCloneRooms((prev) => prev.filter((r) => r !== room));
+                              setSelectedSyncRooms((prev) => prev.filter((r) => r !== room));
                             }
                           }}
-                          className="rounded text-[#2474c6] focus:ring-[#2474c6]"
+                          className="rounded text-[#2474c6] focus:ring-[#2474c6] h-4 w-4"
                         />
                         <span>{room}</span>
                       </label>
@@ -1571,50 +1728,128 @@ export default function GradingPage() {
               )}
             </div>
 
-            <div className="space-y-1.5 rounded-lg border border-[#eef2f7] bg-[#f8fafc] p-2.5 text-[12.5px] text-[#16233a]">
-              <label className="flex items-center gap-2 cursor-pointer">
+            {/* เงื่อนไขการซิงค์ */}
+            <div className="space-y-2 rounded-xl border border-[#e2e8f0] bg-[#f8fafc] p-3 text-[12.5px] text-[#1e293b]">
+              <label className="flex items-start gap-2 cursor-pointer">
                 <input
                   type="checkbox"
-                  checked={cloneSkipDuplicates}
-                  onChange={(e) => setCloneSkipDuplicates(e.target.checked)}
-                  className="rounded text-[#2474c6]"
+                  checked={syncCleanExcess}
+                  onChange={(e) => setSyncCleanExcess(e.target.checked)}
+                  className="rounded text-[#2474c6] mt-0.5 h-4 w-4"
                 />
-                <span>ข้ามคอลัมน์ที่มีชื่อซ้ำในห้องปลายทาง (ป้องกันสร้างงานซ้ำ)</span>
+                <div>
+                  <span className="font-semibold">🧹 ทำความสะอาดคอลัมน์ว่างที่ซ้ำซ้อนหรือเกินมาออกให้อัตโนมัติ</span>
+                  <p className="text-[11.5px] text-[#64748b]">
+                    ลบเฉพาะคอลัมน์ที่ไม่มีคะแนนกรอก (0 submissions) เพื่อให้ตารางสะอาดตรงกับห้องต้นแบบเป๊ะ
+                  </p>
+                </div>
               </label>
-              <label className="flex items-center gap-2 cursor-pointer">
+
+              <div className="flex items-center gap-1.5 rounded-lg bg-[#ecfdf5] px-2.5 py-1.5 text-[12px] font-medium text-[#065f46]">
+                <span>🛡️</span>
+                <span>คุ้มครองคะแนน: คอลัมน์ใดที่มีคะแนนนักเรียนบันทึกไว้แล้ว ระบบจะไม่ลบเด็ดขาด</span>
+              </div>
+
+              <label className="flex items-center gap-2 cursor-pointer pt-1">
                 <input
                   type="checkbox"
-                  checked={cloneCopyWeights}
-                  onChange={(e) => setCloneCopyWeights(e.target.checked)}
-                  className="rounded text-[#2474c6]"
+                  checked={syncCopyWeights}
+                  onChange={(e) => setSyncCopyWeights(e.target.checked)}
+                  className="rounded text-[#2474c6] h-4 w-4"
                 />
                 <span>คัดลอกสัดส่วนน้ำหนักคะแนนรายห้องไปด้วย (ถ้ามี)</span>
               </label>
             </div>
 
-            {cloneMsg ? (
+            {syncMsg ? (
               <p role="alert" className="whitespace-pre-line rounded-lg bg-[#fdecec] px-3 py-2 text-[13px] font-semibold text-[#c62828]">
-                {cloneMsg}
+                {syncMsg}
               </p>
             ) : null}
 
             <div className="mt-4 flex justify-end gap-2 border-t border-[#eef2f7] pt-2">
               <UIButton
                 variant="blue"
-                onClick={() => setCloneModalOpen(false)}
-                disabled={cloneBusy}
+                onClick={() => setSyncModalOpen(false)}
+                disabled={syncBusy}
                 className="h-10 bg-[#5b6b82] text-[13.5px] hover:bg-[#465364]"
               >
                 ยกเลิก
               </UIButton>
               <UIButton
                 variant="green"
-                onClick={() => void handleExecuteClone()}
-                disabled={cloneBusy || selectedCloneRooms.length === 0}
+                onClick={() => void handleExecuteSync()}
+                disabled={syncBusy || selectedSyncRooms.length === 0}
                 className="h-10 px-5 text-[13.5px] disabled:opacity-40"
               >
-                {cloneBusy ? "กำลังคัดลอก..." : `ยืนยันคัดลอกไปยัง ${selectedCloneRooms.length} ห้อง`}
+                {syncBusy ? "กำลังซิงค์โครงสร้าง..." : `🔄 ยืนยันซิงค์ไปยัง ${selectedSyncRooms.length} ห้อง`}
               </UIButton>
+            </div>
+          </div>
+        </Modal>
+      ) : null}
+
+      {/* modal ยืนยันลบคอลัมน์อย่างปลอดภัย */}
+      {deleteModal.open && deleteModal.assignment ? (
+        <Modal
+          title={`ลบคอลัมน์ “${deleteModal.assignment.title}”`}
+          onClose={() => setDeleteModal({ open: false, assignment: null, submissionCount: 0, deleteAcrossLevel: true, busy: false })}
+        >
+          <div className="space-y-3">
+            {deleteModal.submissionCount > 0 ? (
+              <div className="rounded-xl border border-[#fed7aa] bg-[#fff7ed] p-3.5 text-[#9a3412]">
+                <div className="flex items-center gap-2 font-bold text-[14.5px]">
+                  <span>⚠️</span>
+                  <span>พบข้อมูลคะแนนของนักเรียน!</span>
+                </div>
+                <p className="mt-1 text-[13px]">
+                  คอลัมน์นี้มีคะแนนที่บันทึกแล้วในห้อง {activeGroup} จำนวน{" "}
+                  <span className="font-bold underline">{deleteModal.submissionCount} คน</span>{" "}
+                  การลบคอลัมน์จะทำให้คะแนนของนักเรียนในคอลัมน์นี้สูญหายถาวร
+                </p>
+              </div>
+            ) : (
+              <p className="text-[13.5px] text-[#5b6b82]">
+                คอลัมน์นี้ยังไม่มีคะแนนกรอก สามารถลบได้อย่างปลอดภัย
+              </p>
+            )}
+
+            {sameLevelRooms.length > 0 && (
+              <div className="rounded-lg border border-[#eef2f7] bg-[#f8fafc] p-3 text-[13px]">
+                <label className="flex items-center gap-2 cursor-pointer font-medium text-[#16233a]">
+                  <input
+                    type="checkbox"
+                    checked={deleteModal.deleteAcrossLevel}
+                    onChange={(e) => setDeleteModal((prev) => ({ ...prev, deleteAcrossLevel: e.target.checked }))}
+                    className="rounded text-[#c62828] h-4 w-4"
+                  />
+                  <span>
+                    ลบออกจากทุกห้องในระดับ <b>{currentLevel}</b> ด้วย ({sameLevelRooms.length + 1} ห้อง)
+                  </span>
+                </label>
+                <p className="mt-0.5 ml-6 text-[11.5px] text-[#5b6b82]">
+                  ลบคอลัมน์ “{deleteModal.assignment.title}” ในวิชา {activeSubject} ออกจากทุกห้องเพื่อรักษาโครงสร้างตารางให้ตรงกัน
+                </p>
+              </div>
+            )}
+
+            <div className="mt-4 flex justify-end gap-2 border-t border-[#eef2f7] pt-3">
+              <UIButton
+                variant="blue"
+                onClick={() => setDeleteModal({ open: false, assignment: null, submissionCount: 0, deleteAcrossLevel: true, busy: false })}
+                disabled={deleteModal.busy}
+                className="h-10 bg-[#5b6b82] text-[13.5px] hover:bg-[#465364]"
+              >
+                ยกเลิก
+              </UIButton>
+              <button
+                type="button"
+                onClick={() => void executeDeleteColumn()}
+                disabled={deleteModal.busy}
+                className="h-10 rounded-lg px-5 text-[13.5px] font-bold bg-[#c62828] text-white hover:bg-[#b71c1c] disabled:opacity-40"
+              >
+                {deleteModal.busy ? "กำลังลบ..." : "ยืนยันลบคอลัมน์"}
+              </button>
             </div>
           </div>
         </Modal>
@@ -1772,22 +2007,21 @@ export default function GradingPage() {
                   </label>
                 </div>
 
-                <div className="space-y-1 rounded-lg border border-[#eef2f7] bg-[#f8fafc] p-2.5 text-[12.5px] text-[#16233a]">
-                  <label className="flex items-center gap-2 cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={applySkipDuplicates}
-                      onChange={(e) => setApplySkipDuplicates(e.target.checked)}
-                      className="rounded text-[#2474c6]"
-                    />
-                    <span>ข้ามคอลัมน์ที่มีชื่อซ้ำในห้องปลายทาง</span>
-                  </label>
-                  <label className="flex items-center gap-2 cursor-pointer">
+                <div className="space-y-1.5 rounded-lg border border-[#e2e8f0] bg-[#f8fafc] p-2.5 text-[12.5px] text-[#1e293b]">
+                  <div className="flex items-center gap-2 text-[#166c2e] font-semibold">
+                    <span>✓</span>
+                    <span>อัปเดตคอลัมน์เดิมที่มีชื่อตรงกันอัตโนมัติ (ไม่สร้างคอลัมน์ซ้ำ ไม่ลบคะแนนเดิม)</span>
+                  </div>
+                  <div className="flex items-center gap-2 text-[#166c2e] font-semibold">
+                    <span>🧹</span>
+                    <span>ทำความสะอาดคอลัมน์ว่างส่วนเกินให้อัตโนมัติ (🛡️ คอลัมน์ที่มีคะแนนแล้วจะไม่ถูกลบ)</span>
+                  </div>
+                  <label className="flex items-center gap-2 cursor-pointer pt-1">
                     <input
                       type="checkbox"
                       checked={applyCopyWeights}
                       onChange={(e) => setApplyCopyWeights(e.target.checked)}
-                      className="rounded text-[#2474c6]"
+                      className="rounded text-[#2474c6] h-4 w-4"
                     />
                     <span>นำสัดส่วนน้ำหนักคะแนนตามแม่แบบไปใช้ด้วย (ถ้ามี)</span>
                   </label>
