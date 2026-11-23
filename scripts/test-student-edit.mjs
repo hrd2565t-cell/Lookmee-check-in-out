@@ -1,6 +1,11 @@
 // เทสวงจรแก้/ซ่อนนักเรียนผ่าน Management API (ลบเทสทิ้งท้าย)
 // รัน: node scripts/test-student-edit.mjs
-import { readFileSync } from "node:fs";
+import { readFileSync, existsSync } from "node:fs";
+
+if (!existsSync(".env.local")) {
+  console.error("missing .env.local");
+  process.exit(1);
+}
 
 const env = Object.fromEntries(
   readFileSync(".env.local", "utf8")
@@ -12,8 +17,15 @@ const env = Object.fromEntries(
     }),
 );
 
+const urlMatch = (env.NEXT_PUBLIC_SUPABASE_URL || "").match(/https:\/\/([^.]+)\.supabase\.co/);
+const projectRef = process.env.SUPABASE_PROJECT_REF || (urlMatch ? urlMatch[1] : "");
+if (!projectRef) {
+  console.error("missing project ref");
+  process.exit(1);
+}
+
 const Q = (query) =>
-  fetch("https://api.supabase.com/v1/projects/xpnemonyqfikyfzaejkt/database/query", {
+  fetch(`https://api.supabase.com/v1/projects/${projectRef}/database/query`, {
     method: "POST",
     headers: { Authorization: `Bearer ${env.SUPABASE_ACCESS_TOKEN}`, "Content-Type": "application/json" },
     body: JSON.stringify({ query }),
@@ -28,7 +40,11 @@ const Q = (query) =>
     });
 
 const g = await Q("SELECT id FROM class_groups WHERE name='ม.1/1'");
-const gid = g[0].id;
+const gid = g[0]?.id;
+if (!gid) {
+  console.error("group not found");
+  process.exit(1);
+}
 await Q(
   `INSERT INTO students (student_code,prefix,first_name,last_name,class_no,group_id,status,face_status) VALUES ('59999','เด็กชาย','ทดสอบ','ระบบ','99','${gid}','active','unregistered')`,
 );
